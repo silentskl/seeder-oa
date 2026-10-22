@@ -264,7 +264,7 @@ export async function POST(request: NextRequest) {
       const statements=[
         db.prepare(`INSERT INTO oa_expense_claim(id,user_id,expense_date,category,description,original_amount_minor,original_currency,reimbursement_currency,fx_rate,fx_rate_date,fx_source,reimbursement_amount_minor,receipt_file_id)
           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,NULL)`).bind(id,viewer.id,first.expenseDate,prepared.length===1?first.category:"Multiple items",
-          prepared.length===1?first.description:prepared.length+" expense items",first.originalMinor,first.originalCurrency,
+          prepared.length===1?first.description:prepared.length+" expense items",prepared.length===1?first.originalMinor:total,prepared.length===1?first.originalCurrency:reimbursementCurrency,
           reimbursementCurrency,first.fx.rate,first.fx.providerDate,first.fx.source,total),
         ...prepared.map((i,index)=>db.prepare(`INSERT INTO oa_expense_item(id,claim_id,sort_order,expense_date,category,description,original_amount_minor,original_currency,reimbursement_amount_minor,fx_rate,fx_rate_date,fx_source)
           VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).bind(i.id,id,index,i.expenseDate,i.category,i.description,i.originalMinor,i.originalCurrency,i.reimbursementMinor,i.fx.rate,i.fx.providerDate,i.fx.source)),
