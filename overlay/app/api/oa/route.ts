@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getOaEnv } from "@/lib/oa/env";
 import { getViewer, isAdminTier } from "@/lib/auth-server";
 import { all, audit, one, run, settings } from "@/lib/oa/db";
 import { getFxQuote } from "@/lib/oa/fx";
@@ -92,11 +93,19 @@ export async function GET(request: NextRequest) {
     }
 
     if (resource === "expenses") {
-      return ok(await all(
-        `SELECT e.*, f.original_name AS receipt_name FROM oa_expense_claim e
+      const claims = await all<any>(`SELECT e.*, f.original_name AS receipt_name FROM oa_expense_claim e
          LEFT JOIN oa_file f ON f.id=e.receipt_file_id
-         WHERE e.user_id=? ORDER BY e.submitted_at DESC LIMIT 100`, [viewer.id],
-      ));
+         WHERE e.user_id=? ORDER BY e.submitted_at DESC LIMIT 100`, [viewer.id]);
+      const items = await all<any>(`SELECT i.*, f.id AS document_id, f.original_name AS document_name
+         FROM oa_expense_item i LEFT JOIN oa_expense_item_document d ON d.item_id=i.id
+         LEFT JOIN oa_file f ON f.id=d.file_id
+         WHERE i.claim_id IN (SELECT id FROM oa_expense_claim WHERE user_id=?)
+         ORDER BY i.sort_order, i.id`, [viewer.id]);
+      return ok(claims.map(c=>({...c,items:items.filter(i=>i.claim_id===c.id)
+        .reduce((acc:any[],i:any)=>{let row=acc.find(x=>x.id===i.id);
+          if(!row){row={...i,documents:[]};acc.push(row);}
+          if(i.document_id)row.documents.push({id:i.document_id,name:i.document_name});
+          return acc;},[])})));
     }
 
     if (resource === "payslips") {
@@ -116,7 +125,11 @@ export async function GET(request: NextRequest) {
         : `SELECT x.*,u.name,u.email FROM oa_expense_claim x JOIN user u ON u.id=x.user_id JOIN oa_employee e ON e.user_id=x.user_id WHERE x.status='submitted' AND e.manager_user_id=? ORDER BY x.submitted_at`;
       return ok({
         leave: await all(leaveSql, admin ? [] : [viewer.id]),
-        expenses: await all(expenseSql, admin ? [] : [viewer.id]),
+        expenses: await Promise.all((await all<any>(expenseSql, admin ? [] : [viewer.id])).map(async claim=>({
+          ...claim, items: await Promise.all((await all<any>(`SELECT * FROM oa_expense_item WHERE claim_id=? ORDER BY sort_order`,[claim.id])).map(async item=>({
+            ...item,documents:await all<any>(`SELECT f.id,f.original_name AS name FROM oa_expense_item_document d JOIN oa_file f ON f.id=d.file_id WHERE d.item_id=?`,[item.id])
+          })))
+        }))),
       });
     }
 
@@ -218,6 +231,48 @@ export async function POST(request: NextRequest) {
       const result = await run(`UPDATE oa_leave_request SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND status='submitted'`,[id,viewer.id]);
       if (!result.meta?.changes) return fail("Leave request cannot be cancelled",409);
       await audit(viewer.id, action, "leave", id); return ok({ cancelled:true });
+    }
+
+    if (action === "createExpenseClaim") {
+      if (!Array.isArray(body.items) || body.items.length<1 || body.items.length>50) return fail("A claim requires 1–50 items");
+      const employee=await ensureEmployee(viewer.id);
+      const reimbursementCurrency=normalizeCurrency(body.reimbursementCurrency||employee?.reimbursement_currency||"SGD");
+      const prepared:any[]=[];let total=0;
+      for(const [index,item] of body.items.entries()){
+        const expenseDate=date(item.expenseDate);
+        const originalCurrency=normalizeCurrency(item.originalCurrency);
+        const originalMinor=majorToMinor(item.amount,originalCurrency);
+        if(!Number.isSafeInteger(originalMinor)||originalMinor<=0) return fail("Invalid amount for item "+(index+1));
+        const description=text(item.description,2000);
+        if(!description) return fail("Description is required for item "+(index+1));
+        const ids=item.documentIds??[];
+        if(!Array.isArray(ids)||ids.length>20||ids.some((id:unknown)=>typeof id!=="string"||!id)) return fail("Invalid documents");
+        if(new Set(ids).size!==ids.length) return fail("Duplicate documents");
+        for(const fileId of ids){
+          const file=await one<{owner_user_id:string}>(`SELECT owner_user_id FROM oa_file WHERE id=?`,[fileId]);
+          if(!file||file.owner_user_id!==viewer.id) return fail("Invalid document",403);
+        }
+        const fx=await getFxQuote(originalCurrency,reimbursementCurrency,expenseDate);
+        const reimbursementMinor=convertMinor(originalMinor,originalCurrency,reimbursementCurrency,fx.rate);
+        if(!Number.isSafeInteger(reimbursementMinor)||reimbursementMinor<0||!Number.isSafeInteger(total+reimbursementMinor)) return fail("Claim total out of range");
+        total+=reimbursementMinor;
+        prepared.push({id:crypto.randomUUID(),expenseDate,originalCurrency,originalMinor,reimbursementMinor,fx,
+          category:text(item.category,100)||"Other",description,ids});
+      }
+      const id=crypto.randomUUID(),first=prepared[0];
+      const {db}=getOaEnv();
+      const statements=[
+        db.prepare(`INSERT INTO oa_expense_claim(id,user_id,expense_date,category,description,original_amount_minor,original_currency,reimbursement_currency,fx_rate,fx_rate_date,fx_source,reimbursement_amount_minor,receipt_file_id)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,NULL)`).bind(id,viewer.id,first.expenseDate,prepared.length===1?first.category:"Multiple items",
+          prepared.length===1?first.description:prepared.length+" expense items",prepared.length===1?first.originalMinor:total,prepared.length===1?first.originalCurrency:reimbursementCurrency,
+          reimbursementCurrency,first.fx.rate,first.fx.providerDate,first.fx.source,total),
+        ...prepared.map((i,index)=>db.prepare(`INSERT INTO oa_expense_item(id,claim_id,sort_order,expense_date,category,description,original_amount_minor,original_currency,reimbursement_amount_minor,fx_rate,fx_rate_date,fx_source)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).bind(i.id,id,index,i.expenseDate,i.category,i.description,i.originalMinor,i.originalCurrency,i.reimbursementMinor,i.fx.rate,i.fx.providerDate,i.fx.source)),
+        ...prepared.flatMap(i=>i.ids.map((fileId:string)=>db.prepare(`INSERT INTO oa_expense_item_document(item_id,file_id) VALUES(?,?)`).bind(i.id,fileId)))
+      ];
+      await db.batch(statements);
+      await audit(viewer.id,action,"expense",id,{itemCount:prepared.length,reimbursementCurrency,total});
+      return ok({id,itemCount:prepared.length,reimbursementMinor:total},201);
     }
 
     if (action === "createExpense") {
