@@ -1,0 +1,3 @@
+[submodule "seeder-oa-app"]
+	path = seeder-oa-app
+	url = git@github.com:danielsyauqi/Seeder.git
