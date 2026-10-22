@@ -123,20 +123,67 @@ function LeaveView({boot,busy,run}:{boot:Bootstrap;busy:boolean;run:any}){
   </div>;
 }
 
+type ExpenseDraft={key:string;expenseDate:string;category:string;description:string;amount:string;originalCurrency:string;files:File[]};
 function ExpenseView({boot,busy,run}:{boot:Bootstrap;busy:boolean;run:any}){
-  const [rows,setRows]=useState<any[]>([]); const load=useCallback(()=>api("expenses").then(setRows),[]); useEffect(()=>{load();},[load]);
+  const [rows,setRows]=useState<any[]>([]);
+  const [localError,setLocalError]=useState("");
+  const [submitting,setSubmitting]=useState(false);
+  const load=useCallback(()=>api("expenses").then(setRows).catch(e=>setLocalError(e.message)),[]);
+  useEffect(()=>{load();},[load]);
   const reimbursementDefault=boot.employee?.reimbursement_currency||boot.settings?.base_currency||"SGD";
-  const submit=async(e:FormEvent<HTMLFormElement>)=>{e.preventDefault();const f=new FormData(e.currentTarget);const file=f.get("file") as File;try{const result=await run(async()=>{let receiptFileId:string|undefined;if(file?.size) receiptFileId=(await upload(file,"receipt")).id;return act("createExpense",{expenseDate:f.get("expenseDate"),category:f.get("category"),description:f.get("description"),amount:f.get("amount"),originalCurrency:f.get("originalCurrency"),reimbursementCurrency:f.get("reimbursementCurrency"),receiptFileId});},"Expense claim submitted with an FX snapshot.");(e.target as HTMLFormElement).reset();await load();return result;}catch{}};
-  return <div className="grid gap-4 lg:grid-cols-[380px_1fr]"><Card><h2 className="font-semibold">New expense claim</h2><p className="mt-1 text-xs text-neutral-500">Historical FX uses the expense date and is locked on submission.</p><form onSubmit={submit} className="mt-4 space-y-3">
-    <div><Label>Expense date</Label><input required type="date" name="expenseDate" defaultValue={new Date().toISOString().slice(0,10)} className={field}/></div>
-    <div><Label>Category</Label><select name="category" className={field}>{["Travel","Meals","Transport","Accommodation","Office","Telecom","Client entertainment","Other"].map(x=><option key={x}>{x}</option>)}</select></div>
-    <div><Label>Description</Label><textarea required name="description" rows={3} className={field}/></div>
-    <div className="grid grid-cols-[1fr_100px] gap-2"><div><Label>Amount</Label><input required name="amount" inputMode="decimal" placeholder="0.00" className={field}/></div><div><Label>Spent in</Label><input required name="originalCurrency" list="oa-currencies" defaultValue={reimbursementDefault} maxLength={3} className={field}/></div></div>
-    <div><Label>Reimburse in</Label><input required name="reimbursementCurrency" list="oa-currencies" defaultValue={reimbursementDefault} maxLength={3} className={field}/></div>
-    <div><Label>Receipt (optional)</Label><input type="file" name="file" accept="application/pdf,image/jpeg,image/png,image/webp" className={field}/></div>
-    <button disabled={busy} className={primary}>Submit claim</button>
-  </form></Card>
-  <Card><h2 className="mb-3 font-semibold">My expense claims</h2>{!rows.length?<Empty/>:<div className="space-y-2">{rows.map(r=><div key={r.id} className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800"><div className="flex flex-wrap items-start justify-between gap-2"><div><div className="font-medium">{r.category} · {money(r.original_amount_minor,r.original_currency)}</div><div className="text-sm text-neutral-500">{formatDate(r.expense_date)} · reimbursement {money(r.reimbursement_amount_minor,r.reimbursement_currency)}</div></div><Status value={r.status}/></div><p className="mt-2 text-sm">{r.description}</p>{r.original_currency!==r.reimbursement_currency&&<div className="mt-2 text-xs text-neutral-500">FX {r.original_currency}/{r.reimbursement_currency}: {Number(r.fx_rate).toFixed(6)} · {r.fx_source} · {r.fx_rate_date}</div>}<div className="mt-2 flex gap-2">{r.receipt_file_id&&<a className={secondary} href={`/api/oa/files/${r.receipt_file_id}`}>Receipt</a>}{r.status==="submitted"&&<button disabled={busy} className={danger} onClick={()=>run(()=>act("cancelExpense",{id:r.id}),"Expense cancelled.").then(load).catch(()=>{})}>Cancel</button>}</div></div>)}</div>}</Card></div>;
+  const blank=():ExpenseDraft=>({key:crypto.randomUUID(),expenseDate:new Date().toISOString().slice(0,10),category:"Travel",description:"",amount:"",originalCurrency:reimbursementDefault,files:[]});
+  const [items,setItems]=useState<ExpenseDraft[]>(()=>[blank()]);
+  const [reimbursementCurrency,setReimbursementCurrency]=useState(reimbursementDefault);
+  const edit=(key:string,patch:Partial<ExpenseDraft>)=>setItems(old=>old.map(i=>i.key===key?{...i,...patch}:i));
+  const submit=async(e:FormEvent<HTMLFormElement>)=>{
+    e.preventDefault();setLocalError("");setSubmitting(true);
+    try{
+      await run(async()=>{
+        const payload=[];
+        for(const item of items){
+          const documentIds:string[]=[];
+          for(const file of item.files)documentIds.push((await upload(file,"receipt")).id);
+          payload.push({expenseDate:item.expenseDate,category:item.category,description:item.description,amount:item.amount,
+            originalCurrency:item.originalCurrency,documentIds});
+        }
+        return act("createExpenseClaim",{reimbursementCurrency,items:payload});
+      },"Expense claim submitted.");
+      setItems([blank()]);await load();
+    }catch(e){setLocalError(e instanceof Error?e.message:String(e));}
+    finally{setSubmitting(false);}
+  };
+  return <div className="grid gap-4 lg:grid-cols-[minmax(380px,1fr)_1fr]">
+    <Card><h2 className="font-semibold">New expense claim</h2>
+      <p className="mt-1 text-xs text-neutral-500">Add multiple expense items. Each item may have multiple documents (PDF or images, up to 15 MB per file). FX is locked per expense date.</p>
+      {localError&&<div className="mt-3"><ErrorBox message={localError}/></div>}
+      <form onSubmit={submit} className="mt-4 space-y-4">
+        <div><Label>Reimburse in (all items)</Label><input required className={field} list="oa-currencies" maxLength={3} value={reimbursementCurrency} onChange={e=>setReimbursementCurrency(e.target.value.toUpperCase())}/></div>
+        {items.map((item,index)=><div key={item.key} className="space-y-3 rounded-lg border border-neutral-300 p-3 dark:border-neutral-700">
+          <div className="flex items-center justify-between"><h3 className="font-medium">Expense item {index+1}</h3>
+            {items.length>1&&<button type="button" className={danger} disabled={busy||submitting} onClick={()=>setItems(old=>old.filter(i=>i.key!==item.key))}>Remove</button>}</div>
+          <div><Label>Expense date</Label><input required type="date" className={field} value={item.expenseDate} onChange={e=>edit(item.key,{expenseDate:e.target.value})}/></div>
+          <div><Label>Category</Label><select className={field} value={item.category} onChange={e=>edit(item.key,{category:e.target.value})}>{["Travel","Meals","Transport","Accommodation","Office","Telecom","Medical","Client entertainment","Other"].map(x=><option key={x}>{x}</option>)}</select></div>
+          <div><Label>Description</Label><textarea required rows={2} className={field} value={item.description} onChange={e=>edit(item.key,{description:e.target.value})}/></div>
+          <div className="grid grid-cols-[1fr_100px] gap-2"><div><Label>Amount</Label><input required inputMode="decimal" className={field} value={item.amount} onChange={e=>edit(item.key,{amount:e.target.value})}/></div>
+            <div><Label>Spent in</Label><input required maxLength={3} list="oa-currencies" className={field} value={item.originalCurrency} onChange={e=>edit(item.key,{originalCurrency:e.target.value.toUpperCase()})}/></div></div>
+          <div><Label>Documents (optional, multiple)</Label><input type="file" multiple accept="application/pdf,image/jpeg,image/png,image/webp" className={field} onChange={e=>edit(item.key,{files:[...item.files,...Array.from(e.target.files||[])]})}/>
+            {item.files.map((file,n)=><div key={n} className="mt-1 flex items-center justify-between gap-2 text-xs"><span className="truncate">{file.name}</span><button type="button" className="text-red-600" onClick={()=>edit(item.key,{files:item.files.filter((_,j)=>j!==n)})}>Remove</button></div>)}</div>
+        </div>)}
+        <button type="button" className={secondary} disabled={busy||submitting||items.length>=50} onClick={()=>setItems(old=>[...old,blank()])}>+ Add expense item</button>
+        <div className="text-sm text-neutral-500">{items.length} item(s) · totals calculated in {reimbursementCurrency} after FX conversion</div>
+        <button className={primary} disabled={busy||submitting}>{submitting?"Uploading and submitting…":"Submit claim"}</button>
+      </form>
+    </Card>
+    <Card><h2 className="mb-3 font-semibold">My expense claims</h2>{!rows.length?<Empty/>:<div className="space-y-3">{rows.map(r=><div key={r.id} className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
+      <div className="flex flex-wrap items-start justify-between gap-2"><div><div className="font-medium">{money(r.reimbursement_amount_minor,r.reimbursement_currency)} · {r.items?.length||1} item(s)</div><div className="text-xs text-neutral-500">{formatDate(r.submitted_at)}</div></div><Status value={r.status}/></div>
+      {(r.items||[]).map((item:any)=><div key={item.id} className="mt-3 border-t border-neutral-200 pt-2 text-sm dark:border-neutral-800">
+        <div className="font-medium">{item.category} · {money(item.original_amount_minor,item.original_currency)}</div>
+        <div className="text-xs text-neutral-500">{formatDate(item.expense_date)} · {item.description}</div>
+        <div className="mt-1 flex flex-wrap gap-2">{(item.documents||[]).map((doc:any)=><a key={doc.id} className={secondary} href={`/api/oa/files/${doc.id}`} target="_blank" rel="noopener noreferrer">{doc.name||"Document"}</a>)}</div>
+      </div>)}
+      {r.status==="submitted"&&<button className={danger+" mt-3"} disabled={busy} onClick={()=>run(()=>act("cancelExpense",{id:r.id}),"Expense cancelled.").then(load).catch(()=>{})}>Cancel claim</button>}
+    </div>)}</div>}</Card>
+  </div>;
 }
 
 function PayslipView(){
