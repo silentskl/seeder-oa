@@ -76,18 +76,28 @@ function ApprovalProgress({steps}:{steps:any[]}){
   return <div className="mt-3 rounded-lg bg-neutral-50 p-2 dark:bg-neutral-900"><div className="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-500">Approval flow</div><div className="flex flex-wrap gap-2">{steps.map((s:any)=><div key={s.id} className="flex items-center gap-2 rounded-md border border-neutral-200 bg-white px-2 py-1 text-xs dark:border-neutral-800 dark:bg-neutral-950"><span>Step {s.step_no}: {s.approver_type==="manager"?(s.assigned_user_name||"Manager"):"Admin"}</span><Status value={s.status}/>{s.decided_by_name&&<span className="text-neutral-500">by {s.decided_by_name}</span>}</div>)}</div></div>;
 }
 
+async function readOaResponse(res:Response){
+  const contentType=res.headers.get("content-type")||"";
+  if(!contentType.toLowerCase().includes("application/json")){
+    const destination=res.redirected?` Redirected to ${new URL(res.url).pathname}.`:"";
+    throw new Error(`OA API returned HTTP ${res.status} (${contentType||"unknown content type"}) instead of JSON.${destination} Check the Worker route, /api/oa deployment and authentication redirects.`);
+  }
+  const json=await res.json();
+  if(!res.ok||!json.ok)throw new Error(json.error||`OA API HTTP ${res.status}`);
+  return json.data;
+}
 async function api(resource:string){
   const res=await fetch(`/api/oa?resource=${encodeURIComponent(resource)}`,{cache:"no-store"});
-  const json=await res.json(); if(!res.ok||!json.ok) throw new Error(json.error||`HTTP ${res.status}`); return json.data;
+  return readOaResponse(res);
 }
 async function act(action:string,data:AnyRow={}){
   const res=await fetch("/api/oa",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action,...data})});
-  const json=await res.json(); if(!res.ok||!json.ok) throw new Error(json.error||`HTTP ${res.status}`); return json.data;
+  return readOaResponse(res);
 }
 async function upload(file:File,kind:string,ownerUserId?:string){
   const form=new FormData(); form.set("file",file); form.set("kind",kind); if(ownerUserId) form.set("ownerUserId",ownerUserId);
-  const res=await fetch("/api/oa/files/upload",{method:"POST",body:form}); const json=await res.json();
-  if(!res.ok||!json.ok) throw new Error(json.error||`HTTP ${res.status}`); return json.data as {id:string;name:string};
+  const res=await fetch("/api/oa/files/upload",{method:"POST",body:form});
+  return readOaResponse(res) as Promise<{id:string;name:string}>;
 }
 
 export function OaConsole({initialTab="overview"}:{initialTab?:OaTab}={}){
