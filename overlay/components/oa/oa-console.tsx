@@ -30,7 +30,7 @@ const danger = `${button} border border-red-300 bg-white text-red-700 hover:bg-r
 
 function currencyDigits(currency:string):number{
   try{
-    const digits=new Intl.NumberFormat("en",{style:"currency",currency}).resolvedOptions().maximumFractionDigits;
+    const digits=new Intl.NumberFormat("en",{style:"currency",currency}).resolvedOptions().maximumFractionDigits ?? 2;
     return typeof digits==="number"?digits:2;
   }catch{return 2;}
 }
