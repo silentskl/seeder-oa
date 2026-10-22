@@ -158,55 +158,90 @@ Admin mode:
 - `Payroll` → `/admin/oa/payroll`
 - `Settings` → `/admin/oa/settings`
 
-## Upgrade an existing v0.1.x installation
+## Installation, updates and deployment (Cloudflare Workers)
+
+The overlay repository is **not** the Next.js app. Run npm commands in `seeder-oa-app/` (which contains `package.json`), not in the overlay repository root.
+
+### Existing installation: apply and automatically deploy
 
 ```bash
-unzip seeder-oa-v0.1.14.zip
-cd seeder-oa-v0.1.14
-
-./apply-to-existing.sh /path/to/seeder-oa-app
-
-cd /path/to/seeder-oa-app
-npm run db:migrate:remote
-npm run build
-npm run deploy
+cd /Users/sklang/Documents/work/seeder-oa
+git pull origin main
+bash apply-to-existing.sh /Users/sklang/Documents/work/seeder-oa/seeder-oa-app
 ```
 
-For the current deployment layout used in earlier releases:
+`apply-to-existing.sh` checks the target Seeder app, removes legacy conflicting OA routes, copies the overlay, patches sidebar, Wrangler free-plan settings, authentication compatibility, OA entry routing and password recovery. **Only after all patch steps succeed**, it invokes `update-deploy.sh` automatically. A failed patch stops the workflow before deployment.
+
+`update-deploy.sh` validates the local `wrangler.jsonc` Worker name and D1 `PM_DB` / R2 `UPLOADS` bindings, checks Cloudflare authentication and lists remote D1 migrations, then runs `npm run build` followed by `npm run deploy`. It **does not apply database migrations**. It refuses default/incomplete resource bindings and stops when its migration-list output matches OA migration filenames; the check is conservative and is **not** a substitute for inspecting the migration history.
+
+For code-only updates without deployment:
 
 ```bash
-./apply-to-existing.sh /Users/sklang/Documents/seeder-oa-v0.1.0/seeder-oa-app
-cd /Users/sklang/Documents/seeder-oa-v0.1.0/seeder-oa-app
-npm run db:migrate:remote
-npm run build
-npm run deploy
+OA_SKIP_DEPLOY=1 bash apply-to-existing.sh /Users/sklang/Documents/work/seeder-oa/seeder-oa-app
 ```
 
-v0.1.14 adds migration `9006_medical_insurance_claims.sql`. Existing D1/R2/auth/OA data is preserved; existing employees start with a Medical Insurance allowance of 0 until Admin configures it.
-
-
-For an existing deployment, configure the encryption secret once before entering a Resend API key in Settings:
+To publish an already-applied overlay without reapplying it:
 
 ```bash
-./configure-email-secret.sh /path/to/seeder-oa-app
+cd /Users/sklang/Documents/work/seeder-oa
+bash update-deploy.sh /Users/sklang/Documents/work/seeder-oa/seeder-oa-app
 ```
 
-Then deploy the Worker. Fresh installs create `OA_SETTINGS_MASTER_KEY` automatically. Keep `.oa-deploy-secrets` private.
+### First-time production configuration and preflight
 
-If your package scripts do not expose `db:migrate:remote`, use:
+1. Log into the intended Cloudflare account with `npx wrangler whoami` and inspect its resources with `npx wrangler d1 list` and `npx wrangler r2 bucket list`.
+2. In `seeder-oa-app/wrangler.jsonc`, set the correct Worker `name`, existing D1 `PM_DB` `database_name` and `database_id`, and R2 `UPLOADS` bucket name. Do **not** use the upstream defaults (`seeder`, `seeder-uploads`) or guess a database ID. Confirm which environment is production, especially when both `seeder-oa` and `smarten-oa` resources exist. Use a separate preview database rather than binding preview operations to production.
+3. Inspect current remote migration history **before changing any database**:
 
 ```bash
-npx wrangler d1 migrations apply smarten-oa --remote
+cd /Users/sklang/Documents/work/seeder-oa/seeder-oa-app
+npx wrangler d1 migrations list PM_DB --remote
+npx wrangler d1 execute PM_DB --remote --command="SELECT * FROM d1_migrations ORDER BY id DESC LIMIT 30;"
 ```
 
-## Fresh install
+4. Back up the confirmed production D1 database before applying SQL:
+
+```bash
+npx wrangler d1 export PM_DB --remote --output=seeder-oa-before-upgrade.sql
+ls -lh seeder-oa-before-upgrade.sql
+```
+
+5. Review the pending SQL migrations and existing tables. The overlay currently includes `9000_oa_core.sql` through `9008_medical_allowance_atomic.sql`. Legacy installs may contain `9999_oa_expense_items.sql`, which overlaps the itemized-expenses migration; **do not blindly rerun duplicate SQL or edit migration records**. After reviewing and backing up, explicitly run `npm run db:migrate:remote` (equivalent to `wrangler d1 migrations apply PM_DB --remote`) if required.
+6. Re-run the deployment script only after confirming the production bindings and migrations. It builds the app and publishes the Worker, but does not create required Secrets, custom domains, or database schema.
+
+**Data safety:** Editing `wrangler.jsonc` by itself does not delete D1 rows or R2 objects. However, deployment can redirect the Worker to another database/bucket, and SQL migrations can alter data. Preserve the original resource IDs and take a verified backup before production changes. `--keep-vars` retains existing Worker variables where supported; it does not guarantee that a brand-new Worker has all required Secrets.
+
+### Email configuration
+
+For an existing deployment, configure the OA settings encryption key before storing a Resend API key:
+
+```bash
+cd /Users/sklang/Documents/work/seeder-oa
+bash configure-email-secret.sh /Users/sklang/Documents/work/seeder-oa/seeder-oa-app
+```
+
+Keep `.oa-deploy-secrets` private. Confirm the production Worker has `OA_SETTINGS_MASTER_KEY` and the expected email sender configuration. Password reset and approval notification emails should be tested after deployment.
+
+### Fresh install and post-deploy acceptance
+
+For a fresh installation, follow the separate bootstrap entry point:
 
 ```bash
 npx wrangler login
 bash install-and-deploy.sh
 ```
 
-The installer defaults to the tested Seeder upstream tag `v2.1.0`.
+The fresh installer defaults to the tested Seeder upstream tag `v2.1.0`. Before running it, inspect its resource-creation and migration behavior; the existing-install workflow above is preferred when production D1/R2 data already exists.
+
+After deployment, check sign-in and role routing (`/oa-entry` → `/admin/oa` or `/oa`), expense submission and single/bulk approval, Medical Insurance allowance enforcement, payslip PDF download, file access permissions, and password recovery. A successful `next build` proves compilation only, not production data or runtime correctness.
+
+### Troubleshooting
+
+- `database ... could not be found [7404]`: the D1 `database_id` is not present in the logged-in account. Check `wrangler whoami` and the `PM_DB` binding; do not create an empty replacement database over existing data.
+- `Worker does not exist [10007]`: the configured Worker name has no deployment in this account. Confirm the intended Worker name before creating a new one.
+- Duplicate `/oa` pages: update the overlay and reapply; the obsolete `app/(app)/oa/page.tsx` must not coexist with `app/(oa)/oa/page.tsx`.
+- `npm run build` says `package.json` missing: change into `seeder-oa-app`.
+- The publish gate refuses deployment: inspect its reported resource binding or pending migration issue; do not bypass the check until verified.
 
 ## v0.1.11 payroll UX update
 
