@@ -44,12 +44,6 @@ if 'import { redirect } from "next/navigation";' not in s:
     if anchor not in s:
         raise SystemExit("ERROR: unexpected app layout import structure")
     s = s.replace(anchor, anchor + '\nimport { redirect } from "next/navigation";', 1)
-if 'import { requireViewer } from "@/lib/auth-server";' not in s:
-    s = s.replace(
-        'import { requireViewer } from "@/lib/auth-server";',
-        'import { requireViewer } from "@/lib/auth-server";',
-        1,
-    )
 needle = '  const viewer = await requireViewer();\n  const shellData = await getAppShellDataForViewer(viewer);'
 replacement = '  const viewer = await requireViewer();\n  redirect("/oa");\n  const shellData = await getAppShellDataForViewer(viewer);'
 # Upgrade the old role-gated redirect first. A substring check for
@@ -57,7 +51,7 @@ replacement = '  const viewer = await requireViewer();\n  redirect("/oa");\n  co
 old_redirect = 'if (!isAdminTier(viewer.role)) redirect("/oa");'
 if old_redirect in s:
     s = s.replace(old_redirect, 'redirect("/oa");', 1)
-elif '\\n  redirect("/oa");' not in s:
+elif '\n  redirect("/oa");' not in s:
     if needle not in s:
         raise SystemExit("ERROR: unexpected app layout body structure; refusing unsafe patch")
     s = s.replace(needle, replacement, 1)
