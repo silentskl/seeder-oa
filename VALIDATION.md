@@ -1,19 +1,31 @@
-# Seeder OA v0.1.0 validation
+# Validation — Seeder OA v0.1.14
 
-## Completed in release build
 
-- Overlay contains actual Next.js page, API routes, D1 migration, R2 file route, FX module, leave-day module, money module and UI.
-- TypeScript parser check completed; no syntax errors were found in the overlay. Import-resolution errors are expected when checking the overlay outside the upstream Seeder node_modules tree.
-- Removed Cloudflare-specific `fetch(..., { cf: ... })` RequestInit extension so the overlay does not rely on extra ambient TypeScript augmentation.
-- OA data is isolated under `oa_*` tables.
-- Authentication reuses Seeder `getViewer()` and its owner/admin/member role.
-- Manager authorization checks `oa_employee.manager_user_id` server-side.
-- Employee published payslips are filtered by logged-in user server-side.
-- R2 files are private and retrieved through an authenticated endpoint.
-- Expense and payslip FX values are snapshots, not live-computed display-only values.
-- Multi-currency amount conversion uses `Intl.NumberFormat(...).resolvedOptions().maximumFractionDigits` for the selected currency rather than assuming every currency always has two decimals.
-- Sidebar patch fails explicitly if the expected upstream structure changes.
+## v0.1.14 Medical Insurance checks
 
-## Environment limitation
+- Expense category list includes `Medical Insurance`.
+- Admin employee editor persists Annual Medical Insurance allowance in the employee Payroll Currency.
+- Medical Insurance submission forces reimbursement currency to Payroll Currency.
+- Submission succeeds when projected yearly committed claims are within the limit and returns HTTP 409 when the new claim would exceed it.
+- Allowance accounting counts `paid` as Reimbursed and `submitted + approved` as Pending; rejected/cancelled claims do not consume Available.
+- Admin can reclassify any expense claim without rewriting the claim's reimbursement amount. Reclassification to Medical Insurance stores a separate expense-date FX snapshot for allowance accounting.
+- Overview exposes Total allowance / Reimbursed / Pending / Available.
+- Employee Expenses page exposes current-year totals by category/currency.
 
-This execution environment cannot resolve `github.com` from `git clone`, so I could not execute upstream `npm ci && npm run build` against a locally cloned Seeder repository here. Current Seeder source interfaces were checked directly from the upstream repository through web retrieval. The deployment script itself runs `npm ci`, migrations and OpenNext deployment and stops immediately on a build/deploy error.
+Validation performed for this release:
+
+- Password recovery uses Better Auth 1.6.9 native `requestPasswordReset` / `resetPassword` flow.
+- Sign-in mode exposes **Forgot password?** without changing first-owner or invitation flows.
+- `/forgot-password` returns a generic success message for reset requests.
+- `/reset-password` validates new/confirm password and handles missing, invalid, or expired tokens.
+- Reset token lifetime is configured to 30 minutes and successful reset revokes prior sessions.
+- Reset delivery reuses the existing encrypted Resend sender/API-key configuration and is independent of the approval-email toggle.
+- Password-changed confirmation email is best-effort and cannot roll back a completed password reset.
+- `patch-password-reset.py` is designed to be idempotent and refuses to patch if expected Seeder v2.1.0 anchors are missing.
+- D1 migrations are `9000` through `9006`; `9006` adds Medical Insurance allowance/accounting fields and the category/date index.
+- Existing D1/R2/auth/payroll/leave/expense data is preserved by the overlay upgrade.
+- Shell script syntax (`install-and-deploy.sh`, `apply-to-existing.sh`, `configure-email-secret.sh`) is checked before packaging.
+- Python patch script syntax is checked before packaging.
+- `lib/oa/email.ts` was additionally checked under TypeScript `strict` mode with `emailSettings(): Promise<EmailSettings | null>` to verify the nullable settings path is fully narrowed before provider fields are accessed.
+
+A full OpenNext/Cloudflare production build should still be executed on the deployment machine with the actual Seeder v2.1.0 checkout and Cloudflare bindings using `npm run build` / `npm run deploy`.

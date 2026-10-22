@@ -8,10 +8,11 @@ WORKER_NAME="${WORKER_NAME:-seeder-oa}"
 D1_NAME="${D1_NAME:-seeder-oa}"
 R2_NAME="${R2_NAME:-seeder-oa-uploads}"
 TARGET_DIR="${TARGET_DIR:-$PWD/seeder-oa-app}"
+SEEDER_REF="${SEEDER_REF:-v2.1.0}"
 for cmd in git node npm python3; do command -v "$cmd" >/dev/null || { echo "ERROR: $cmd is required" >&2; exit 1; }; done
 node -e 'const n=+process.versions.node.split(".")[0];if(n<22){console.error("Node.js 22+ is required");process.exit(1)}'
 if [[ ! -d "$TARGET_DIR/.git" ]]; then
-  git clone --depth 1 https://github.com/danielsyauqi/Seeder.git "$TARGET_DIR"
+  git clone --depth 1 --branch "$SEEDER_REF" https://github.com/danielsyauqi/Seeder.git "$TARGET_DIR"
 fi
 "$ROOT/apply-to-existing.sh" "$TARGET_DIR"
 cd "$TARGET_DIR"
@@ -47,10 +48,12 @@ SECRETS_FILE=.oa-deploy-secrets
 if [[ -f "$SECRETS_FILE" ]]; then source "$SECRETS_FILE"; fi
 BETTER_AUTH_SECRET="${BETTER_AUTH_SECRET:-$(node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))")}" 
 VCS_ENCRYPTION_KEY="${VCS_ENCRYPTION_KEY:-$(node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))")}" 
-printf 'BETTER_AUTH_SECRET=%q\nVCS_ENCRYPTION_KEY=%q\n' "$BETTER_AUTH_SECRET" "$VCS_ENCRYPTION_KEY" > "$SECRETS_FILE"
+OA_SETTINGS_MASTER_KEY="${OA_SETTINGS_MASTER_KEY:-$(node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))")}" 
+printf 'BETTER_AUTH_SECRET=%q\nVCS_ENCRYPTION_KEY=%q\nOA_SETTINGS_MASTER_KEY=%q\n' "$BETTER_AUTH_SECRET" "$VCS_ENCRYPTION_KEY" "$OA_SETTINGS_MASTER_KEY" > "$SECRETS_FILE"
 chmod 600 "$SECRETS_FILE"
 printf '%s' "$BETTER_AUTH_SECRET" | npx wrangler secret put BETTER_AUTH_SECRET >/dev/null
 printf '%s' "$VCS_ENCRYPTION_KEY" | npx wrangler secret put VCS_ENCRYPTION_KEY >/dev/null
+printf '%s' "$OA_SETTINGS_MASTER_KEY" | npx wrangler secret put OA_SETTINGS_MASTER_KEY >/dev/null
 printf '%s' "$APP_URL" | npx wrangler secret put BETTER_AUTH_URL >/dev/null
 printf '%s' "$OWNER_EMAIL" | npx wrangler secret put OWNER_EMAIL >/dev/null
 npm run db:migrate:remote
@@ -58,7 +61,7 @@ npm run deploy
 cat <<EOF
 
 ============================================================
-Seeder OA v0.1.0 deployment finished
+Seeder OA v0.1.14 deployment finished
 App URL: $APP_URL
 First owner: $OWNER_EMAIL
 Sign in: $APP_URL/sign-in

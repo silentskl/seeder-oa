@@ -1,4 +1,4 @@
-const COMMON = ["SGD","USD","IDR","CNY","EUR","GBP","JPY","MYR","AUD","HKD","THB","PHP","VND","KRW","INR","TWD","AED","SAR"] as const;
+const COMMON = ["SGD","USD","IDR","CNY","EUR","GBP","JPY","MYR","AUD","HKD","THB","PHP","VND","KRW","INR","TWD","AED","SAR","CHF","CAD","NZD","SEK","NOK","DKK","PLN","CZK","HUF","TRY","BRL","MXN","ZAR"] as const;
 
 export const COMMON_CURRENCIES = [...COMMON];
 
@@ -10,7 +10,8 @@ export function normalizeCurrency(value: unknown): string {
 
 export function currencyDigits(currency: string): number {
   try {
-    return new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions().maximumFractionDigits;
+    const digits = new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions().maximumFractionDigits;
+    return typeof digits === "number" ? digits : 2;
   } catch {
     return 2;
   }

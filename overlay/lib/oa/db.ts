@@ -27,7 +27,9 @@ export async function audit(actorUserId: string | null, action: string, entityTy
 }
 
 export async function settings() {
-  return one<{company_name:string;base_currency:string;fx_provider:string;default_annual_leave_days:number}>(
-    `SELECT company_name, base_currency, fx_provider, default_annual_leave_days FROM oa_settings WHERE id=1`,
+  return one<{company_name:string;base_currency:string;fx_provider:string;default_annual_leave_days:number;leave_approval_flow:string;expense_approval_flow:string;email_enabled:number;email_provider:string;email_from_name:string;email_from_address:string|null;email_reply_to:string|null}>(
+    `SELECT company_name, base_currency, fx_provider, default_annual_leave_days, leave_approval_flow, expense_approval_flow,
+            email_enabled, email_provider, email_from_name, email_from_address, email_reply_to
+     FROM oa_settings WHERE id=1`,
   );
 }
