@@ -9,6 +9,11 @@ grep -q '"name"[[:space:]]*:[[:space:]]*"seeder"' "$TARGET/package.json" || { ec
 # v0.1.10 keeps OA pages out of Seeder's heavy `(app)` layout into a lightweight
 # `(oa)` route group. These paths are created by older OA releases, not upstream Seeder.
 rm -rf "$TARGET/app/(app)/oa" "$TARGET/app/(app)/admin/oa" "$TARGET/app/(app)/admin/dashboard"
+# Old OA overlay used (app) route group. Remove legacy copies before writing (oa).
+if [[ -e "$TARGET/app/(app)/oa/page.tsx" ]]; then
+  echo "ERROR: legacy /oa route still exists; refusing conflicting routes" >&2
+  exit 1
+fi
 mkdir -p "$TARGET/app/api/oa/files/[id]" "$TARGET/components/oa" "$TARGET/lib/oa" "$TARGET/migrations"
 cp -R "$ROOT/overlay/." "$TARGET/"
 python3 "$ROOT/patch-sidebar.py" "$TARGET/components/app/app-sidebar.tsx"
