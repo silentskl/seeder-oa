@@ -35,9 +35,8 @@ if s != orig:
     if not backup.exists(): backup.write_text(orig)
     signin_panel.write_text(s)
 
-# 2) An existing non-admin session that opens an old Seeder workspace URL is
-# redirected before Seeder loads project lists/notifications/settings. This both
-# keeps the UI OA-only and avoids unnecessary CPU work on Workers Free.
+# 2) All signed-in users opening legacy Seeder workspace routes are redirected
+# before project lists/notifications/settings load. OA admin routes use a separate layout.
 s = app_layout.read_text()
 orig = s
 if 'import { redirect } from "next/navigation";' not in s:
@@ -45,18 +44,23 @@ if 'import { redirect } from "next/navigation";' not in s:
     if anchor not in s:
         raise SystemExit("ERROR: unexpected app layout import structure")
     s = s.replace(anchor, anchor + '\nimport { redirect } from "next/navigation";', 1)
-if 'import { isAdminTier, requireViewer } from "@/lib/auth-server";' not in s:
+if 'import { requireViewer } from "@/lib/auth-server";' not in s:
     s = s.replace(
         'import { requireViewer } from "@/lib/auth-server";',
-        'import { isAdminTier, requireViewer } from "@/lib/auth-server";',
+        'import { requireViewer } from "@/lib/auth-server";',
         1,
     )
 needle = '  const viewer = await requireViewer();\n  const shellData = await getAppShellDataForViewer(viewer);'
-replacement = '  const viewer = await requireViewer();\n  if (!isAdminTier(viewer.role)) redirect("/oa");\n  const shellData = await getAppShellDataForViewer(viewer);'
-if 'if (!isAdminTier(viewer.role)) redirect("/oa");' not in s:
-    if needle not in s:
+replacement = '  const viewer = await requireViewer();\n  redirect("/oa");\n  const shellData = await getAppShellDataForViewer(viewer);'
+if 'redirect("/oa");' not in s:
+    if 'if (!isAdminTier(viewer.role)) redirect("/oa");' in s:
+        s = s.replace('if (!isAdminTier(viewer.role)) redirect("/oa");', 'redirect("/oa");', 1)
+    elif needle in s:
+        s = s.replace(needle, replacement, 1)
+    else:
         raise SystemExit("ERROR: unexpected app layout body structure; refusing unsafe patch")
-    s = s.replace(needle, replacement, 1)
+# Remove now-unused admin-role import when upgrading an already patched installation.
+s = s.replace('import { isAdminTier, requireViewer } from "@/lib/auth-server";', 'import { requireViewer } from "@/lib/auth-server";')
 if s != orig:
     backup = app_layout.with_suffix(app_layout.suffix + '.pre-oa-v0111.bak')
     if not backup.exists(): backup.write_text(orig)
@@ -66,4 +70,4 @@ print("OA entry routing patched:")
 print("  sign-in existing session -> /oa-entry")
 print("  email/invite/Google auth success -> /oa-entry")
 print("  /oa-entry -> /admin/oa for Admin/Owner, /oa for employees")
-print("  non-admin requests to Seeder (app) routes -> /oa before heavy shell loading")
+print("  all authenticated requests to legacy Seeder (app) routes -> /oa")
