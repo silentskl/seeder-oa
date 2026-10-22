@@ -52,14 +52,16 @@ if 'import { requireViewer } from "@/lib/auth-server";' not in s:
     )
 needle = '  const viewer = await requireViewer();\n  const shellData = await getAppShellDataForViewer(viewer);'
 replacement = '  const viewer = await requireViewer();\n  redirect("/oa");\n  const shellData = await getAppShellDataForViewer(viewer);'
-if 'redirect("/oa");' not in s:
-    if 'if (!isAdminTier(viewer.role)) redirect("/oa");' in s:
-        s = s.replace('if (!isAdminTier(viewer.role)) redirect("/oa");', 'redirect("/oa");', 1)
-    elif needle in s:
-        s = s.replace(needle, replacement, 1)
-    else:
+# Upgrade the old role-gated redirect first. A substring check for
+# redirect("/oa") is insufficient because it also matches the old if statement.
+old_redirect = 'if (!isAdminTier(viewer.role)) redirect("/oa");'
+if old_redirect in s:
+    s = s.replace(old_redirect, 'redirect("/oa");', 1)
+elif '\\n  redirect("/oa");' not in s:
+    if needle not in s:
         raise SystemExit("ERROR: unexpected app layout body structure; refusing unsafe patch")
-# Remove now-unused admin-role import when upgrading an already patched installation.
+    s = s.replace(needle, replacement, 1)
+# Remove now-unused admin-role import on upgraded installations.
 s = s.replace('import { isAdminTier, requireViewer } from "@/lib/auth-server";', 'import { requireViewer } from "@/lib/auth-server";')
 if s != orig:
     backup = app_layout.with_suffix(app_layout.suffix + '.pre-oa-v0111.bak')
