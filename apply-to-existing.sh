@@ -30,3 +30,10 @@ echo ""
 echo "Seeder OA v0.1.14 overlay applied to: $TARGET"
 echo "Run: npm run db:migrate:local && npm run dev"
 echo "For email settings on an existing deployment, run: $ROOT/configure-email-secret.sh $TARGET"
+# Run the publishing gate after a successful overlay installation.
+# Set OA_SKIP_DEPLOY=1 for local-only installation; never deploy after patch failures.
+if [[ "${OA_SKIP_DEPLOY:-0}" == "1" ]]; then
+  echo "[DEPLOY] Skipped (OA_SKIP_DEPLOY=1)."
+else
+  bash "$ROOT/update-deploy.sh" "$TARGET"
+fi
