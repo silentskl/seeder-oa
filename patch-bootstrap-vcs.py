@@ -23,16 +23,16 @@ def patch_auth(p: Path) -> bool:
     # may enforce bootstrap through a different flow; do not inject unused
     # imports or rewrite unknown authentication logic.
     old_query = (
-        '          const [existing] = await db\\n'
-        '            .select({ id: schema.user.id })\\n'
-        '            .from(schema.user)\\n'
+        '          const [existing] = await db\n'
+        '            .select({ id: schema.user.id })\n'
+        '            .from(schema.user)\n'
         '            .limit(1);'
     )
     patched_query = (
-        '          const [existing] = await db\\n'
-        '            .select({ id: schema.user.id })\\n'
-        '            .from(schema.user)\\n'
-        '            .where(ne(schema.user.id, VCS_BOT_USER_ID))\\n'
+        '          const [existing] = await db\n'
+        '            .select({ id: schema.user.id })\n'
+        '            .from(schema.user)\n'
+        '            .where(ne(schema.user.id, VCS_BOT_USER_ID))\n'
         '            .limit(1);'
     )
     if old_query in s:
@@ -42,7 +42,7 @@ def patch_auth(p: Path) -> bool:
             anchor = 'import { ensurePersonalSpace } from "@/lib/services/spaces";'
             if anchor not in s:
                 raise SystemExit(f"ERROR: missing auth import anchor in {p}")
-            s = s.replace(anchor, anchor + '\\n' + BOT_IMPORT, 1)
+            s = s.replace(anchor, anchor + '\n' + BOT_IMPORT, 1)
         s = s.replace(old_query, patched_query, 1)
     elif '.where(ne(schema.user.id, VCS_BOT_USER_ID))' not in s:
         print(f"NOTICE: {p}: legacy bootstrap query absent; leaving upstream auth unchanged")
@@ -72,10 +72,10 @@ def patch_signin(p: Path) -> bool:
 
     old_query = '  const [anyUser] = await db.select({ id: user.id }).from(user).limit(1);'
     new_query = (
-        '  const [anyUser] = await db\\n'
-        '    .select({ id: user.id })\\n'
-        '    .from(user)\\n'
-        '    .where(ne(user.id, VCS_BOT_USER_ID))\\n'
+        '  const [anyUser] = await db\n'
+        '    .select({ id: user.id })\n'
+        '    .from(user)\n'
+        '    .where(ne(user.id, VCS_BOT_USER_ID))\n'
         '    .limit(1);'
     )
     if old_query in s:
@@ -85,7 +85,7 @@ def patch_signin(p: Path) -> bool:
             anchor = 'import { invitations, user } from "@/lib/db/schema";'
             if anchor not in s:
                 raise SystemExit(f"ERROR: missing sign-in import anchor in {p}")
-            s = s.replace(anchor, anchor + '\\n' + BOT_IMPORT, 1)
+            s = s.replace(anchor, anchor + '\n' + BOT_IMPORT, 1)
         s = s.replace(old_query, new_query, 1)
     elif '.where(ne(user.id, VCS_BOT_USER_ID))' not in s:
         print(f"NOTICE: {p}: legacy bootstrap query absent; leaving upstream sign-in unchanged")
