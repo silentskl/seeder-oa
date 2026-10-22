@@ -11,8 +11,10 @@ command -v npm >/dev/null || { echo "ERROR: npm required" >&2; exit 1; }
 # Strip JSONC comments safely using TypeScript if available, otherwise use Wrangler's config parser via JSONC package.
 node - <<'NODE'
 const fs=require('fs');
-let jsonc;try{jsonc=require('jsonc-parser');}catch{console.error('ERROR: jsonc-parser dependency unavailable; run npm ci first');process.exit(1)}
-const cfg=jsonc.parse(fs.readFileSync('wrangler.jsonc','utf8'));
+const ts=require('typescript');
+const parsed=ts.parseConfigFileTextToJson('wrangler.jsonc',fs.readFileSync('wrangler.jsonc','utf8'));
+if(parsed.error){console.error('ERROR: invalid wrangler.jsonc');process.exit(1)}
+const cfg=parsed.config;
 const db=(cfg.d1_databases||[]).find(x=>x.binding==='PM_DB');
 const bucket=(cfg.r2_buckets||[]).find(x=>x.binding==='UPLOADS');
 if(!cfg.name || cfg.name==='seeder' || !db || !db.database_id || !db.database_name || db.database_name==='seeder' || !bucket || bucket.bucket_name==='seeder-uploads'){
