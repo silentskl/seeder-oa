@@ -125,7 +125,11 @@ export async function GET(request: NextRequest) {
         : `SELECT x.*,u.name,u.email FROM oa_expense_claim x JOIN user u ON u.id=x.user_id JOIN oa_employee e ON e.user_id=x.user_id WHERE x.status='submitted' AND e.manager_user_id=? ORDER BY x.submitted_at`;
       return ok({
         leave: await all(leaveSql, admin ? [] : [viewer.id]),
-        expenses: await all(expenseSql, admin ? [] : [viewer.id]),
+        expenses: await Promise.all((await all<any>(expenseSql, admin ? [] : [viewer.id])).map(async claim=>({
+          ...claim, items: await Promise.all((await all<any>(`SELECT * FROM oa_expense_item WHERE claim_id=? ORDER BY sort_order`,[claim.id])).map(async item=>({
+            ...item,documents:await all<any>(`SELECT f.id,f.original_name AS name FROM oa_expense_item_document d JOIN oa_file f ON f.id=d.file_id WHERE d.item_id=?`,[item.id])
+          })))
+        }))),
       });
     }
 
