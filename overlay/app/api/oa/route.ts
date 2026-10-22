@@ -169,9 +169,9 @@ async function expenseCategorySummary(userId: string, yearInput?: number) {
   return { year, rows: Array.from(grouped.values()).sort((a,b)=>a.category.localeCompare(b.category)||a.reimbursement_currency.localeCompare(b.reimbursement_currency)) };
 }
 
-async function withExpenseItems<T extends {id:string}>(claims:T[]):Promise<(T & {items:any[]})[]> {
+async function withExpenseItems<T extends Record<string,unknown>>(claims:T[]):Promise<(T & {items:any[]})[]> {
   if (!claims.length) return [];
-  const ids=claims.map(c=>c.id);
+  const ids=claims.map(c=>String(c.id));
   const placeholders=ids.map(()=>"?").join(",");
   const items=await all<any>(`SELECT i.*,d.file_id,f.original_name AS document_name
     FROM oa_expense_item i
@@ -186,7 +186,7 @@ async function withExpenseItems<T extends {id:string}>(claims:T[]):Promise<(T & 
     if(row.file_id && !item.documents.some((d:any)=>d.id===row.file_id)) item.documents.push({id:row.file_id,name:row.document_name});
     grouped.set(row.claim_id,bucket);
   }
-  return claims.map(c=>({...c,items:grouped.get(c.id)||[]}));
+  return claims.map(c=>({...c,items:grouped.get(String(c.id))||[]}));
 }
 
 export async function GET(request: NextRequest) {
