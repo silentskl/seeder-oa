@@ -16,6 +16,11 @@ if [[ -e "$TARGET/app/(app)/oa/page.tsx" ]]; then
 fi
 mkdir -p "$TARGET/app/api/oa/files/[id]" "$TARGET/components/oa" "$TARGET/lib/oa" "$TARGET/migrations"
 cp -R "$ROOT/overlay/." "$TARGET/"
+# Route groups do not affect URL paths. Never ship duplicate /oa routes.
+if [[ -f "$TARGET/app/(app)/oa/page.tsx" && -f "$TARGET/app/(oa)/oa/page.tsx" ]]; then
+  echo "ERROR: duplicate /oa routes detected after overlay copy" >&2
+  exit 1
+fi
 python3 "$ROOT/patch-sidebar.py" "$TARGET/components/app/app-sidebar.tsx"
 python3 "$ROOT/patch-wrangler-free.py" "$TARGET/wrangler.jsonc"
 python3 "$ROOT/patch-bootstrap-vcs.py" "$TARGET"
