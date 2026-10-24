@@ -148,6 +148,13 @@ if [[ -n "$MIGRATIONS" ]]; then
 else
   echo "[DEPLOY] No pending migrations; backup and migration skipped."
 fi
+# Verify the schema actually exists, even when Wrangler's migration ledger is out of sync.
+SCHEMA_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='oa_expense_category';" 2>&1)" || { echo "$SCHEMA_CHECK" >&2; exit 1; }
+echo "$SCHEMA_CHECK"
+if ! printf '%s\n' "$SCHEMA_CHECK" | grep -Eq '(^|[[:space:]│])1([[:space:]│]|$)'; then
+  echo "ERROR: oa_expense_category is missing in production D1; refusing to deploy." >&2
+  exit 1
+fi
 echo "[DEPLOY] Building production bundle..."
 npm run build
 echo "[DEPLOY] Publishing Cloudflare Worker smarten-oa (oa.smartenx.com)..."
