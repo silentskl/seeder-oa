@@ -91,14 +91,62 @@ if ! grep -q 'Current claim · Expense items' "$APP_CONSOLE" || ! grep -q 'Claim
 fi
 printf '[DEPLOY] Verified OA frontend source SHA256: '
 shasum -a 256 "$APP_CONSOLE" | awk '{print $1}'
-echo "[DEPLOY] Checking Cloudflare access and D1 migration state..."
+echo "[DEPLOY] Validating Cloudflare account and production D1 access..."
+# Explicit account selection prevents Wrangler from using a stale or unrelated account.
+EXPECTED_ACCOUNT="171a0b87cb7aa3df044f301599d7d86e"
+if [[ -n "${CLOUDFLARE_ACCOUNT_ID:-}" && "$CLOUDFLARE_ACCOUNT_ID" != "$EXPECTED_ACCOUNT" ]]; then
+  echo "ERROR: CLOUDFLARE_ACCOUNT_ID differs from expected production account." >&2
+  exit 1
+fi
 npx wrangler whoami
-# Do not apply unreviewed SQL to an existing production database.
+# Fail closed on auth errors including 7403; NEVER deploy without database verification.
+npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS employees FROM oa_employee;"
+echo "[DEPLOY] Synchronizing migrations from reviewed overlay..."
+mkdir -p migrations
+for source in "$ROOT"/overlay/migrations/*.sql; do
+  [[ -f "$source" ]] || continue
+  target="migrations/$(basename "$source")"
+  if [[ -f "$target" ]] && ! cmp -s "$source" "$target"; then
+    echo "ERROR: migration differs from reviewed overlay: $target" >&2
+    exit 1
+  fi
+  cp "$source" "$target"
+done
+# Historical duplicate is not a valid production migration.
+if [[ -f migrations/9999_oa_expense_items.sql ]]; then
+  mkdir -p "$ROOT/recovery-backups/quarantined"
+  mv migrations/9999_oa_expense_items.sql "$ROOT/recovery-backups/quarantined/9999_oa_expense_items-$(date -u +%Y%m%dT%H%M%SZ).sql"
+fi
 PENDING="$(npx wrangler d1 migrations list PM_DB --remote 2>&1)" || { echo "$PENDING" >&2; exit 1; }
 echo "$PENDING"
-if [[ "$PENDING" =~ 900[0-9]_ ]] || [[ "$PENDING" =~ 9999_ ]]; then
-  echo "ERROR: Pending OA migrations may exist. Review, back up and apply them manually before deploying." >&2
-  exit 1
+# Whitelist only migrations reviewed for this production upgrade.
+MIGRATIONS="$(printf '%s\n' "$PENDING" | grep -Eo '[0-9]{4}_[[:alnum:]_-]+\\.sql' | sort -u || true)"
+if [[ -n "$MIGRATIONS" ]]; then
+  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management)\\.sql$' || true)"
+  if [[ -n "$UNKNOWN" ]]; then
+    echo "ERROR: unexpected pending migrations: $UNKNOWN" >&2
+    exit 1
+  fi
+  if [[ "${OA_SKIP_MIGRATIONS:-0}" == "1" ]]; then
+    echo "ERROR: pending migrations detected while OA_SKIP_MIGRATIONS=1; refusing incompatible deployment." >&2
+    exit 1
+  fi
+  BACKUP_DIR="$ROOT/recovery-backups/$(date -u +%Y%m%dT%H%M%SZ)-pre-deploy"
+  mkdir -p "$BACKUP_DIR"
+  chmod 700 "$BACKUP_DIR"
+  echo "[DEPLOY] Backing up production D1 to $BACKUP_DIR..."
+  npx wrangler d1 export PM_DB --remote --output="$BACKUP_DIR/smarten-oa.sql"
+  [[ -s "$BACKUP_DIR/smarten-oa.sql" ]] || { echo "ERROR: missing or empty D1 backup; deployment aborted." >&2; exit 1; }
+  echo "[DEPLOY] Applying reviewed migrations..."
+  npx wrangler d1 migrations apply PM_DB --remote
+  echo "[DEPLOY] Re-checking remaining migrations..."
+  AFTER="$(npx wrangler d1 migrations list PM_DB --remote 2>&1)" || { echo "$AFTER" >&2; exit 1; }
+  echo "$AFTER"
+  if printf '%s\n' "$AFTER" | grep -Eq '[0-9]{4}_[[:alnum:]_-]+\\.sql'; then
+    echo "ERROR: unapplied migration remains; deployment aborted." >&2; exit 1
+  fi
+else
+  echo "[DEPLOY] No pending migrations; backup and migration skipped."
 fi
 echo "[DEPLOY] Building production bundle..."
 npm run build
