@@ -185,63 +185,79 @@ function LeaveView({boot,busy,run}:{boot:Bootstrap;busy:boolean;run:any}){
 }
 
 function ExpenseView({boot,busy,run}:{boot:Bootstrap;busy:boolean;run:any}){
+  type DraftItem={id:string;expenseDate:string;category:string;description:string;amount:string;originalCurrency:string;files:File[]};
   const [data,setData]=useState<{claims:any[];approvalSteps:any[];medicalInsuranceSummary?:MedicalInsuranceSummary;categorySummary?:{year:number;rows:any[]};categories?:string[]}>({claims:[],approvalSteps:[]});
-  const load=useCallback(()=>api("expenses").then(setData),[]); useEffect(()=>{load();},[load]);
-  const rows=data.claims||[];
+  const load=useCallback(()=>api("expenses").then(setData),[]);
+  useEffect(()=>{load();},[load]);
   const categories=data.categories||boot.expenseCategories||DEFAULT_EXPENSE_CATEGORIES;
   const reimbursementDefault=boot.employee?.reimbursement_currency||boot.settings?.base_currency||"SGD";
   const payrollCurrency=boot.employee?.payroll_currency||boot.settings?.base_currency||"SGD";
-  const [category,setCategory]=useState(categories[0]||"Travel");
-  const [reimbursementCurrency,setReimbursementCurrency]=useState(reimbursementDefault);
   const medical=data.medicalInsuranceSummary||boot.medicalInsuranceSummary;
-  useEffect(()=>{if(category===MEDICAL_INSURANCE_CATEGORY)setReimbursementCurrency(payrollCurrency);},[category,payrollCurrency]);
-  const [extraItems,setExtraItems]=useState<Array<{id:string}>>([]);
-  const submit=async(e:FormEvent<HTMLFormElement>)=>{
-    e.preventDefault();
-    const form=e.currentTarget;
-    const f=new FormData(form);
-    const keys=["",...extraItems.map(item=>`_${item.id}`)];
-    const get=(key:string,suffix:string)=>f.get(`${key}${suffix}`);
+  const [reimbursementCurrency,setReimbursementCurrency]=useState(reimbursementDefault);
+  const [items,setItems]=useState<DraftItem[]>([]);
+  const [editing,setEditing]=useState<string|null>(null);
+  const [editorKey,setEditorKey]=useState(0);
+  const [view,setView]=useState<"totals"|"history">("totals");
+  const [draftError,setDraftError]=useState("");
+  const empty=():DraftItem=>({id:crypto.randomUUID(),expenseDate:new Date().toISOString().slice(0,10),category:categories[0]||"Travel",description:"",amount:"",originalCurrency:reimbursementDefault,files:[]});
+  const [formItem,setFormItem]=useState<DraftItem>(empty);
+  const [pickedFiles,setPickedFiles]=useState<File[]>([]);
+  const openItem=(item:DraftItem)=>{setEditing(item.id);setFormItem({...item});setPickedFiles([...item.files]);setEditorKey(x=>x+1);setDraftError("");};
+  const resetEditor=()=>{setEditing(null);setFormItem(empty());setPickedFiles([]);setEditorKey(x=>x+1);setDraftError("");};
+  const addOrSave=()=>{
+    if(!formItem.description.trim()||!formItem.expenseDate||!Number.isFinite(Number(formItem.amount))||Number(formItem.amount)<=0){setDraftError("Enter an expense date, description and a positive amount.");return;}
+    if(formItem.category===MEDICAL_INSURANCE_CATEGORY && reimbursementCurrency!==payrollCurrency){setDraftError("Medical Insurance requires the payroll reimbursement currency.");return;}
+    const updated={...formItem,description:formItem.description.trim(),files:pickedFiles};
+    setItems(prev=>editing?prev.map(item=>item.id===editing?updated:item):[...prev,updated]);
+    resetEditor();
+  };
+  const submitClaim=async()=>{
+    if(!items.length||busy)return;
+    if(editing){setDraftError("Save the expense currently being edited before submitting the claim.");return;}
+    if(!window.confirm('Submit this claim with '+items.length+' expense item(s) for approval?'))return;
+    const hasMedical=items.some(item=>item.category===MEDICAL_INSURANCE_CATEGORY);
+    if(hasMedical && (items.some(item=>item.category!==MEDICAL_INSURANCE_CATEGORY)||reimbursementCurrency!==payrollCurrency)){
+      setDraftError("Medical Insurance must be a separate claim using the payroll currency.");return;
+    }
     try{
-      const result=await run(async()=>{
-        const items=[];
-        for(const suffix of keys){
-          const files=f.getAll(`files${suffix}`).filter((v):v is File=>v instanceof File&&v.size>0);
-          if(files.length>20) throw new Error("Maximum 20 documents per expense item");
+      await run(async()=>{
+        const prepared=[];
+        for(const item of items){
+          if(item.files.length>20)throw new Error("Maximum 20 documents per expense item");
           const documentIds=[];
-          for(const file of files) documentIds.push((await upload(file,"receipt")).id);
-          items.push({expenseDate:get("expenseDate",suffix),category:get("category",suffix),description:get("description",suffix),amount:get("amount",suffix),originalCurrency:get("originalCurrency",suffix),documentIds});
+          for(const file of item.files)documentIds.push((await upload(file,"receipt")).id);
+          prepared.push({expenseDate:item.expenseDate,category:item.category,description:item.description,amount:item.amount,originalCurrency:item.originalCurrency,documentIds});
         }
-        return act("createExpenseClaim",{reimbursementCurrency,items});
-      },"Expense claim submitted with all items and documents.");
-      form.reset();setExtraItems([]);setCategory(categories[0]||"Travel");setReimbursementCurrency(reimbursementDefault);await load();return result;
+        return act("createExpenseClaim",{reimbursementCurrency,items:prepared});
+      },"Claim submitted with all expense items.");
+      setItems([]);resetEditor();await load();
     }catch{}
   };
+  const draftTotal=items.reduce((total,item)=>total+Number(item.amount||0),0);
   return <div className="space-y-4">
-    <div className="grid gap-4 lg:grid-cols-[380px_1fr]"><Card><h2 className="font-semibold">New expense claim</h2><p className="mt-1 text-xs text-neutral-500">Create one claim, add multiple expense items with their own documents, then submit the entire claim once. Historical FX uses each expense date.</p><form onSubmit={submit} className="mt-4 space-y-3">
-      <div className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800"><div className="mb-3 font-semibold">Expense item 1</div>
-      <div><Label>Expense date</Label><input required type="date" name="expenseDate" defaultValue={new Date().toISOString().slice(0,10)} className={field}/></div>
-      <div><Label>Category</Label><select name="category" value={category} onChange={(e:any)=>{const next=String(e.target.value);setCategory(next);if(next!==MEDICAL_INSURANCE_CATEGORY&&category===MEDICAL_INSURANCE_CATEGORY)setReimbursementCurrency(reimbursementDefault);}} className={field}>{categories.map(x=><option key={x} value={x}>{x}</option>)}</select></div>
-      {category===MEDICAL_INSURANCE_CATEGORY&&<div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-xs dark:border-neutral-800 dark:bg-neutral-900"><div className="font-medium text-neutral-800 dark:text-neutral-100">Annual Medical Insurance allowance</div><div className="mt-1 text-neutral-500">Available {money(medical.availableMinor,medical.currency)} of {money(medical.entitlementMinor,medical.currency)} · Pending {money(medical.pendingMinor,medical.currency)}. Reimbursement currency is locked to payroll currency ({payrollCurrency}).</div></div>}
-      <div><Label>Description</Label><textarea required name="description" rows={3} className={field}/></div>
-      <div className="grid grid-cols-[1fr_140px] gap-2"><div><Label>Amount</Label><input required name="amount" inputMode="decimal" placeholder="0.00" className={field}/></div><div><Label>Expense currency</Label><CurrencySelect name="originalCurrency" defaultValue={category===MEDICAL_INSURANCE_CATEGORY?payrollCurrency:reimbursementDefault} currencies={boot.currencies}/></div></div>
-      <div><Label>Reimbursement currency</Label><CurrencySelect name="reimbursementCurrency" value={reimbursementCurrency} onChange={setReimbursementCurrency} defaultValue={reimbursementDefault} currencies={boot.currencies} disabled={category===MEDICAL_INSURANCE_CATEGORY}/><p className="mt-1 text-xs text-neutral-500">{category===MEDICAL_INSURANCE_CATEGORY?`Medical Insurance uses payroll currency ${payrollCurrency} for allowance accounting.`:"If different from the expense currency, the claim locks the historical FX rate for the expense date."}</p></div>
-      <div><Label>Documents (multiple, optional)</Label><input type="file" name="files" multiple accept="application/pdf,image/jpeg,image/png,image/webp" className={field}/></div></div>
-      {extraItems.map((x,index)=>{const i=index+1;return <div key={x.id} className="space-y-3 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
-        <div className="flex items-center justify-between"><strong>Expense item {i+1}</strong><button type="button" className={secondary} onClick={()=>setExtraItems(v=>v.filter(y=>y.id!==x.id))}>Remove</button></div>
-        <div><Label>Expense date</Label><input required type="date" name={`expenseDate_${x.id}`} defaultValue={new Date().toISOString().slice(0,10)} className={field}/></div>
-        <div><Label>Category</Label><select name={`category_${x.id}`} defaultValue="Travel" className={field}>{categories.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
-        <div><Label>Description</Label><textarea required name={`description_${x.id}`} className={field}/></div>
-        <div><Label>Amount</Label><input required name={`amount_${x.id}`} inputMode="decimal" className={field}/></div>
-        <div><Label>Expense currency</Label><CurrencySelect name={`originalCurrency_${x.id}`} defaultValue={reimbursementDefault} currencies={boot.currencies}/></div>
-        <div><Label>Documents (multiple)</Label><input type="file" name={`files_${x.id}`} multiple accept="application/pdf,image/jpeg,image/png,image/webp" className={field}/></div>
-      </div>})}
-      <button type="button" disabled={busy||extraItems.length>=49} className={secondary} onClick={()=>setExtraItems(v=>[...v,{id:crypto.randomUUID()}])}>+ Add expense item to this claim</button>
-      <button disabled={busy||(category===MEDICAL_INSURANCE_CATEGORY&&medical.availableMinor<=0)} className={primary}>Submit entire claim ({1+extraItems.length} item{extraItems.length===0?"":"s"})</button>
-    </form></Card>
-    <div className="space-y-4"><Card><div className="mb-3 flex items-center justify-between gap-2"><h2 className="font-semibold">Medical Insurance · {medical.year}</h2><span className="text-xs text-neutral-500">Payroll currency · {medical.currency}</span></div><div className="grid grid-cols-2 gap-2 lg:grid-cols-4">{[["Total allowance",medical.entitlementMinor],["Reimbursed",medical.reimbursedMinor],["Pending",medical.pendingMinor],["Available",medical.availableMinor]].map(([label,value])=><div key={String(label)} className="rounded-lg bg-neutral-50 p-3 dark:bg-neutral-900"><div className="text-xs text-neutral-500">{label}</div><div className="mt-1 font-semibold">{money(Number(value),medical.currency)}</div></div>)}</div>{medical.overLimitMinor>0&&<div className="mt-3"><ErrorBox message={`Committed Medical Insurance claims exceed the allowance by ${money(medical.overLimitMinor,medical.currency)}.`}/></div>}</Card>
-    <Card><h2 className="mb-3 font-semibold">My expense claims</h2>{!rows.length?<Empty/>:<div className="space-y-2">{rows.map(r=><div key={r.id} className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800"><div className="flex flex-wrap items-start justify-between gap-2"><div><div className="font-medium">{r.category} · {money(r.original_amount_minor,r.original_currency)}</div><div className="text-sm text-neutral-500">{formatDate(r.expense_date)} · reimbursement {money(r.reimbursement_amount_minor,r.reimbursement_currency)}</div></div><Status value={r.status}/></div><p className="mt-2 text-sm">{r.description}</p>{r.items?.length>0&&<div className="mt-2 space-y-2">{r.items.map((item:any)=><div key={item.id} className="rounded border p-2 text-xs dark:border-neutral-800"><strong>{item.category}</strong> · {money(item.original_amount_minor,item.original_currency)} → {money(item.reimbursement_amount_minor,r.reimbursement_currency)}<div>{item.description}</div><div className="flex flex-wrap gap-2">{item.documents?.map((d:any)=><a key={d.id} className={secondary} href={`/api/oa/files/${d.id}`}>{d.name||"Document"}</a>)}</div></div>)}</div>}{r.original_currency!==r.reimbursement_currency&&<div className="mt-2 text-xs text-neutral-500">FX {r.original_currency}/{r.reimbursement_currency}: {Number(r.fx_rate).toFixed(6)} · {r.fx_source} · {r.fx_rate_date}</div>}<ApprovalProgress steps={(data.approvalSteps||[]).filter((s:any)=>s.entity_id===r.id)}/><div className="mt-2 flex gap-2">{r.receipt_file_id&&<a className={secondary} href={`/api/oa/files/${r.receipt_file_id}`}>Receipt</a>}{r.status==="submitted"&&<button disabled={busy} className={danger} onClick={()=>run(()=>act("cancelExpense",{id:r.id}),"Expense cancelled.").then(load).catch(()=>{})}>Cancel</button>}</div></div>)}</div>}</Card></div></div>
-    <Card><div className="mb-3 flex items-center justify-between gap-2"><h2 className="font-semibold">Expense totals by category</h2><span className="text-xs text-neutral-500">{data.categorySummary?.year||new Date().getUTCFullYear()} · reimbursed = paid; pending = submitted + approved</span></div>{!(data.categorySummary?.rows||[]).length?<Empty>No current-year expense totals yet.</Empty>:<div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead className="text-xs text-neutral-500"><tr><th className="p-2">Category</th><th className="p-2">Currency</th><th className="p-2 text-right">Reimbursed</th><th className="p-2 text-right">Pending</th><th className="p-2 text-right">Claims</th></tr></thead><tbody>{data.categorySummary!.rows.map((x:any)=><tr key={`${x.category}-${x.reimbursement_currency}`} className="border-t border-neutral-100 dark:border-neutral-800"><td className="p-2 font-medium">{x.category}</td><td className="p-2">{x.reimbursement_currency}</td><td className="p-2 text-right">{money(x.reimbursed_minor,x.reimbursement_currency)}</td><td className="p-2 text-right">{money(x.pending_minor,x.reimbursement_currency)}</td><td className="p-2 text-right">{x.claim_count}</td></tr>)}</tbody></table></div>}</Card>
+    <div className="grid gap-4 lg:grid-cols-[380px_1fr]">
+      <Card><h2 className="font-semibold">{editing?"Edit expense item":"Add expense to claim"}</h2><p className="mt-1 text-xs text-neutral-500">Items stay in this claim draft until you submit the entire claim.</p>
+        <div key={editorKey} className="mt-4 space-y-3">
+          <div><Label>Expense date</Label><input required type="date" value={formItem.expenseDate} onChange={e=>setFormItem(x=>({...x,expenseDate:e.target.value}))} className={field}/></div>
+          <div><Label>Category</Label><select value={formItem.category} onChange={e=>setFormItem(x=>({...x,category:e.target.value}))} className={field}>{categories.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
+          <div><Label>Description</Label><textarea value={formItem.description} onChange={e=>setFormItem(x=>({...x,description:e.target.value}))} rows={3} className={field}/></div>
+          <div className="grid grid-cols-[1fr_140px] gap-2"><div><Label>Amount</Label><input inputMode="decimal" value={formItem.amount} onChange={e=>setFormItem(x=>({...x,amount:e.target.value}))} className={field}/></div><div><Label>Expense currency</Label><CurrencySelect value={formItem.originalCurrency} onChange={v=>setFormItem(x=>({...x,originalCurrency:v}))} currencies={boot.currencies}/></div></div>
+          <div><Label>Documents (multiple)</Label><input type="file" multiple accept="application/pdf,image/jpeg,image/png,image/webp" className={field} onChange={e=>setPickedFiles(prev=>[...prev,...Array.from(e.target.files||[])])}/>{pickedFiles.length>0&&<div className="mt-2 space-y-1">{pickedFiles.map((file,i)=><div key={i} className="flex items-center justify-between gap-2 text-xs"><span className="truncate">{file.name}</span><button type="button" className={secondary} onClick={()=>setPickedFiles(x=>x.filter((_,j)=>j!==i))}>Remove</button></div>)}</div>}</div>
+          {draftError&&<ErrorBox message={draftError}/>}
+          <div className="flex flex-wrap gap-2"><button type="button" disabled={busy} className={primary} onClick={addOrSave}>{editing?"Save expense":"Add expense"}</button>{editing&&<button type="button" className={secondary} onClick={resetEditor}>Cancel edit</button>}</div>
+        </div>
+      </Card>
+      <div className="space-y-4">
+        <Card><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-semibold">Current claim · Expense items</h2><p className="text-xs text-neutral-500">{items.length} item(s) · Select an item to edit on the left</p></div><span className="text-sm font-semibold">{items.length} items</span></div>
+          {!items.length?<Empty>Add your first expense using the form on the left.</Empty>:<div className="mt-3 space-y-2">{items.map((item,i)=><div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800"><button type="button" className="min-w-0 flex-1 text-left" onClick={()=>openItem(item)}><div className="font-medium">{i+1}. {item.category} · {money(Math.round(Number(item.amount)*100),item.originalCurrency)}</div><div className="text-xs text-neutral-500">{item.expenseDate} · {item.description} · {item.files.length} document(s)</div></button><button type="button" className={danger} onClick={()=>{setItems(x=>x.filter(v=>v.id!==item.id));if(editing===item.id)resetEditor();}}>Remove</button></div>)}</div>}
+          <div className="mt-4 border-t border-neutral-200 pt-3 dark:border-neutral-800"><Label>Claim reimbursement currency</Label><CurrencySelect value={reimbursementCurrency} onChange={setReimbursementCurrency} currencies={boot.currencies}/><p className="mt-1 text-xs text-neutral-500">Each item uses its own expense date for historical FX conversion. Mixed currencies are converted when submitted.</p><div className="mt-3 flex flex-wrap items-center justify-between gap-2"><span className="text-xs text-neutral-500">Expense amounts before FX: {items.length} item(s){items.length&&items.every(x=>x.originalCurrency===items[0].originalCurrency)?' · '+money(Math.round(draftTotal*100),items[0].originalCurrency):' · mixed currencies'}</span><button type="button" disabled={busy||!items.length} className={primary} onClick={submitClaim}>Submit claim ({items.length} expenses)</button></div></div>
+        </Card>
+        <Card><div className="mb-3 flex items-center justify-between gap-2"><h2 className="font-semibold">Medical Insurance · {medical.year}</h2><span className="text-xs text-neutral-500">Payroll currency · {medical.currency}</span></div><div className="grid grid-cols-2 gap-2 lg:grid-cols-4">{[["Total allowance",medical.entitlementMinor],["Reimbursed",medical.reimbursedMinor],["Pending",medical.pendingMinor],["Available",medical.availableMinor]].map(([label,value])=><div key={String(label)} className="rounded-lg bg-neutral-50 p-3 dark:bg-neutral-900"><div className="text-xs text-neutral-500">{label}</div><div className="mt-1 font-semibold">{money(Number(value),medical.currency)}</div></div>)}</div></Card>
+      </div>
+    </div>
+    <Card><div className="mb-4 flex flex-wrap gap-2"><button type="button" className={view==="totals"?primary:secondary} onClick={()=>setView("totals")}>Expense totals by category</button><button type="button" className={view==="history"?primary:secondary} onClick={()=>setView("history")}>Claim history ({data.claims.length})</button></div>
+    {view==="totals"?<><p className="mb-3 text-xs text-neutral-500">{data.categorySummary?.year||new Date().getUTCFullYear()} · Reimbursed = paid; pending = submitted + approved</p>{!(data.categorySummary?.rows||[]).length?<Empty>No current-year expense totals yet.</Empty>:<div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead><tr><th className="p-2">Category</th><th className="p-2">Currency</th><th className="p-2 text-right">Reimbursed</th><th className="p-2 text-right">Pending</th><th className="p-2 text-right">Claims</th></tr></thead><tbody>{data.categorySummary!.rows.map((x:any)=><tr key={x.category+'-'+x.reimbursement_currency} className="border-t dark:border-neutral-800"><td className="p-2">{x.category}</td><td className="p-2">{x.reimbursement_currency}</td><td className="p-2 text-right">{money(x.reimbursed_minor,x.reimbursement_currency)}</td><td className="p-2 text-right">{money(x.pending_minor,x.reimbursement_currency)}</td><td className="p-2 text-right">{x.claim_count}</td></tr>)}</tbody></table></div>}</>:!data.claims.length?<Empty>No submitted claims yet.</Empty>:<div className="space-y-3">{data.claims.map(r=><div key={r.id} className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="font-medium">Claim · {money(r.reimbursement_amount_minor,r.reimbursement_currency)}</div><div className="text-xs text-neutral-500">Expense date {formatDate(r.expense_date)} · {r.items?.length||1} item(s) · Payment: {r.status==="paid"?"Paid":"Not paid"}</div></div><Status value={r.status}/></div><div className="mt-2 space-y-1">{r.items?.map((item:any)=><div key={item.id} className="text-sm">{item.category} · {money(item.original_amount_minor,item.original_currency)} · {item.description} · {formatDate(item.expense_date)}{item.documents?.map((d:any)=><a key={d.id} className="ml-2 underline" href={'/api/oa/files/'+d.id}>{d.name||"Document"}</a>)}</div>)}</div><ApprovalProgress steps={(data.approvalSteps||[]).filter((step:any)=>step.entity_id===r.id)}/>{r.status==="submitted"&&<button type="button" disabled={busy} className={danger} onClick={()=>run(()=>act("cancelExpense",{id:r.id}),"Claim cancelled.").then(load).catch(()=>{})}>Cancel claim</button>}</div>)}</div>}
+    </Card>
   </div>;
 }
 
