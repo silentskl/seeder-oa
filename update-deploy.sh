@@ -11,24 +11,32 @@ command -v npm >/dev/null || { echo "ERROR: npm required" >&2; exit 1; }
 # Production custom domain oa.smartenx.com is attached to the smarten-oa Worker.
 # Refuse to publish to the obsolete seeder-oa Worker; only the Worker name is changed.
 # D1/R2 bindings, secrets and custom domain routing are NOT modified by this patch.
-python3 - <<'PY'
-from pathlib import Path
-import re
-p=Path("wrangler.jsonc")
-s=p.read_text()
-matches=list(re.finditer(r'(?m)^(\\s*"name"\\s*:\\s*")([^"]+)(")',s))
-if len(matches)!=1:
-    raise SystemExit("ERROR: expected exactly one Worker name in wrangler.jsonc")
-current=matches[0].group(2)
-if current not in ("seeder-oa","smarten-oa"):
-    raise SystemExit(f"ERROR: unexpected Worker name {current!r}; refusing to retarget automatically")
-if current!="smarten-oa":
-    s=s[:matches[0].start(2)]+"smarten-oa"+s[matches[0].end(2):]
-    p.write_text(s)
-    print("[DEPLOY] Updated Worker name: seeder-oa -> smarten-oa (D1/R2 unchanged)")
-else:
-    print("[DEPLOY] Worker target already smarten-oa")
-PY
+node - <<'NODE'
+const fs = require('fs');
+const ts = require('typescript');
+const file = 'wrangler.jsonc';
+const source = fs.readFileSync(file, 'utf8');
+const ast = ts.parseJsonText(file, source);
+const props = ast.statements[0]?.expression?.properties || [];
+const names = props.filter(p => p.name?.text === 'name');
+if (names.length !== 1 || !ts.isStringLiteral(names[0].initializer)) {
+  console.error('ERROR: expected one top-level string Worker name in wrangler.jsonc');
+  process.exit(1);
+}
+const nameNode = names[0].initializer;
+const current = nameNode.text;
+if (!['seeder-oa', 'smarten-oa'].includes(current)) {
+  console.error('ERROR: unexpected Worker name:', current);
+  process.exit(1);
+}
+if (current === 'seeder-oa') {
+  const updated = source.slice(0, nameNode.getStart(ast)) + JSON.stringify('smarten-oa') + source.slice(nameNode.getEnd());
+  fs.writeFileSync(file, updated);
+  console.log('[DEPLOY] Worker name updated: seeder-oa -> smarten-oa; D1/R2 unchanged');
+} else {
+  console.log('[DEPLOY] Worker target already smarten-oa');
+}
+NODE
 # Strip JSONC comments safely using TypeScript if available, otherwise use Wrangler's config parser via JSONC package.
 node - <<'NODE'
 const fs=require('fs');
