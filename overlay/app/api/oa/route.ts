@@ -299,14 +299,39 @@ export async function GET(request: NextRequest) {
         approvedExpenses: admin ? await withExpenseItems(await all(
           `SELECT x.*,u.name,u.email FROM oa_expense_claim x JOIN user u ON u.id=x.user_id
            WHERE x.status='approved' ORDER BY x.decided_at,x.submitted_at`)) : [],
-        expenseRecords: admin ? await all(
-          `SELECT x.*,u.name,u.email,e.payroll_currency,e.medical_insurance_limit_minor
-           FROM oa_expense_claim x JOIN user u ON u.id=x.user_id
-           LEFT JOIN oa_employee e ON e.user_id=x.user_id
-           ORDER BY x.submitted_at DESC LIMIT 300`) : [],
         expenseCategories: await activeExpenseCategories(),
         settings: await settings(),
       });
+    }
+
+    if (resource === "expenseHistory") {
+      if (!admin) return fail("Forbidden",403);
+      const query=request.nextUrl.searchParams;
+      const page=Math.max(1,Math.min(100000,Number(query.get("page")||1)||1));
+      const pageSize=25;
+      const userId=text(query.get("userId")||"",100);
+      const from=text(query.get("from")||"",10);
+      const to=text(query.get("to")||"",10);
+      if ((from&&!/^\d{4}-\d{2}-\d{2}$/.test(from))||(to&&!/^\d{4}-\d{2}-\d{2}$/.test(to)))return fail("Invalid date",400);
+      const where=["1=1"],params:any[]=[];
+      if(userId&&userId!=="ALL"){where.push("x.user_id=?");params.push(userId);}
+      if(from){where.push("x.expense_date>=?");params.push(from);}
+      if(to){where.push("x.expense_date<=?");params.push(to);}
+      const filter=where.join(" AND ");
+      const totals=await all<{category:string;currency:string;minor:number;count:number}>(`
+        SELECT COALESCE(NULLIF(x.category,''),'Uncategorized') AS category,
+               COALESCE(NULLIF(x.reimbursement_currency,''),'SGD') AS currency,
+               SUM(COALESCE(x.reimbursement_amount_minor,0)) AS minor,
+               COUNT(*) AS count
+        FROM oa_expense_claim x WHERE ${filter}
+        GROUP BY category,currency ORDER BY category,currency`,params);
+      const count=await one<{total:number}>(`SELECT COUNT(*) AS total FROM oa_expense_claim x WHERE ${filter}`,params);
+      const records=await all(`SELECT x.id,x.user_id,x.category,x.status,x.expense_date,x.description,
+         x.reimbursement_amount_minor,x.reimbursement_currency,u.name,u.email
+         FROM oa_expense_claim x JOIN user u ON u.id=x.user_id
+         WHERE ${filter} ORDER BY x.expense_date DESC,x.id DESC LIMIT ? OFFSET ?`,
+         [...params,pageSize,(page-1)*pageSize]);
+      return ok({records,totals,total:Number(count?.total||0),page,pageSize});
     }
 
     if (resource === "employees") {
