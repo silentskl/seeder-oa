@@ -1,5 +1,14 @@
 # Seeder OA v0.1.14
 
+## Production deployment: automatic D1 backup and migrations
+
+Use `bash apply-to-existing.sh /absolute/path/to/seeder-oa-app` for a normal update. It calls `update-deploy.sh`, which targets only Worker `smarten-oa` and production D1 `PM_DB` (`a2113d04-54d8-4a16-b4e6-d0a1300ea341`).
+
+When reviewed migrations (9007, 9008, 9009) are pending, the update workflow verifies access, creates a timestamped SQL export under `recovery-backups/`, checks the backup is nonempty, applies migrations, rechecks the migration state and then builds/deploys. A mismatched migration or unknown pending migration stops the deployment. If no migrations are pending, it does not create an unnecessary export. `OA_SKIP_MIGRATIONS=1` prevents automatic migration and refuses to deploy if any reviewed migration is pending.
+
+Cloudflare API error **7403** means the active account is invalid or not authorized for the D1 resource. No automatic backup or migration can proceed until Cloudflare authentication is fixed. Check `npx wrangler whoami`, `echo "${CLOUDFLARE_ACCOUNT_ID:-unset}"`, and whether an exported `CLOUDFLARE_API_TOKEN` is selecting the wrong account. Authenticate to the account owning the production D1 and Worker using `npx wrangler login` when using browser OAuth, or configure an API token with the required Workers/D1 permissions. Do not create a new database or change its ID to bypass 7403.
+
+
 Lightweight English OA/HR overlay for Seeder v2.1.0 on Cloudflare Workers + D1 + R2.
 
 ## v0.1.14 Medical Insurance annual claim allowance
