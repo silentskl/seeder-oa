@@ -33,8 +33,15 @@ const MEDICAL_INSURANCE_CATEGORY = "Medical Insurance";
 const EXPENSE_CATEGORIES = ["Travel","Meals","Transport","Accommodation","Office","Telecom","Client entertainment",MEDICAL_INSURANCE_CATEGORY,"Other"] as const;
 
 async function activeExpenseCategories():Promise<string[]> {
-  const rows=await all<{name:string}>(`SELECT name FROM oa_expense_category WHERE active=1 ORDER BY sort_order,name`);
-  return rows.map(r=>r.name);
+  try {
+    const rows=await all<{name:string}>(`SELECT name FROM oa_expense_category WHERE active=1 ORDER BY sort_order,name`);
+    return rows.map(r=>r.name);
+  } catch(error) {
+    // Older production D1 may not yet have migration 9009. Keep OA accessible until migration succeeds.
+    const message=error instanceof Error?error.message:String(error);
+    if (/no such table:\\s*oa_expense_category/i.test(message)) return [...EXPENSE_CATEGORIES];
+    throw error;
+  }
 }
 async function expenseCategory(value: unknown) {
   const raw=text(value,100);
