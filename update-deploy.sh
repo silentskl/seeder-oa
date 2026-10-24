@@ -23,6 +23,21 @@ if(!cfg.name || cfg.name==='seeder' || !db || !db.database_id || !db.database_na
 }
 console.log('Deployment target:',cfg.name,'D1:',db.database_name,'R2:',bucket.bucket_name);
 NODE
+# Ensure the application source matches the overlay being published.
+OVERLAY_CONSOLE="$ROOT/overlay/components/oa/oa-console.tsx"
+APP_CONSOLE="$APP/components/oa/oa-console.tsx"
+[[ -f "$OVERLAY_CONSOLE" && -f "$APP_CONSOLE" ]] || { echo "ERROR: OA console missing from overlay or app. Run apply-to-existing.sh first." >&2; exit 1; }
+if ! cmp -s "$OVERLAY_CONSOLE" "$APP_CONSOLE"; then
+  echo "ERROR: application OA console differs from the checked-out overlay." >&2
+  echo "Run: bash \"$ROOT/apply-to-existing.sh\" \"$APP\" (or OA_SKIP_DEPLOY=1 first)." >&2
+  exit 1
+fi
+if ! grep -q 'Current claim · Expense items' "$APP_CONSOLE" || ! grep -q 'Claim history (' "$APP_CONSOLE"; then
+  echo "ERROR: OA console does not contain the claim-workspace UI. Update the overlay checkout first." >&2
+  exit 1
+fi
+printf '[DEPLOY] Verified OA frontend source SHA256: '
+shasum -a 256 "$APP_CONSOLE" | awk '{print $1}'
 echo "[DEPLOY] Checking Cloudflare access and D1 migration state..."
 npx wrangler whoami
 # Do not apply unreviewed SQL to an existing production database.
