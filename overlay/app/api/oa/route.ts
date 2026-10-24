@@ -32,10 +32,15 @@ function emailAddress(value: unknown, required = false) {
 const MEDICAL_INSURANCE_CATEGORY = "Medical Insurance";
 const EXPENSE_CATEGORIES = ["Travel","Meals","Transport","Accommodation","Office","Telecom","Client entertainment",MEDICAL_INSURANCE_CATEGORY,"Other"] as const;
 
-function expenseCategory(value: unknown) {
-  const raw = text(value, 100);
-  const match = EXPENSE_CATEGORIES.find((x) => x.toLowerCase() === raw.toLowerCase());
-  if (!match) throw new Error("Invalid expense category");
+async function activeExpenseCategories():Promise<string[]> {
+  const rows=await all<{name:string}>(`SELECT name FROM oa_expense_category WHERE active=1 ORDER BY sort_order,name`);
+  return rows.map(r=>r.name);
+}
+async function expenseCategory(value: unknown) {
+  const raw=text(value,100);
+  const categories=await activeExpenseCategories();
+  const match=categories.find(x=>x.toLowerCase()===raw.toLowerCase());
+  if(!match)throw new Error("Invalid or inactive expense category");
   return match;
 }
 
@@ -204,7 +209,7 @@ export async function GET(request: NextRequest) {
       );
       const s = await settings();
       const managed = await one<{n:number}>(`SELECT COUNT(*) AS n FROM oa_employee WHERE manager_user_id=? AND active=1`, [viewer.id]);
-      return ok({ viewer, admin, isManager: Number(managed?.n ?? 0) > 0, employee, leaveSummary: await leaveSummary(viewer.id), medicalInsuranceSummary: await medicalInsuranceSummary(viewer.id), settings: s, currencies: COMMON_CURRENCIES, expenseCategories: EXPENSE_CATEGORIES });
+      return ok({ viewer, admin, isManager: Number(managed?.n ?? 0) > 0, employee, leaveSummary: await leaveSummary(viewer.id), medicalInsuranceSummary: await medicalInsuranceSummary(viewer.id), settings: s, currencies: COMMON_CURRENCIES, expenseCategories: await activeExpenseCategories() });
     }
 
     if (resource === "leave") {
@@ -228,6 +233,11 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    if (resource === "expenseCategories") {
+      if (!admin) return fail("Forbidden",403);
+      return ok(await all<{name:string;active:number;sort_order:number}>(`SELECT name,active,sort_order FROM oa_expense_category ORDER BY sort_order,name`));
+    }
+
     if (resource === "expenses") {
       return ok({
         claims: await withExpenseItems(await all(
@@ -245,7 +255,7 @@ export async function GET(request: NextRequest) {
         ),
         medicalInsuranceSummary: await medicalInsuranceSummary(viewer.id),
         categorySummary: await expenseCategorySummary(viewer.id),
-        categories: EXPENSE_CATEGORIES,
+        categories: await activeExpenseCategories(),
       });
     }
 
@@ -287,7 +297,7 @@ export async function GET(request: NextRequest) {
            FROM oa_expense_claim x JOIN user u ON u.id=x.user_id
            LEFT JOIN oa_employee e ON e.user_id=x.user_id
            ORDER BY x.submitted_at DESC LIMIT 300`) : [],
-        expenseCategories: EXPENSE_CATEGORIES,
+        expenseCategories: await activeExpenseCategories(),
         settings: await settings(),
       });
     }
@@ -341,6 +351,25 @@ export async function POST(request: NextRequest) {
     const body = await request.json() as Record<string, any>;
     const action = text(body.action, 80);
     await ensureEmployee(viewer.id);
+
+    if (action === "manageExpenseCategory") {
+      if (!admin) return fail("Forbidden",403);
+      const operation=text(body.operation,20);
+      const name=text(body.name,100);
+      if(!name || name.length>100) return fail("Category name is required");
+      if(operation==="add"){
+        if(!/^[\\p{L}\\p{N}][\\p{L}\\p{N} &()'.,\\/_-]*$/u.test(name))return fail("Invalid category name");
+        const existing=await one<{name:string}>(`SELECT name FROM oa_expense_category WHERE name=? COLLATE NOCASE`,[name]);
+        if(existing)return fail("Category already exists; reactivate it instead",409);
+        await run(`INSERT INTO oa_expense_category(name,sort_order) VALUES(?,COALESCE((SELECT MAX(sort_order)+10 FROM oa_expense_category),10))`,[name]);
+      } else if(operation==="activate"||operation==="deactivate"){
+        if(name===MEDICAL_INSURANCE_CATEGORY && operation==="deactivate")return fail("Medical Insurance is a protected category",409);
+        const result=await run(`UPDATE oa_expense_category SET active=? WHERE name=?`,[operation==="activate"?1:0,name]);
+        if(!result.meta?.changes)return fail("Category not found",404);
+      } else return fail("Unsupported category operation");
+      await audit(viewer.id,action,"expense_category",name,{operation});
+      return ok({updated:true});
+    }
 
     if (action === "syncEmployees") {
       if (!admin) return fail("Forbidden", 403);
@@ -427,7 +456,7 @@ export async function POST(request: NextRequest) {
       for(let i=0;i<inputs.length;i++){
         const item=inputs[i];
         const expenseDate=date(item.expenseDate);
-        const category=expenseCategory(item.category);
+        const category=await expenseCategory(item.category);
         if(category===MEDICAL_INSURANCE_CATEGORY && reimbursementCurrency!==payrollCurrency)
           return fail(`Medical Insurance requires payroll currency ${payrollCurrency}`);
         const description=text(item.description,2000);
@@ -480,7 +509,7 @@ export async function POST(request: NextRequest) {
 
     if (action === "createExpense") {
       const expenseDate = date(body.expenseDate);
-      const category = expenseCategory(body.category || "Other");
+      const category = await expenseCategory(body.category || "Other");
       const originalCurrency = normalizeCurrency(body.originalCurrency);
       const employee = await ensureEmployee(viewer.id);
       const payrollCurrency = normalizeCurrency(employee?.payroll_currency || "SGD");
@@ -535,7 +564,7 @@ export async function POST(request: NextRequest) {
     if (action === "updateExpenseCategory") {
       if (!admin) return fail("Forbidden",403);
       const id=text(body.id,100);
-      const category=expenseCategory(body.category);
+      const category=await expenseCategory(body.category);
       const claim=await one<any>(
         `SELECT x.*,e.payroll_currency FROM oa_expense_claim x
          LEFT JOIN oa_employee e ON e.user_id=x.user_id WHERE x.id=?`,
