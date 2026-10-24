@@ -365,7 +365,7 @@ export async function POST(request: NextRequest) {
       const name=text(body.name,100);
       if(!name || name.length>100) return fail("Category name is required");
       if(operation==="add"){
-        if(!/^[\\p{L}\\p{N}][\\p{L}\\p{N} &()'.,\\/_-]*$/u.test(name))return fail("Invalid category name");
+        if(!/^[\p{L}\p{N}][\p{L}\p{N} &()'.,/_-]*$/u.test(name))return fail("Invalid category name");
         const existing=await one<{name:string}>(`SELECT name FROM oa_expense_category WHERE name=? COLLATE NOCASE`,[name]);
         if(existing)return fail("Category already exists; reactivate it instead",409);
         await run(`INSERT INTO oa_expense_category(name,sort_order) VALUES(?,COALESCE((SELECT MAX(sort_order)+10 FROM oa_expense_category),10))`,[name]);
