@@ -162,6 +162,8 @@ Admin mode:
 
 The overlay repository is **not** the Next.js app. Run npm commands in `seeder-oa-app/` (which contains `package.json`), not in the overlay repository root.
 
+**Production Worker:** `smarten-oa` owns the custom domain `oa.smartenx.com`. The legacy `seeder-oa` Worker is **not** the production deployment target. `update-deploy.sh` automatically normalizes the application `wrangler.jsonc` Worker `name` from `seeder-oa` to `smarten-oa` before building, refuses any other name, and preserves D1/R2 binding entries. Before the first publish to `smarten-oa`, compare its existing bindings and secrets in Cloudflare Dashboard against the intended configuration; `--keep-vars` does not protect against incorrect bindings or missing secrets. Keep the legacy Worker until login, expenses, attachments and approvals are verified on the custom domain.
+
 ### Existing installation: apply and automatically deploy
 
 ```bash
@@ -190,7 +192,7 @@ bash update-deploy.sh /Users/sklang/Documents/work/seeder-oa/seeder-oa-app
 ### First-time production configuration and preflight
 
 1. Log into the intended Cloudflare account with `npx wrangler whoami` and inspect its resources with `npx wrangler d1 list` and `npx wrangler r2 bucket list`.
-2. In `seeder-oa-app/wrangler.jsonc`, set the correct Worker `name`, existing D1 `PM_DB` `database_name` and `database_id`, and R2 `UPLOADS` bucket name. Do **not** use the upstream defaults (`seeder`, `seeder-uploads`) or guess a database ID. Confirm which environment is production, especially when both `seeder-oa` and `smarten-oa` resources exist. Use a separate preview database rather than binding preview operations to production.
+2. In `seeder-oa-app/wrangler.jsonc`, set the production Worker `name` to `smarten-oa`, existing D1 `PM_DB` `database_name` and `database_id`, and R2 `UPLOADS` bucket name. Do **not** use the upstream defaults (`seeder`, `seeder-uploads`) or guess a database ID. Confirm which environment is production, especially when both `seeder-oa` and `smarten-oa` resources exist. Use a separate preview database rather than binding preview operations to production.
 3. Inspect current remote migration history **before changing any database**:
 
 ```bash
