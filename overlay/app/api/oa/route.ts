@@ -373,6 +373,7 @@ export async function GET(request: NextRequest) {
     return fail("Unknown resource", 404);
   } catch (error) {
     if (error instanceof Error && error.message === "UNAUTHORIZED") return fail("Unauthorized", 401);
+    if (error instanceof EntityAccessError) return fail(error.message,error.status);
     console.error("OA GET failed", error);
     return fail(error instanceof Error ? error.message : "OA request failed", 500);
   }
@@ -434,6 +435,7 @@ export async function POST(request: NextRequest) {
       if (!Number.isFinite(leaveDays) || leaveDays < 0 || leaveDays > 365) return fail("Invalid annual leave entitlement");
       const medicalInsuranceLimitMinor = majorToMinor(body.medicalInsuranceLimit || 0, payrollCurrency);
       const managerId = text(body.managerUserId, 200) || null;
+      if (managerId && !(await one(`SELECT user_id FROM oa_entity_member WHERE entity_id=? AND user_id=? AND active=1`,[LEGACY_ENTITY_ID,managerId]))) return fail("Manager must belong to the same Entity",403);
       if (managerId === userId) return fail("Employee cannot be their own manager");
       const baseSalaryMinor = majorToMinor(body.baseSalary || 0, payrollCurrency);
       const salaryPeriod = text(body.salaryPeriod || "monthly", 20);
