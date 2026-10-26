@@ -408,27 +408,27 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "syncEmployees") {
-      if (!admin) return fail("Forbidden", 403);
-      const s = await settings();
+      if (!admin) return fail("Forbidden",403);
+      // Sync only explicitly enrolled people. Never enroll every Seeder user
+      // into the selected company simply because they exist in the login DB.
+      const config=await settings();
       await run(
         `INSERT OR IGNORE INTO oa_employee(user_id,annual_leave_days,payroll_currency,reimbursement_currency,entity_id)
-         SELECT id,?,?,?,'legacy-primary' FROM user WHERE id <> 'vcs-bot'`,
-        [Number(s?.default_annual_leave_days ?? 14), s?.base_currency ?? "SGD", s?.base_currency ?? "SGD"],
+         SELECT m.user_id,?,?,?,'legacy-primary'
+         FROM oa_entity_member m JOIN user u ON u.id=m.user_id
+         WHERE m.entity_id=? AND m.active=1`,
+        [Number(config?.default_annual_leave_days ?? 14),config?.base_currency ?? "SGD",config?.base_currency ?? "SGD",LEGACY_ENTITY_ID],
       );
-      await run(`INSERT OR IGNORE INTO oa_entity_member(entity_id,user_id,role)
-        SELECT ?,e.user_id,'employee' FROM oa_employee e
-        JOIN user u ON u.id=e.user_id`,[LEGACY_ENTITY_ID]);
-      await audit(viewer.id, action, "employee", null);
-      return ok({ synced: true });
+      await audit(viewer.id,action,"employee",null,{scope:LEGACY_ENTITY_ID,enrollment:"existing-members-only"});
+      return ok({synced:true});
     }
 
     if (action === "updateEmployee") {
       if (!admin) return fail("Forbidden", 403);
       const userId = text(body.userId, 200); if (!userId) return fail("userId is required");
+      const member=await one<{user_id:string}>(`SELECT user_id FROM oa_entity_member WHERE entity_id=? AND user_id=? AND active=1`,[LEGACY_ENTITY_ID,userId]);
+      if(!member)return fail("Employee is not enrolled in this Entity",404);
       await ensureEmployee(userId);
-      // Explicit primary-entity enrollment for an administrator-added employee.
-      await run(`INSERT OR IGNORE INTO oa_entity_member(entity_id,user_id,role)
-                 SELECT ?,id,'employee' FROM user WHERE id=?`,[LEGACY_ENTITY_ID,userId]);
       const payrollCurrency = normalizeCurrency(body.payrollCurrency || "SGD");
       const reimbursementCurrency = normalizeCurrency(body.reimbursementCurrency || payrollCurrency);
       const leaveDays = Number(body.annualLeaveDays);
@@ -701,6 +701,8 @@ export async function POST(request: NextRequest) {
     if (action === "createPayslip") {
       if (!admin) return fail("Forbidden",403);
       const userId=text(body.userId,200); if (!userId) return fail("Employee is required");
+      const member=await one<{user_id:string}>(`SELECT user_id FROM oa_entity_member WHERE entity_id=? AND user_id=? AND active=1`,[LEGACY_ENTITY_ID,userId]);
+      if(!member)return fail("Employee is not enrolled in this Entity",404);
       await ensureEmployee(userId);
       const employeeProfile=await one<any>(
         `SELECT e.*,u.name,u.email FROM oa_entity_employee e JOIN user u ON u.id=e.user_id WHERE e.user_id=? AND e.entity_id='legacy-primary'`,
