@@ -122,7 +122,7 @@ echo "$PENDING"
 # Whitelist only migrations reviewed for this production upgrade.
 MIGRATIONS="$(printf '%s\n' "$PENDING" | grep -Eo '[0-9]{4}_[[:alnum:]_-]+\\.sql' | sort -u || true)"
 if [[ -n "$MIGRATIONS" ]]; then
-  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles)\\.sql$' || true)"
+  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles|9014_email_log_company)\\.sql$' || true)"
   if [[ -n "$UNKNOWN" ]]; then
     echo "ERROR: unexpected pending migrations: $UNKNOWN" >&2
     exit 1
@@ -174,6 +174,12 @@ EMPLOYEE_SCOPE_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT
 echo "$EMPLOYEE_SCOPE_CHECK"
 if ! printf '%s\\n' "$EMPLOYEE_SCOPE_CHECK" | grep -Eq '(^|[[:space:]│])1([[:space:]│]|$)'; then
   echo "ERROR: composite employee profile table missing; refusing deployment." >&2
+  exit 1
+fi
+EMAIL_SCOPE_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM pragma_table_info('oa_email_log') WHERE name='company_entity_id';" 2>&1)" || { echo "$EMAIL_SCOPE_CHECK" >&2; exit 1; }
+echo "$EMAIL_SCOPE_CHECK"
+if ! printf '%s\\n' "$EMAIL_SCOPE_CHECK" | grep -Eq '(^|[[:space:]│])1([[:space:]│]|$)'; then
+  echo "ERROR: email log company ownership missing; refusing deployment." >&2
   exit 1
 fi
 # Verify the schema actually exists, even when Wrangler's migration ledger is out of sync.
