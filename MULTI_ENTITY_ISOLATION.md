@@ -156,6 +156,16 @@ The OA invitation registration form sends `x-oa-invite-token` with its Better Au
 
 Run `bash scripts/update-multi-entity.sh --check ./seeder-oa-app` to reapply the patch and validate syntax/type/build; follow with the guarded `--deploy` command only after a successful check. An invitation link already issued remains valid until expiry and should be reusable after the fix if it has not been accepted or revoked.
 
+## CRITICAL: legacy company ownership incident (2026-10-26)
+
+A production report showed claims originating from Smarten visible while the company selector displayed WISEWAVE. Migration 9011 assigned every legacy OA claim to `legacy-primary`; migration 9010 mapped the previous settings/company name to that same entity. Thus Entity-scoped query filters can be syntactically correct yet still expose records owned by different actual legal companies.
+
+**Emergency source safeguard:** `overlay/app/api/oa/route.ts` returns HTTP 423 for legacy-primary company-wide `approvals`, `expenseHistory`, `admin-payslips` and `employees` and blocks sensitive legacy admin mutations until finance/HR owners have verified and corrected ownership. This deliberately disrupts administrative legacy workflows while avoiding record deletion or silent relabeling. The change must be deployed to affect live access. Disabling `OA_MULTI_ENTITY_BUSINESS_ENABLED` alone does not protect incorrectly classified legacy rows.
+
+**Read-only discovery:** `bash scripts/audit-entity-ownership.sh ./seeder-oa-app` queries the configured production D1 for companies, employee and membership totals, claims by status, email-domain claim summaries, and payroll totals. Domain grouping is investigative only, **not** proof of company ownership.
+
+**Required repair workflow:** preserve a D1 export first; obtain authoritative original company-to-employee/Claim and invoice attribution; identify truly misclassified records; create/verify destination Entity and its authorized managers; plan transactional ownership corrections across `oa_expense_claim`, `oa_expense_item`, `oa_approval_step.company_entity_id`, file metadata, payslips, leave and audit/email logs; inspect cross-company references and R2 paths; test in a restored staging snapshot; and only after written ownership signoff release the emergency hold. Never blindly reassign by email-domain alone or bulk change all `legacy-primary` records.
+
 ## Non-negotiable invariants
 1. Existing smarten-oa D1 data remains owned by one legacy entity; no destructive resets.
 2. Every business request resolves an authenticated entity membership on the server; client-provided entity_id is never authorization.
