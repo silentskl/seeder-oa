@@ -354,3 +354,17 @@ export async function sendPasswordResetConfirmationEmail(to: UserRef) {
     ignoreEnabled: true,
   });
 }
+
+/** Send an explicit, company-scoped OA invitation using the existing Resend settings. */
+export async function sendEntityInvitationEmail(companyId:string,email:string,inviteUrl:string,role:string){
+  const config=await emailSettings(companyId);
+  if(!config)throw new Error("Entity email settings are missing");
+  return sendOne({
+    to:{id:"",name:null,email},
+    subject:`[${config.company_name}] Invitation to join OA`,
+    text:`You have been invited to join ${config.company_name} OA as ${role}. Open your one-time invitation link:\n\n${inviteUrl}\n\nThe link expires in 7 days. If you did not expect this invitation, ignore this email.`,
+    html:wrapHtml(config.company_name,"OA invitation",`<p>You have been invited to join <strong>${escapeHtml(config.company_name)}</strong> OA as ${escapeHtml(role)}.</p><p><a href="${escapeHtml(inviteUrl)}">Accept invitation</a></p><p>The invitation expires in 7 days.</p>`),
+    eventKey:`entity-invite:${crypto.randomUUID()}`,
+    companyId,entityType:"test",entityId:null,strict:true,
+  });
+}
