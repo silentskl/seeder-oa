@@ -71,7 +71,7 @@ async function ensureEmployee(userId: string) {
      VALUES(?,?,?,?)`,
     [userId, Number(s?.default_annual_leave_days ?? 14), s?.base_currency ?? "SGD", s?.base_currency ?? "SGD"],
   );
-  return one<any>(`SELECT * FROM oa_employee WHERE user_id=?`, [userId]);
+  return one<any>(`SELECT * FROM oa_employee WHERE user_id=? AND entity_id=?`, [userId,LEGACY_ENTITY_ID]);
 }
 
 async function leaveSummary(userId: string) {
@@ -81,13 +81,13 @@ async function leaveSummary(userId: string) {
   const approved = await one<{days:number|null}>(
     `SELECT SUM(l.business_days) AS days FROM oa_leave_request l
      JOIN oa_leave_type t ON t.code=l.leave_type_code
-     WHERE l.user_id=? AND l.status='approved' AND t.deducts_annual=1 AND l.start_date BETWEEN ? AND ?`,
+     WHERE l.entity_id='legacy-primary' AND l.user_id=? AND l.status='approved' AND t.deducts_annual=1 AND l.start_date BETWEEN ? AND ?`,
     [userId, from, to],
   );
   const pending = await one<{days:number|null}>(
     `SELECT SUM(l.business_days) AS days FROM oa_leave_request l
      JOIN oa_leave_type t ON t.code=l.leave_type_code
-     WHERE l.user_id=? AND l.status='submitted' AND t.deducts_annual=1 AND l.start_date BETWEEN ? AND ?`,
+     WHERE l.entity_id='legacy-primary' AND l.user_id=? AND l.status='submitted' AND t.deducts_annual=1 AND l.start_date BETWEEN ? AND ?`,
     [userId, from, to],
   );
   const entitlement = Number(employee?.annual_leave_days ?? 0);
@@ -117,7 +117,7 @@ async function medicalInsuranceSummary(userId: string, yearInput?: number) {
     `SELECT id,expense_date,status,original_amount_minor,original_currency,
             medical_insurance_amount_minor,medical_insurance_currency
      FROM oa_expense_claim
-     WHERE user_id=? AND category=? AND expense_date BETWEEN ? AND ?
+     WHERE entity_id='legacy-primary' AND user_id=? AND category=? AND expense_date BETWEEN ? AND ?
        AND status IN ('submitted','approved','paid')`,
     [userId, MEDICAL_INSURANCE_CATEGORY, from, to],
   );
@@ -156,7 +156,7 @@ async function expenseCategorySummary(userId: string, yearInput?: number) {
             i.reimbursement_amount_minor AS item_amount_minor
      FROM oa_expense_claim c
      LEFT JOIN oa_expense_item i ON i.claim_id=c.id
-     WHERE c.user_id=? AND c.status IN ('submitted','approved','paid')
+     WHERE c.entity_id='legacy-primary' AND c.user_id=? AND c.status IN ('submitted','approved','paid')
        AND (i.expense_date BETWEEN ? AND ? OR (i.id IS NULL AND c.expense_date BETWEEN ? AND ?))
      ORDER BY c.id,i.sort_order`,
     [userId, from, to, from, to],
@@ -190,7 +190,7 @@ async function withExpenseItems<T extends Record<string,unknown>>(claims:T[]):Pr
     FROM oa_expense_item i
     LEFT JOIN oa_expense_item_document d ON d.item_id=i.id
     LEFT JOIN oa_file f ON f.id=d.file_id
-    WHERE i.claim_id IN (${placeholders}) ORDER BY i.claim_id,i.sort_order,i.id`,ids);
+    WHERE i.entity_id='legacy-primary' AND i.claim_id IN (${placeholders}) ORDER BY i.claim_id,i.sort_order,i.id`,ids);
   const grouped=new Map<string,any[]>();
   for(const row of items){
     const bucket=grouped.get(row.claim_id)||[];
@@ -214,7 +214,7 @@ export async function GET(request: NextRequest) {
       const employee = await one<any>(
         `SELECT e.*, u.name, u.email, m.name AS manager_name
          FROM oa_employee e JOIN user u ON u.id=e.user_id
-         LEFT JOIN user m ON m.id=e.manager_user_id WHERE e.user_id=?`, [viewer.id],
+         LEFT JOIN user m ON m.id=e.manager_user_id WHERE e.user_id=? AND e.entity_id=?`, [viewer.id,LEGACY_ENTITY_ID],
       );
       const s = await settings();
       const managed = await one<{n:number}>(`SELECT COUNT(*) AS n FROM oa_employee WHERE manager_user_id=? AND active=1`, [viewer.id]);
@@ -229,14 +229,14 @@ export async function GET(request: NextRequest) {
           `SELECT l.*, t.name AS leave_type_name, f.original_name AS attachment_name
            FROM oa_leave_request l JOIN oa_leave_type t ON t.code=l.leave_type_code
            LEFT JOIN oa_file f ON f.id=l.attachment_file_id
-           WHERE l.user_id=? ORDER BY l.submitted_at DESC LIMIT 100`, [viewer.id],
+           WHERE l.entity_id='legacy-primary' AND l.user_id=? ORDER BY l.submitted_at DESC LIMIT 100`, [viewer.id],
         ),
         approvalSteps: await all(
           `SELECT s.*,du.name AS decided_by_name,au.name AS assigned_user_name
            FROM oa_approval_step s
            LEFT JOIN user du ON du.id=s.decided_by
            LEFT JOIN user au ON au.id=s.assigned_user_id
-           WHERE s.entity_type='leave' AND s.entity_id IN (SELECT id FROM oa_leave_request WHERE user_id=?)
+           WHERE s.company_entity_id='legacy-primary' AND s.entity_type='leave' AND s.entity_id IN (SELECT id FROM oa_leave_request WHERE entity_id='legacy-primary' AND user_id=?)
            ORDER BY s.entity_id,s.step_no`, [viewer.id],
         ),
       });
@@ -252,14 +252,14 @@ export async function GET(request: NextRequest) {
         claims: await withExpenseItems(await all(
           `SELECT e.*, f.original_name AS receipt_name FROM oa_expense_claim e
            LEFT JOIN oa_file f ON f.id=e.receipt_file_id
-           WHERE e.user_id=? ORDER BY e.submitted_at DESC LIMIT 100`, [viewer.id],
+           WHERE e.entity_id='legacy-primary' AND e.user_id=? ORDER BY e.submitted_at DESC LIMIT 100`, [viewer.id],
         )),
         approvalSteps: await all(
           `SELECT s.*,du.name AS decided_by_name,au.name AS assigned_user_name
            FROM oa_approval_step s
            LEFT JOIN user du ON du.id=s.decided_by
            LEFT JOIN user au ON au.id=s.assigned_user_id
-           WHERE s.entity_type='expense' AND s.entity_id IN (SELECT id FROM oa_expense_claim WHERE user_id=?)
+           WHERE s.company_entity_id='legacy-primary' AND s.entity_type='expense' AND s.entity_id IN (SELECT id FROM oa_expense_claim WHERE entity_id='legacy-primary' AND user_id=?)
            ORDER BY s.entity_id,s.step_no`, [viewer.id],
         ),
         medicalInsuranceSummary: await medicalInsuranceSummary(viewer.id),
@@ -275,7 +275,7 @@ export async function GET(request: NextRequest) {
          FROM oa_payslip p JOIN user u ON u.id=p.user_id
          LEFT JOIN oa_employee e ON e.user_id=p.user_id
          LEFT JOIN oa_file f ON f.id=p.attachment_file_id
-         WHERE p.user_id=? AND p.status='published' ORDER BY p.pay_date DESC LIMIT 100`, [viewer.id],
+         WHERE p.entity_id='legacy-primary' AND p.user_id=? AND p.status='published' ORDER BY p.pay_date DESC LIMIT 100`, [viewer.id],
       ));
     }
 
@@ -291,16 +291,16 @@ export async function GET(request: NextRequest) {
            FROM oa_approval_step s
            JOIN oa_leave_request l ON l.id=s.entity_id AND s.entity_type='leave'
            JOIN user u ON u.id=l.user_id JOIN oa_leave_type t ON t.code=l.leave_type_code
-           WHERE ${stepFilter} AND l.status='submitted' ORDER BY l.submitted_at`, params),
+           WHERE ${stepFilter} AND s.company_entity_id='legacy-primary' AND l.entity_id='legacy-primary' AND l.status='submitted' ORDER BY l.submitted_at`, params),
         expenses: await withExpenseItems(await all(
           `SELECT x.*,u.name,u.email,s.step_no,s.approver_type,s.assigned_user_id
            FROM oa_approval_step s
            JOIN oa_expense_claim x ON x.id=s.entity_id AND s.entity_type='expense'
            JOIN user u ON u.id=x.user_id
-           WHERE ${stepFilter} AND x.status='submitted' ORDER BY x.submitted_at`, params)),
+           WHERE ${stepFilter} AND s.company_entity_id='legacy-primary' AND x.entity_id='legacy-primary' AND x.status='submitted' ORDER BY x.submitted_at`, params)),
         approvedExpenses: admin ? await withExpenseItems(await all(
           `SELECT x.*,u.name,u.email FROM oa_expense_claim x JOIN user u ON u.id=x.user_id
-           WHERE x.status='approved' ORDER BY x.decided_at,x.submitted_at`)) : [],
+           WHERE x.entity_id='legacy-primary' AND x.status='approved' ORDER BY x.decided_at,x.submitted_at`)) : [],
         expenseCategories: await activeExpenseCategories(),
         settings: await settings(),
       });
@@ -315,7 +315,7 @@ export async function GET(request: NextRequest) {
       const from=text(query.get("from")||"",10);
       const to=text(query.get("to")||"",10);
       if ((from&&!/^\d{4}-\d{2}-\d{2}$/.test(from))||(to&&!/^\d{4}-\d{2}-\d{2}$/.test(to)))return fail("Invalid date",400);
-      const where=["1=1"],params:any[]=[];
+      const where=["x.entity_id='legacy-primary'"],params:any[]=[];
       if(userId&&userId!=="ALL"){where.push("x.user_id=?");params.push(userId);}
       if(from){where.push("x.expense_date>=?");params.push(from);}
       if(to){where.push("x.expense_date<=?");params.push(to);}
@@ -345,7 +345,7 @@ export async function GET(request: NextRequest) {
                 e.employment_type,e.work_location,e.base_salary_minor,e.salary_period,e.salary_effective_date,
                 m.name AS manager_name
          FROM user u LEFT JOIN oa_employee e ON e.user_id=u.id LEFT JOIN user m ON m.id=e.manager_user_id
-         WHERE u.id <> 'vcs-bot'
+         WHERE u.id <> 'vcs-bot' AND e.entity_id='legacy-primary'
          ORDER BY COALESCE(e.active,1) DESC,u.name,u.email`,
       ));
     }
@@ -355,7 +355,7 @@ export async function GET(request: NextRequest) {
       return ok(await all(
         `SELECT p.*,u.name,u.email,e.employee_no AS current_employee_no,e.join_date AS current_join_date,f.original_name AS attachment_name FROM oa_payslip p
          JOIN user u ON u.id=p.user_id LEFT JOIN oa_employee e ON e.user_id=p.user_id LEFT JOIN oa_file f ON f.id=p.attachment_file_id
-         ORDER BY p.pay_date DESC,p.created_at DESC LIMIT 200`,
+         WHERE p.entity_id='legacy-primary' ORDER BY p.pay_date DESC,p.created_at DESC LIMIT 200`,
       ));
     }
 
@@ -462,7 +462,7 @@ export async function POST(request: NextRequest) {
       const days = await businessDays(startDate, endDate, dayPart);
       const fileId = text(body.attachmentFileId, 100) || null;
       if (fileId) {
-        const file = await one<{owner_user_id:string}>(`SELECT owner_user_id FROM oa_file WHERE id=?`,[fileId]);
+        const file = await one<{owner_user_id:string}>(`SELECT owner_user_id FROM oa_file WHERE id=? AND entity_id=?`,[fileId,LEGACY_ENTITY_ID]);
         if (!file || file.owner_user_id !== viewer.id) return fail("Invalid attachment");
       }
       const id = crypto.randomUUID();
@@ -479,7 +479,7 @@ export async function POST(request: NextRequest) {
 
     if (action === "cancelLeave") {
       const id = text(body.id,100);
-      const result = await run(`UPDATE oa_leave_request SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND status='submitted'`,[id,viewer.id]);
+      const result = await run(`UPDATE oa_leave_request SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND entity_id='legacy-primary' AND status='submitted'`,[id,viewer.id]);
       if (!result.meta?.changes) return fail("Leave request cannot be cancelled",409);
       await cancelApprovalWorkflow("leave", id);
       await audit(viewer.id, action, "leave", id); return ok({ cancelled:true });
@@ -509,7 +509,7 @@ export async function POST(request: NextRequest) {
         if(!Array.isArray(docs)||docs.length>20||new Set(docs).size!==docs.length) return fail("Invalid item documents");
         for(const fileId of docs){
           if(typeof fileId!=="string"||!fileId||fileId.length>100) return fail("Invalid file ID");
-          const file=await one<{owner_user_id:string;kind:string}>(`SELECT owner_user_id,kind FROM oa_file WHERE id=?`,[fileId]);
+          const file=await one<{owner_user_id:string;kind:string}>(`SELECT owner_user_id,kind FROM oa_file WHERE id=? AND entity_id=?`,[fileId,LEGACY_ENTITY_ID]);
           if(!file||file.owner_user_id!==viewer.id||file.kind!=="receipt") return fail("Invalid receipt document",403);
         }
         const fx=await getFxQuote(originalCurrency,reimbursementCurrency,expenseDate);
@@ -574,7 +574,7 @@ export async function POST(request: NextRequest) {
       }
       const fileId = text(body.receiptFileId,100)||null;
       if (fileId) {
-        const file=await one<{owner_user_id:string}>(`SELECT owner_user_id FROM oa_file WHERE id=?`,[fileId]);
+        const file=await one<{owner_user_id:string}>(`SELECT owner_user_id FROM oa_file WHERE id=? AND entity_id=?`,[fileId,LEGACY_ENTITY_ID]);
         if (!file || file.owner_user_id!==viewer.id) return fail("Invalid receipt");
       }
       const id=crypto.randomUUID();
@@ -596,7 +596,7 @@ export async function POST(request: NextRequest) {
 
     if (action === "cancelExpense") {
       const id=text(body.id,100);
-      const result=await run(`UPDATE oa_expense_claim SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND status='submitted'`,[id,viewer.id]);
+      const result=await run(`UPDATE oa_expense_claim SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND entity_id='legacy-primary' AND status='submitted'`,[id,viewer.id]);
       if (!result.meta?.changes) return fail("Expense cannot be cancelled",409);
       await cancelApprovalWorkflow("expense", id);
       await audit(viewer.id,action,"expense",id); return ok({cancelled:true});
@@ -631,14 +631,14 @@ export async function POST(request: NextRequest) {
          WHERE id=?`,
         [category,medicalInsuranceAmountMinor,medicalInsuranceCurrency,viewer.id,id],
       );
-      await run(`UPDATE oa_expense_item SET category=? WHERE claim_id=?`,[category,id]);
+      await run(`UPDATE oa_expense_item SET category=? WHERE claim_id=? AND entity_id=?`,[category,id,LEGACY_ENTITY_ID]);
       await audit(viewer.id,action,"expense",id,{oldCategory:claim.category,newCategory:category,medicalInsuranceAmountMinor,medicalInsuranceCurrency});
       return ok({updated:true,category});
     }
 
     if (["approveLeave","rejectLeave"].includes(action)) {
       const id=text(body.id,100);
-      const row=await one<{user_id:string;status:string}>(`SELECT user_id,status FROM oa_leave_request WHERE id=?`,[id]);
+      const row=await one<{user_id:string;status:string}>(`SELECT user_id,status FROM oa_leave_request WHERE id=? AND entity_id=?`,[id,LEGACY_ENTITY_ID]);
       if (!row) return fail("Leave request not found",404);
       if (row.status!=="submitted") return fail("Leave request is no longer pending",409);
       await createApprovalWorkflow("leave", id, row.user_id);
@@ -664,7 +664,7 @@ export async function POST(request: NextRequest) {
 
     if (["approveExpense","rejectExpense"].includes(action)) {
       const id=text(body.id,100);
-      const row=await one<{user_id:string;status:string}>(`SELECT user_id,status FROM oa_expense_claim WHERE id=?`,[id]);
+      const row=await one<{user_id:string;status:string}>(`SELECT user_id,status FROM oa_expense_claim WHERE id=? AND entity_id=?`,[id,LEGACY_ENTITY_ID]);
       if (!row) return fail("Expense not found",404);
       if (row.status!=="submitted") return fail("Expense is no longer pending",409);
       await createApprovalWorkflow("expense", id, row.user_id);
@@ -701,7 +701,7 @@ export async function POST(request: NextRequest) {
       const userId=text(body.userId,200); if (!userId) return fail("Employee is required");
       await ensureEmployee(userId);
       const employeeProfile=await one<any>(
-        `SELECT e.*,u.name,u.email FROM oa_employee e JOIN user u ON u.id=e.user_id WHERE e.user_id=?`,
+        `SELECT e.*,u.name,u.email FROM oa_employee e JOIN user u ON u.id=e.user_id WHERE e.user_id=? AND e.entity_id='legacy-primary'`,
         [userId],
       );
       if (!employeeProfile) return fail("Employee profile not found",404);
@@ -745,7 +745,7 @@ export async function POST(request: NextRequest) {
       const netReporting=convertMinor(net,currency,reportingCurrency,fx.rate);
       const attachmentId=text(body.attachmentFileId,100)||null;
       if (attachmentId) {
-        const file=await one<{owner_user_id:string}>(`SELECT owner_user_id FROM oa_file WHERE id=?`,[attachmentId]);
+        const file=await one<{owner_user_id:string}>(`SELECT owner_user_id FROM oa_file WHERE id=? AND entity_id=?`,[attachmentId,LEGACY_ENTITY_ID]);
         if (!file || file.owner_user_id!==userId) return fail("Payslip attachment must belong to the employee");
       }
       const id=crypto.randomUUID();
