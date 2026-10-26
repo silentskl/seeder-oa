@@ -53,3 +53,25 @@ SELECT id,'legacy-primary',holiday_date,name,created_by FROM oa_holiday;
 -- This migration does not change legacy oa_settings or oa_holiday in place.
 -- No new entity can become active until the application reads/writes these
 -- company-scoped tables exclusively and the isolation suite passes.
+
+-- Preserve legacy UI writes while reads transition to entity settings.
+CREATE TRIGGER IF NOT EXISTS oa_legacy_settings_to_entity_update
+AFTER UPDATE ON oa_settings WHEN NEW.id=1
+BEGIN
+ INSERT INTO oa_entity_settings(entity_id,company_name,base_currency,fx_provider,default_annual_leave_days,leave_approval_flow,expense_approval_flow,email_enabled,email_provider,email_from_name,email_from_address,email_reply_to,email_api_key_encrypted,updated_at)
+ VALUES('legacy-primary',NEW.company_name,NEW.base_currency,NEW.fx_provider,NEW.default_annual_leave_days,NEW.leave_approval_flow,NEW.expense_approval_flow,NEW.email_enabled,NEW.email_provider,NEW.email_from_name,NEW.email_from_address,NEW.email_reply_to,NEW.email_api_key_encrypted,CURRENT_TIMESTAMP)
+ ON CONFLICT(entity_id) DO UPDATE SET
+ company_name=excluded.company_name,
+ base_currency=excluded.base_currency,
+ fx_provider=excluded.fx_provider,
+ default_annual_leave_days=excluded.default_annual_leave_days,
+ leave_approval_flow=excluded.leave_approval_flow,
+ expense_approval_flow=excluded.expense_approval_flow,
+ email_enabled=excluded.email_enabled,
+ email_provider=excluded.email_provider,
+ email_from_name=excluded.email_from_name,
+ email_from_address=excluded.email_from_address,
+ email_reply_to=excluded.email_reply_to,
+ email_api_key_encrypted=excluded.email_api_key_encrypted,
+ updated_at=CURRENT_TIMESTAMP;
+END;
