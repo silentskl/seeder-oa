@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getViewer, isAdminTier } from "@/lib/auth-server";
-import { all, one, run } from "@/lib/oa/db";
+import { all, one, run, audit } from "@/lib/oa/db";
 import { EntityAccessError, listMyEntities, requireEntityAccess } from "@/lib/oa/entity";
 import { getOaEnv } from "@/lib/oa/env";
 
@@ -49,9 +49,17 @@ export async function POST(request:NextRequest){
         db.prepare(`INSERT INTO oa_entity(id,legal_name,display_name,registration_no,base_currency) VALUES(?,?,?,?,?)`).bind(id,legalName,displayName,clean(data.registrationNo,100),currency),
         db.prepare(`INSERT INTO oa_entity_settings(entity_id,company_name,base_currency) VALUES(?,?,?)`).bind(id,displayName,currency),
         db.prepare(`INSERT INTO oa_entity_member(entity_id,user_id,role) VALUES(?,?,'admin')`).bind(id,viewer.id),
-        db.prepare(`INSERT INTO oa_entity_expense_category(entity_id,name,sort_order) SELECT ?,name,sort_order FROM oa_entity_expense_category WHERE entity_id='legacy-primary' AND active=1`).bind(id),
-        db.prepare(`INSERT INTO oa_entity_leave_type(entity_id,code,name,active,deducts_annual,sort_order) SELECT ?,code,name,active,deducts_annual,sort_order FROM oa_entity_leave_type WHERE entity_id='legacy-primary'`).bind(id),
+        ...([
+          ["Travel",10],["Meals",20],["Transport",30],["Accommodation",40],
+          ["Office",50],["Telecom",60],["Client entertainment",70],
+          ["Medical Insurance",80],["Other",90],
+        ] as const).map(([name,order])=>db.prepare(`INSERT INTO oa_entity_expense_category(entity_id,name,sort_order) VALUES(?,?,?)`).bind(id,name,order)),
+        ...([
+          ["annual","Annual Leave",1,10],["sick","Sick Leave",0,20],
+          ["unpaid","Unpaid Leave",0,30],["compassionate","Compassionate Leave",0,40],
+        ] as const).map(([code,name,deductsAnnual,order])=>db.prepare(`INSERT INTO oa_entity_leave_type(entity_id,code,name,deducts_annual,sort_order) VALUES(?,?,?,?,?)`).bind(id,code,name,deductsAnnual,order)),
       ]);
+      await audit(viewer.id,"createEntity","entity",id,{displayName,legalName},id);
       return ok({id},201);
     }
     if(action==="updateEntity"){
@@ -62,6 +70,7 @@ export async function POST(request:NextRequest){
       const result=await run(`UPDATE oa_entity SET display_name=? WHERE id=?`,[name,entityId]);
       if(!result.meta?.changes)return fail("Entity not found",404);
       await run(`UPDATE oa_entity_settings SET company_name=? WHERE entity_id=?`,[name,entityId]);
+      await audit(viewer.id,"updateEntity","entity",entityId,{displayName:name},entityId);
       return ok({updated:true});
     }
     if(action==="setMember"){
@@ -77,6 +86,7 @@ export async function POST(request:NextRequest){
         if(Number(admins?.n??0)<=1)return fail("Cannot remove the final Entity admin",409);
       }
       await run(`INSERT INTO oa_entity_member(entity_id,user_id,role,active) VALUES(?,?,?,?) ON CONFLICT(entity_id,user_id) DO UPDATE SET role=excluded.role,active=excluded.active`,[entityId,userId,role,isActive?1:0]);
+      await audit(viewer.id,"setEntityMember","entity_member",userId,{role,active:isActive},entityId);
       return ok({updated:true});
     }
     if(action==="listMembers"){
