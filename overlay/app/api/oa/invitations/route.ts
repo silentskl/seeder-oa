@@ -58,9 +58,10 @@ export async function POST(request:NextRequest){
     const {db}=getOaEnv();
     const results=await db.batch([
       db.prepare(`UPDATE oa_entity_invitation SET accepted_at=?,accepted_by=? WHERE id=? AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at>?`).bind(stamp,viewer.id,invite.id,stamp),
-      db.prepare(`INSERT OR IGNORE INTO oa_entity_member(entity_id,user_id,role,active)
+      db.prepare(`INSERT INTO oa_entity_member(entity_id,user_id,role,active)
         SELECT entity_id,?,role,1 FROM oa_entity_invitation
-        WHERE id=? AND accepted_at=? AND accepted_by=?`).bind(viewer.id,invite.id,stamp,viewer.id),
+        WHERE id=? AND accepted_at=? AND accepted_by=?
+        ON CONFLICT(entity_id,user_id) DO UPDATE SET role=excluded.role,active=1`).bind(viewer.id,invite.id,stamp,viewer.id),
     ]);
     if(!results[0].meta?.changes)return fail("Invitation no longer available",410);
     await audit(viewer.id,"acceptEntityInvitation","entity_invitation",invite.id,{email:invite.email},invite.entity_id);
