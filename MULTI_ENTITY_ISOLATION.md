@@ -8,8 +8,8 @@ Status: design and security gate; NOT production-enabled.
 | --- | --- | --- | --- |
 | 1 | Entity registry, membership schema, legacy backfill, server authorization primitives | **Code committed; not deployed** | Review existing employee counts, D1 backup, validate new tables |
 | 2 | Entity-scope employees, settings, leave, claims, approvals, payroll, attachments, email and medical allowances | **Phase 2B implementation committed; production and adversarial integration validation pending** | Two-company integration and regression tests must pass before enabling |
-| 3 | Entity management and membership assignment for platform administrator; per-user Entity selector and context | Not started | No endpoint leaks another Entity via guessed IDs |
-| 4 | Full adversarial integration tests, historical reports/backups, deployment cutover | Not started | Two-tenant isolation and rollback tests pass |
+| 3 | Entity management, member assignment and per-user Entity switching | **Code committed; not deployed** | Frontend build and staged end-to-end validation |
+| 4 | Cross-tenant isolation verification, backup integrity and deployment cutover | **Security fixes, source checks and test tools committed; staging execution and production cutover pending** | Live two-tenant tests plus rollback verification |
 
 ### Phase 1 files
 - `overlay/migrations/9010_multi_entity_registry.sql`: additive `oa_entity`, `oa_entity_member`, existing-company registry and employee membership backfill.
@@ -79,6 +79,38 @@ The Phase 2B implementation now has entity-aware business API paths, using `reso
 4. Verify a company's administrator cannot view, approve, pay, void, export or download another company's records.
 5. Check race conditions for medical allowance and approval processing, and verify notification recipients and logs are entity-isolated.
 6. Audit snapshot and rollback before any production migration. Only after all gates pass consider enabling the flag and Phase 3 UI.
+
+## Phase 3 — company management and company switcher (implementation committed)
+
+- `overlay/app/api/oa/entities/route.ts`: authenticated list of active memberships; separate management listing for platform super administrators or company administrators. Company creation requires global platform-admin status, flag enabled and a D1 transactional batch. The creator becomes the company's admin.
+- New companies receive **standard starter** categories and leave types, rather than copying confidential custom configuration from the existing company.
+- Entity-admin membership updates require authorization on the **target** Entity, an existing user, a valid role and an active Entity. Deactivation/demotion cannot remove the last active admin. Create/update/member changes are audit-logged.
+- `overlay/components/oa/oa-console.tsx`: company selector, company management, employee authorization and active/inactive member controls; every ordinary OA GET, POST and upload submits the selected `entity_id`.
+- Switching Entity **remounts the OA workspace** so old employee, payroll, expense and approval state is discarded. The active selection is stored in the browser session and revalidated against current server membership.
+- Direct file and payslip PDF links include the selected Entity. Source URL choice is never authorization: the backend validates active membership on every request.
+- All write operations in company management stay disabled while `OA_MULTI_ENTITY_BUSINESS_ENABLED` is not true; read-only member audits remain accessible.
+
+## Phase 4 — security audit and automated verification
+
+**Vulnerability fixed during Phase 4 review:** `overlay/app/api/oa/payslips/[id]/pdf/route.ts` previously queried by payslip ID alone and treated global Seeder admins as entitled to any PDF. It now checks Entity membership, restricts the payslip query to the selected Entity, uses the correct company's employee profile and settings, and checks Entity admin role. All PDF download links include the Entity.
+
+**Checks committed:**
+- `scripts/check-phase2b-isolation.mjs`: Phase 2B implementation structural checks.
+- `scripts/check-phase34-release.mjs`: Phase 3/4 static checks for switcher, backend permissions, PDF/R2 direct download protection, management controls, and feature flag. `update-deploy.sh` executes both static checks **before** contacting Cloudflare.
+- `scripts/test-phase4-http.mjs`: read-only two-company black-box authorization suite, for a disposable **staging** environment with A-only/B-only accounts. Requires test cookies and foreign file/PDF fixtures. The suite refuses to run against `oa.smartenx.com` and requires that staging multi-Entity business access is enabled and memberships are exclusive.
+- `scripts/verify-phase4-db.py`: reads an exported D1 SQL snapshot locally in memory, checks legacy profile/membership backfill, Entity ownership of all sensitive tables, claim/item consistency, admin existence, foreign keys and entity-scoped medical triggers. Does not mutate the production database.
+
+### Required Phase 4 acceptance execution
+
+**Do not mistake committed test scripts for executed tests.** There is no staging URL, authenticated A-only/B-only fixtures or exported D1 snapshot accessible in this implementation session, so **Phase 4 is NOT certified**.
+
+1. Apply the reviewed overlay to a temporary Seeder checkout and run the complete Next.js build and existing OA tests. Run `node scripts/check-phase2b-isolation.mjs /path/to/app` and `node scripts/check-phase34-release.mjs /path/to/app`.
+2. Export and restore a copy of production D1 to a disposable staging database. Verify legacy row totals, existing payslips, attachments and medical balances. Run `python3 scripts/verify-phase4-db.py /path/to/staging-export.sql` after migration.
+3. Create two separate company fixtures and two users with *exclusive* membership. Attach one receipt and one payslip to company B, then supply `PHASE4_BASE_URL`, `PHASE4_ENTITY_A`, `PHASE4_ENTITY_B`, `PHASE4_USER_A_COOKIE`, `PHASE4_USER_B_COOKIE`, `PHASE4_FILE_B` and `PHASE4_PAYSLIP_B` to `node scripts/test-phase4-http.mjs`.
+4. Exercise authorized create/edit/delete/approve/reject/mark-paid/payroll issuance for **both** companies; verify direct record-ID substitution, batch approvals and notification recipient isolation. These are state-changing tests and must run only on staging fixtures.
+5. Demonstrate rollback against a restored snapshot, document results and only then consider enabling the production feature flag, authorizing new Entity creation and initiating the production rollout.
+
+**Current state:** Phase 3 code implemented; Phase 4 audit found and fixed a PDF authorization gap, and automated test scripts/deploy checks exist. Real staging tests, CI build and production migration/deployment have **not** been executed or verified here. `OA_MULTI_ENTITY_BUSINESS_ENABLED` must stay unset/false in production.
 
 ## Non-negotiable invariants
 1. Existing smarten-oa D1 data remains owned by one legacy entity; no destructive resets.
