@@ -364,7 +364,7 @@ export async function GET(request: NextRequest) {
       return ok({
         settings: await settings(),
         email: await publicEmailSettings(),
-        holidays: await all(`SELECT * FROM oa_holiday ORDER BY holiday_date DESC LIMIT 300`),
+        holidays: await all(`SELECT * FROM oa_entity_holiday WHERE entity_id='legacy-primary' ORDER BY holiday_date DESC LIMIT 300`),
         fxCache: await all(`SELECT * FROM oa_fx_rate ORDER BY fetched_at DESC LIMIT 30`),
         emailLog: await all(`SELECT id,event_key,entity_type,entity_id,recipient_email,subject,provider,status,error,created_at FROM oa_email_log ORDER BY created_at DESC LIMIT 50`),
       });
@@ -819,13 +819,13 @@ export async function POST(request: NextRequest) {
       if (!admin) return fail("Forbidden",403);
       const holidayDate=date(body.holidayDate), name=text(body.name,200); if (!name) return fail("Holiday name is required");
       const id=crypto.randomUUID();
-      await run(`INSERT INTO oa_holiday(id,holiday_date,name,created_by) VALUES(?,?,?,?) ON CONFLICT(holiday_date) DO UPDATE SET name=excluded.name,created_by=excluded.created_by`,[id,holidayDate,name,viewer.id]);
+      await run(`INSERT INTO oa_entity_holiday(id,entity_id,holiday_date,name,created_by) VALUES(?,?,?,?,?) ON CONFLICT(entity_id,holiday_date) DO UPDATE SET name=excluded.name,created_by=excluded.created_by`,[id,LEGACY_ENTITY_ID,holidayDate,name,viewer.id]);
       await audit(viewer.id,action,"holiday",id,{holidayDate,name}); return ok({id});
     }
 
     if (action === "deleteHoliday") {
       if (!admin) return fail("Forbidden",403);
-      const id=text(body.id,100); await run(`DELETE FROM oa_holiday WHERE id=?`,[id]); await audit(viewer.id,action,"holiday",id); return ok({deleted:true});
+      const id=text(body.id,100); await run(`DELETE FROM oa_entity_holiday WHERE id=? AND entity_id=?`,[id,LEGACY_ENTITY_ID]); await audit(viewer.id,action,"holiday",id); return ok({deleted:true});
     }
 
     if (action === "fxQuote") {
