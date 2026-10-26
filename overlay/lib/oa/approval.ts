@@ -31,7 +31,7 @@ export function approvalFlowLabel(flow: ApprovalFlow) {
 
 async function employeeManager(userId: string, companyId = LEGACY_ENTITY_ID) {
   const row = await one<{ manager_user_id: string | null }>(
-    `SELECT manager_user_id FROM oa_employee WHERE user_id=? AND entity_id=?`,
+    `SELECT manager_user_id FROM oa_entity_employee WHERE user_id=? AND entity_id=?`,
     [userId,companyId],
   );
   return row?.manager_user_id || null;
