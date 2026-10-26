@@ -3,6 +3,7 @@ import { getViewer, isAdminTier } from "@/lib/auth-server";
 import { all, audit, one, run, settings } from "@/lib/oa/db";
 import { getFxQuote } from "@/lib/oa/fx";
 import { getOaEnv } from "@/lib/oa/env";
+import { EntityAccessError, LEGACY_ENTITY_ID, requireLegacyOaAccess } from "@/lib/oa/entity";
 import { businessDays } from "@/lib/oa/leave";
 import { COMMON_CURRENCIES, convertMinor, formatMoney, majorToMinor, normalizeCurrency } from "@/lib/oa/money";
 import { approveCurrentStep, cancelApprovalWorkflow, canActOnStep, createApprovalWorkflow, ensureSubmittedWorkflows, getApprovalSteps, getPendingStep, normalizeApprovalFlow, rejectCurrentStep } from "@/lib/oa/approval";
@@ -204,6 +205,7 @@ async function withExpenseItems<T extends Record<string,unknown>>(claims:T[]):Pr
 export async function GET(request: NextRequest) {
   try {
     const viewer = await requireOaViewer();
+    await requireLegacyOaAccess(viewer.id, request.nextUrl.searchParams.get("entity_id"));
     const admin = isAdminTier(viewer.role);
     const resource = request.nextUrl.searchParams.get("resource") || "bootstrap";
     await ensureEmployee(viewer.id);
@@ -381,6 +383,7 @@ export async function POST(request: NextRequest) {
     const viewer = await requireOaViewer();
     const admin = isAdminTier(viewer.role);
     const body = await request.json() as Record<string, any>;
+    await requireLegacyOaAccess(viewer.id, body.entity_id ?? body.entityId);
     const action = text(body.action, 80);
     await ensureEmployee(viewer.id);
 
