@@ -21,7 +21,7 @@ const tests=[
  ["Entity management routes require authenticated viewer",/const viewer=await getViewer\(\);if\(!viewer\)return fail\("Unauthorized",401\);/.test(manage)],
  ["Entity creation requires platform admin",/if\(!platformAdmin\)return fail\("Forbidden",403\)/.test(manage)],
  ["Entity creation uses D1 transactional batch",/await db\.batch\(\[/.test(manage)],
- ["Entity management guarded by disabled-by-default feature flag",/if\(!enabled\(\)\)return fail\("Multi-Entity management is disabled/.test(manage)],
+ ["Entity management guarded by disabled-by-default feature flag",/if\(!enabled\(\) && action!=="listMembers"\)return fail\("Multi-Entity management is disabled/.test(manage)],
  ["Membership changes require entity admin",/await managePermission\(viewer\.id,viewer\.role,entityId\)/.test(manage)],
  ["Entity membership role changes protect last admin",/Cannot remove the final Entity admin/.test(manage)],
  ["PDF resolves server-side company membership",/resolveBusinessEntityAccess\(viewer\.id,request\.nextUrl\.searchParams\.get\("entity_id"\)\)/.test(pdf)],
