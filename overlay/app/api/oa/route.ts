@@ -228,7 +228,7 @@ export async function GET(request: NextRequest) {
     const companyId=access.entityId,companySql=entitySqlLiteral(companyId);
     const admin = access.role==="admin";
     const resource = request.nextUrl.searchParams.get("resource") || "bootstrap";
-    if (companyId===LEGACY_ENTITY_ID && ["approvals","expenseHistory","admin-payslips","employees"].includes(resource)) return fail("Legacy records require ownership verification",423);
+    if (["approvals","expenseHistory","admin-payslips","employees","settings"].includes(resource) && !request.nextUrl.searchParams.get("entity_id")) return fail("Explicit Entity required",400);
     await ensureEmployee(viewer.id,companyId);
 
     if (resource === "bootstrap") {
@@ -408,11 +408,6 @@ export async function POST(request: NextRequest) {
     const companyId=access.entityId,companySql=entitySqlLiteral(companyId);
     const admin = access.role==="admin";
     const action = text(body.action, 80);
-    if (companyId===LEGACY_ENTITY_ID && [
-      "approveLeave","rejectLeave","approveExpense","rejectExpense",
-      "updateExpenseCategory","markExpensePaid","createPayslip",
-      "publishPayslip","voidPayslip","updateEmployee","syncEmployees"
-    ].includes(action)) return fail("Legacy records require ownership verification",423);
     await ensureEmployee(viewer.id,companyId);
 
     if (action === "manageExpenseCategory") {
