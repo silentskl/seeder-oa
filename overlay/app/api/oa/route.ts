@@ -33,9 +33,10 @@ function emailAddress(value: unknown, required = false) {
 const MEDICAL_INSURANCE_CATEGORY = "Medical Insurance";
 const EXPENSE_CATEGORIES = ["Travel","Meals","Transport","Accommodation","Office","Telecom","Client entertainment",MEDICAL_INSURANCE_CATEGORY,"Other"] as const;
 
-async function activeExpenseCategories():Promise<string[]> {
+async function activeExpenseCategories(companyId = LEGACY_ENTITY_ID):Promise<string[]> {
+  const companySql=entitySqlLiteral(companyId);
   try {
-    const rows=await all<{name:string}>(`SELECT name FROM oa_entity_expense_category WHERE entity_id='legacy-primary' AND active=1 ORDER BY sort_order,name`);
+    const rows=await all<{name:string}>(`SELECT name FROM oa_entity_expense_category WHERE entity_id=${companySql} AND active=1 ORDER BY sort_order,name`);
     return rows.map(r=>r.name);
   } catch(error) {
     // Older production D1 may not yet have migration 9009. Keep OA accessible until migration succeeds.
@@ -44,9 +45,9 @@ async function activeExpenseCategories():Promise<string[]> {
     throw error;
   }
 }
-async function expenseCategory(value: unknown) {
+async function expenseCategory(value: unknown, companyId = LEGACY_ENTITY_ID) {
   const raw=text(value,100);
-  const categories=await activeExpenseCategories();
+  const categories=await activeExpenseCategories(companyId);
   const match=categories.find(x=>x.toLowerCase()===raw.toLowerCase());
   if(!match)throw new Error("Invalid or inactive expense category");
   return match;
@@ -64,30 +65,31 @@ async function requireOaViewer() {
   return viewer;
 }
 
-async function ensureEmployee(userId: string) {
-  const s = await settings();
+async function ensureEmployee(userId: string,companyId = LEGACY_ENTITY_ID) {
+  const s = await settings(companyId);
   await run(
     `INSERT OR IGNORE INTO oa_employee(user_id,annual_leave_days,payroll_currency,reimbursement_currency,entity_id)
      VALUES(?,?,?,?,?)`,
-    [userId, Number(s?.default_annual_leave_days ?? 14), s?.base_currency ?? "SGD", s?.base_currency ?? "SGD",LEGACY_ENTITY_ID],
+    [userId, Number(s?.default_annual_leave_days ?? 14), s?.base_currency ?? "SGD", s?.base_currency ?? "SGD",companyId],
   );
-  return one<any>(`SELECT * FROM oa_entity_employee WHERE user_id=? AND entity_id=?`, [userId,LEGACY_ENTITY_ID]);
+  return one<any>(`SELECT * FROM oa_entity_employee WHERE user_id=? AND entity_id=?`, [userId,companyId]);
 }
 
-async function leaveSummary(userId: string) {
-  const employee = await ensureEmployee(userId);
+async function leaveSummary(userId: string,companyId = LEGACY_ENTITY_ID) {
+  const companySql=entitySqlLiteral(companyId);
+  const employee = await ensureEmployee(userId,companyId);
   const year = new Date().getUTCFullYear();
   const from = `${year}-01-01`, to = `${year}-12-31`;
   const approved = await one<{days:number|null}>(
     `SELECT SUM(l.business_days) AS days FROM oa_leave_request l
      JOIN oa_entity_leave_type t ON t.code=l.leave_type_code AND t.entity_id=l.entity_id
-     WHERE l.entity_id='legacy-primary' AND l.user_id=? AND l.status='approved' AND t.deducts_annual=1 AND l.start_date BETWEEN ? AND ?`,
+     WHERE l.entity_id=${companySql} AND l.user_id=? AND l.status='approved' AND t.deducts_annual=1 AND l.start_date BETWEEN ? AND ?`,
     [userId, from, to],
   );
   const pending = await one<{days:number|null}>(
     `SELECT SUM(l.business_days) AS days FROM oa_leave_request l
      JOIN oa_entity_leave_type t ON t.code=l.leave_type_code AND t.entity_id=l.entity_id
-     WHERE l.entity_id='legacy-primary' AND l.user_id=? AND l.status='submitted' AND t.deducts_annual=1 AND l.start_date BETWEEN ? AND ?`,
+     WHERE l.entity_id=${companySql} AND l.user_id=? AND l.status='submitted' AND t.deducts_annual=1 AND l.start_date BETWEEN ? AND ?`,
     [userId, from, to],
   );
   const entitlement = Number(employee?.annual_leave_days ?? 0);
@@ -108,8 +110,9 @@ async function medicalClaimAmountInCurrency(row: any, currency: string) {
   return convertMinor(originalMinor, originalCurrency, target, fx.rate);
 }
 
-async function medicalInsuranceSummary(userId: string, yearInput?: number) {
-  const employee = await ensureEmployee(userId);
+async function medicalInsuranceSummary(userId: string, yearInput?: number, companyId = LEGACY_ENTITY_ID) {
+  const companySql=entitySqlLiteral(companyId);
+  const employee = await ensureEmployee(userId,companyId);
   const year = yearInput ?? new Date().getUTCFullYear();
   const from = `${year}-01-01`, to = `${year}-12-31`;
   const currency = normalizeCurrency(employee?.payroll_currency || "SGD");
@@ -117,7 +120,7 @@ async function medicalInsuranceSummary(userId: string, yearInput?: number) {
     `SELECT id,expense_date,status,original_amount_minor,original_currency,
             medical_insurance_amount_minor,medical_insurance_currency
      FROM oa_expense_claim
-     WHERE entity_id='legacy-primary' AND user_id=? AND category=? AND expense_date BETWEEN ? AND ?
+     WHERE entity_id=${companySql} AND user_id=? AND category=? AND expense_date BETWEEN ? AND ?
        AND status IN ('submitted','approved','paid')`,
     [userId, MEDICAL_INSURANCE_CATEGORY, from, to],
   );
@@ -141,8 +144,9 @@ async function medicalInsuranceSummary(userId: string, yearInput?: number) {
   };
 }
 
-async function expenseCategorySummary(userId: string, yearInput?: number) {
-  const employee = await ensureEmployee(userId);
+async function expenseCategorySummary(userId: string, yearInput?: number, companyId = LEGACY_ENTITY_ID) {
+  const companySql=entitySqlLiteral(companyId);
+  const employee = await ensureEmployee(userId,companyId);
   const payrollCurrency = normalizeCurrency(employee?.payroll_currency || "SGD");
   const year = yearInput ?? new Date().getUTCFullYear();
   const from = `${year}-01-01`, to = `${year}-12-31`;
@@ -156,7 +160,7 @@ async function expenseCategorySummary(userId: string, yearInput?: number) {
             i.reimbursement_amount_minor AS item_amount_minor
      FROM oa_expense_claim c
      LEFT JOIN oa_expense_item i ON i.claim_id=c.id
-     WHERE c.entity_id='legacy-primary' AND c.user_id=? AND c.status IN ('submitted','approved','paid')
+     WHERE c.entity_id=${companySql} AND c.user_id=? AND c.status IN ('submitted','approved','paid')
        AND (i.expense_date BETWEEN ? AND ? OR (i.id IS NULL AND c.expense_date BETWEEN ? AND ?))
      ORDER BY c.id,i.sort_order`,
     [userId, from, to, from, to],
@@ -182,7 +186,8 @@ async function expenseCategorySummary(userId: string, yearInput?: number) {
   return { year, rows: Array.from(grouped.values()).sort((a,b)=>a.category.localeCompare(b.category)||a.reimbursement_currency.localeCompare(b.reimbursement_currency)) };
 }
 
-async function withExpenseItems<T extends Record<string,unknown>>(claims:T[]):Promise<(T & {items:any[]})[]> {
+async function withExpenseItems<T extends Record<string,unknown>>(claims:T[], companyId = LEGACY_ENTITY_ID):Promise<(T & {items:any[]})[]> {
+  const companySql=entitySqlLiteral(companyId);
   if (!claims.length) return [];
   const ids=claims.map(c=>String(c.id));
   const placeholders=ids.map(()=>"?").join(",");
@@ -190,7 +195,7 @@ async function withExpenseItems<T extends Record<string,unknown>>(claims:T[]):Pr
     FROM oa_expense_item i
     LEFT JOIN oa_expense_item_document d ON d.item_id=i.id
     LEFT JOIN oa_file f ON f.id=d.file_id
-    WHERE i.entity_id='legacy-primary' AND i.claim_id IN (${placeholders}) ORDER BY i.claim_id,i.sort_order,i.id`,ids);
+    WHERE i.entity_id=${companySql} AND i.claim_id IN (${placeholders}) ORDER BY i.claim_id,i.sort_order,i.id`,ids);
   const grouped=new Map<string,any[]>();
   for(const row of items){
     const bucket=grouped.get(row.claim_id)||[];
