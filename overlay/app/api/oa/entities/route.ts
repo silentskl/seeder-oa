@@ -76,12 +76,13 @@ export async function POST(request:NextRequest){
     if(action==="setMember"){
       if(!entityId)return fail("entityId is required");
       await managePermission(viewer.id,viewer.role,entityId);
+      if(!await one(`SELECT id FROM oa_entity WHERE id=? AND active=1`,[entityId]))return fail("Entity not found",404);
       const userId=clean(data.userId,200),role=clean(data.role,20) as Role;
       if(!userId||!roles.has(role))return fail("Valid user and role required");
       if(!await one(`SELECT id FROM user WHERE id=?`,[userId]))return fail("User not found",404);
       const isActive=data.active!==false;
       const existing=await one<{role:string;active:number}>(`SELECT role,active FROM oa_entity_member WHERE entity_id=? AND user_id=?`,[entityId,userId]);
-      if(existing?.role==="admin" && (role!=="admin"||!isActive)){
+      if(existing?.role==="admin" && existing.active===1 && (role!=="admin"||!isActive)){
         const admins=await one<{n:number}>(`SELECT COUNT(*) AS n FROM oa_entity_member WHERE entity_id=? AND role='admin' AND active=1`,[entityId]);
         if(Number(admins?.n??0)<=1)return fail("Cannot remove the final Entity admin",409);
       }
