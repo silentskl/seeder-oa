@@ -11,6 +11,8 @@ const pdf=read("app/api/oa/payslips/[id]/pdf/route.ts");
 const file=read("app/api/oa/files/[id]/route.ts");
 const api=read("app/api/oa/route.ts");
 const entity=read("lib/oa/entity.ts");
+const invites=read("app/api/oa/invitations/route.ts");
+const invitePage=read("components/oa/entity-invite.tsx");
 const tests=[
  ["Switcher remounts workspace to clear stale tenant data",/OaWorkspace key=\{entityId\}/.test(ui)],
  ["Business GET sends selected entity",/\/api\/oa\?resource=\$\{encodeURIComponent\(resource\)\}&entity_id=\$\{encodeURIComponent\(selectedOaEntityId\)\}/.test(ui)],
@@ -33,7 +35,18 @@ const tests=[
  ["GET/POST main business API authorize membership", (api.match(/resolveBusinessEntityAccess\(viewer\.id/g)||[]).length===2],
  ["Non-legacy business access feature flag enforced",/id!==LEGACY_ENTITY_ID && !getOaEnv\(\)\.multiEntityBusinessEnabled/.test(entity)],
 ];
+const inviteChecks=[
+ ["Employees offer existing-account enrollment",/Add existing user/.test(ui)&&/setMember/.test(ui)],
+ ["Employees can generate secure invitation links",/Generate invitation link/.test(ui)&&/\/api\/oa\/invitations/.test(ui)],
+ ["Employees support email invitations",/Send email invitation/.test(ui)],
+ ["Invitation token stored as a digest",/token_hash/.test(invites)&&/crypto\.subtle\.digest\("SHA-256"/.test(invites)],
+ ["Invitation acceptance requires authenticated user",/const viewer=await getViewer\(\);if\(!viewer\)/.test(invites)],
+ ["Invitation redemption verifies invited email",/signedIn\?\.email\?\.toLowerCase\(\)!==invite\.email\.toLowerCase\(\)/.test(invites)],
+ ["Invitation redemption uses transactional D1 batch",/await db\.batch\(\[/.test(invites)],
+ ["Invitation creation requires company admin",/await permission\(viewer,entityId\)/.test(invites)],
+ ["Invite page supports sign-up and sign-in",/authClient\.signUp\.email/.test(invitePage)&&/authClient\.signIn\.email/.test(invitePage)],
+];
 let failures=0;
-for(const [name,good] of tests){console.log((good?"PASS ":"FAIL ")+name);if(!good)failures++}
+for(const [name,good] of [...tests,...inviteChecks]){console.log((good?"PASS ":"FAIL ")+name);if(!good)failures++}
 if(failures){console.error(failures+" Phase 3/4 static checks failed");process.exit(1)}
 console.log("Phase 3/4 static checks pass. Two-tenant runtime and DB verification remain mandatory.");
