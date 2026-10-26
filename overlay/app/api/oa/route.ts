@@ -67,9 +67,9 @@ async function requireOaViewer() {
 async function ensureEmployee(userId: string) {
   const s = await settings();
   await run(
-    `INSERT OR IGNORE INTO oa_employee(user_id,annual_leave_days,payroll_currency,reimbursement_currency)
-     VALUES(?,?,?,?)`,
-    [userId, Number(s?.default_annual_leave_days ?? 14), s?.base_currency ?? "SGD", s?.base_currency ?? "SGD"],
+    `INSERT OR IGNORE INTO oa_employee(user_id,annual_leave_days,payroll_currency,reimbursement_currency,entity_id)
+     VALUES(?,?,?,?,?)`,
+    [userId, Number(s?.default_annual_leave_days ?? 14), s?.base_currency ?? "SGD", s?.base_currency ?? "SGD",LEGACY_ENTITY_ID],
   );
   return one<any>(`SELECT * FROM oa_employee WHERE user_id=? AND entity_id=?`, [userId,LEGACY_ENTITY_ID]);
 }
@@ -217,7 +217,7 @@ export async function GET(request: NextRequest) {
          LEFT JOIN user m ON m.id=e.manager_user_id WHERE e.user_id=? AND e.entity_id=?`, [viewer.id,LEGACY_ENTITY_ID],
       );
       const s = await settings();
-      const managed = await one<{n:number}>(`SELECT COUNT(*) AS n FROM oa_employee WHERE manager_user_id=? AND active=1`, [viewer.id]);
+      const managed = await one<{n:number}>(`SELECT COUNT(*) AS n FROM oa_employee WHERE manager_user_id=? AND entity_id=? AND active=1`, [viewer.id,LEGACY_ENTITY_ID]);
       return ok({ viewer, admin, isManager: Number(managed?.n ?? 0) > 0, employee, leaveSummary: await leaveSummary(viewer.id), medicalInsuranceSummary: await medicalInsuranceSummary(viewer.id), settings: s, currencies: COMMON_CURRENCIES, expenseCategories: await activeExpenseCategories() });
     }
 
@@ -411,8 +411,8 @@ export async function POST(request: NextRequest) {
       if (!admin) return fail("Forbidden", 403);
       const s = await settings();
       await run(
-        `INSERT OR IGNORE INTO oa_employee(user_id,annual_leave_days,payroll_currency,reimbursement_currency)
-         SELECT id,?,?,? FROM user WHERE id <> 'vcs-bot'`,
+        `INSERT OR IGNORE INTO oa_employee(user_id,annual_leave_days,payroll_currency,reimbursement_currency,entity_id)
+         SELECT id,?,?,?,'legacy-primary' FROM user WHERE id <> 'vcs-bot'`,
         [Number(s?.default_annual_leave_days ?? 14), s?.base_currency ?? "SGD", s?.base_currency ?? "SGD"],
       );
       await run(`INSERT OR IGNORE INTO oa_entity_member(entity_id,user_id,role)
@@ -442,7 +442,7 @@ export async function POST(request: NextRequest) {
       if (!['monthly','annual'].includes(salaryPeriod)) return fail("Invalid salary period");
       await run(
         `UPDATE oa_employee SET employee_no=?,department=?,job_title=?,manager_user_id=?,join_date=?,annual_leave_days=?,medical_insurance_limit_minor=?,payroll_currency=?,reimbursement_currency=?,active=?,
-         legal_name=?,personal_email=?,phone=?,address=?,nationality=?,date_of_birth=?,employment_type=?,work_location=?,base_salary_minor=?,salary_period=?,salary_effective_date=?,updated_at=CURRENT_TIMESTAMP WHERE user_id=?`,
+         legal_name=?,personal_email=?,phone=?,address=?,nationality=?,date_of_birth=?,employment_type=?,work_location=?,base_salary_minor=?,salary_period=?,salary_effective_date=?,updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND entity_id='legacy-primary'`,
         [
           text(body.employeeNo,100)||null,text(body.department,200)||null,text(body.jobTitle,200)||null,managerId,
           date(body.joinDate || new Date().toISOString().slice(0,10)),leaveDays,medicalInsuranceLimitMinor,payrollCurrency,reimbursementCurrency,body.active === false ? 0 : 1,
@@ -469,9 +469,9 @@ export async function POST(request: NextRequest) {
       }
       const id = crypto.randomUUID();
       await run(
-        `INSERT INTO oa_leave_request(id,user_id,leave_type_code,start_date,end_date,day_part,business_days,reason,attachment_file_id)
-         VALUES(?,?,?,?,?,?,?,?,?)`,
-        [id,viewer.id,typeCode,startDate,endDate,dayPart,days,text(body.reason,2000)||null,fileId],
+        `INSERT INTO oa_leave_request(id,user_id,leave_type_code,start_date,end_date,day_part,business_days,reason,attachment_file_id,entity_id)
+         VALUES(?,?,?,?,?,?,?,?,?,?)`,
+        [id,viewer.id,typeCode,startDate,endDate,dayPart,days,text(body.reason,2000)||null,fileId,LEGACY_ENTITY_ID],
       );
       await createApprovalWorkflow("leave", id, viewer.id);
       await audit(viewer.id, action, "leave", id, { days, typeCode });
@@ -532,15 +532,15 @@ export async function POST(request: NextRequest) {
       }
       const first=prepared[0],id=crypto.randomUUID();
       const {db}=getOaEnv();
-      const statements=[db.prepare(`INSERT INTO oa_expense_claim(id,user_id,expense_date,category,description,original_amount_minor,original_currency,reimbursement_currency,fx_rate,fx_rate_date,fx_source,reimbursement_amount_minor,receipt_file_id,medical_insurance_amount_minor,medical_insurance_currency) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(
+      const statements=[db.prepare(`INSERT INTO oa_expense_claim(id,user_id,expense_date,category,description,original_amount_minor,original_currency,reimbursement_currency,fx_rate,fx_rate_date,fx_source,reimbursement_amount_minor,receipt_file_id,medical_insurance_amount_minor,medical_insurance_currency,entity_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(
         id,viewer.id,first.expenseDate,medicalTotal>0?MEDICAL_INSURANCE_CATEGORY:(prepared.length===1?first.category:"Other"),prepared.length===1?first.description:`${prepared.length} expense items`,
         prepared.length===1?first.originalMinor:total,prepared.length===1?first.originalCurrency:reimbursementCurrency,
         reimbursementCurrency,prepared.length===1?first.fx.rate:1,first.fx.providerDate,first.fx.source,total,
-        first.docs[0]||null,medicalTotal||null,medicalTotal?payrollCurrency:null)];
+        first.docs[0]||null,medicalTotal||null,medicalTotal?payrollCurrency:null,LEGACY_ENTITY_ID)];
       for(let i=0;i<prepared.length;i++){
         const x=prepared[i];
-        statements.push(db.prepare(`INSERT INTO oa_expense_item(id,claim_id,sort_order,expense_date,category,description,original_amount_minor,original_currency,reimbursement_amount_minor,fx_rate,fx_rate_date,fx_source) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).bind(
-          x.id,id,i,x.expenseDate,x.category,x.description,x.originalMinor,x.originalCurrency,x.minor,x.fx.rate,x.fx.providerDate,x.fx.source));
+        statements.push(db.prepare(`INSERT INTO oa_expense_item(id,claim_id,sort_order,expense_date,category,description,original_amount_minor,original_currency,reimbursement_amount_minor,fx_rate,fx_rate_date,fx_source,entity_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(
+          x.id,id,i,x.expenseDate,x.category,x.description,x.originalMinor,x.originalCurrency,x.minor,x.fx.rate,x.fx.providerDate,x.fx.source,LEGACY_ENTITY_ID));
         for(const fileId of x.docs) statements.push(db.prepare(`INSERT INTO oa_expense_item_document(item_id,file_id) VALUES(?,?)`).bind(x.id,fileId));
       }
       await db.batch(statements);
@@ -584,9 +584,9 @@ export async function POST(request: NextRequest) {
       const {db} = getOaEnv();
       const statements = [
         db.prepare(`INSERT INTO oa_expense_claim(id,user_id,expense_date,category,description,original_amount_minor,original_currency,reimbursement_currency,fx_rate,fx_rate_date,fx_source,reimbursement_amount_minor,receipt_file_id,medical_insurance_amount_minor,medical_insurance_currency)
-         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,viewer.id,expenseDate,category,text(body.description,2000),originalMinor,originalCurrency,reimbursementCurrency,fx.rate,fx.providerDate,fx.source,reimbursementMinor,fileId,medicalInsuranceAmountMinor,medicalInsuranceCurrency),
-        db.prepare(`INSERT INTO oa_expense_item(id,claim_id,sort_order,expense_date,category,description,original_amount_minor,original_currency,reimbursement_amount_minor,fx_rate,fx_rate_date,fx_source)
-         VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).bind(itemId,id,0,expenseDate,category,text(body.description,2000),originalMinor,originalCurrency,reimbursementMinor,fx.rate,fx.providerDate,fx.source),
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,viewer.id,expenseDate,category,text(body.description,2000),originalMinor,originalCurrency,reimbursementCurrency,fx.rate,fx.providerDate,fx.source,reimbursementMinor,fileId,medicalInsuranceAmountMinor,medicalInsuranceCurrency,LEGACY_ENTITY_ID),
+        db.prepare(`INSERT INTO oa_expense_item(id,claim_id,sort_order,expense_date,category,description,original_amount_minor,original_currency,reimbursement_amount_minor,fx_rate,fx_rate_date,fx_source,entity_id)
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(itemId,id,0,expenseDate,category,text(body.description,2000),originalMinor,originalCurrency,reimbursementMinor,fx.rate,fx.providerDate,fx.source,LEGACY_ENTITY_ID),
       ];
       if (fileId) statements.push(db.prepare(`INSERT INTO oa_expense_item_document(item_id,file_id) VALUES(?,?)`).bind(itemId,fileId));
       await db.batch(statements);
@@ -752,8 +752,8 @@ export async function POST(request: NextRequest) {
       }
       const id=crypto.randomUUID();
       await run(
-        `INSERT INTO oa_payslip(id,user_id,period_start,period_end,pay_date,currency,base_salary_minor,allowances_minor,bonus_minor,commission_minor,employee_contribution_minor,employer_contribution_minor,tax_minor,other_deductions_minor,gross_minor,net_minor,reporting_currency,fx_rate_to_reporting,fx_rate_date,fx_source,net_reporting_minor,custom_fields_json,note,attachment_file_id,created_by,employee_name_snapshot,employee_no_snapshot,join_date_snapshot,job_title_snapshot,department_snapshot,salary_period_snapshot)
-         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO oa_payslip(id,user_id,period_start,period_end,pay_date,currency,base_salary_minor,allowances_minor,bonus_minor,commission_minor,employee_contribution_minor,employer_contribution_minor,tax_minor,other_deductions_minor,gross_minor,net_minor,reporting_currency,fx_rate_to_reporting,fx_rate_date,fx_source,net_reporting_minor,custom_fields_json,note,attachment_file_id,created_by,employee_name_snapshot,employee_no_snapshot,join_date_snapshot,job_title_snapshot,department_snapshot,salary_period_snapshot,entity_id)
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [id,userId,date(body.periodStart),date(body.periodEnd),payDate,currency,baseSalary,allowances,bonus,commission,employeeContribution,employerContribution,tax,otherDeductions,gross,net,reportingCurrency,fx.rate,fx.providerDate,fx.source,netReporting,JSON.stringify(customFields),text(body.note,2000)||null,attachmentId,viewer.id,
          text(employeeProfile.legal_name||employeeProfile.name||employeeProfile.email,200)||null,text(employeeProfile.employee_no,100)||null,employeeProfile.join_date||null,text(employeeProfile.job_title,200)||null,text(employeeProfile.department,200)||null,text(employeeProfile.salary_period||"monthly",20)],
       );
