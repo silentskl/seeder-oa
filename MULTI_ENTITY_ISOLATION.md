@@ -7,7 +7,7 @@ Status: design and security gate; NOT production-enabled.
 | Phase | Scope | Status | Release gate |
 | --- | --- | --- | --- |
 | 1 | Entity registry, membership schema, legacy backfill, server authorization primitives | **Code committed; not deployed** | Review existing employee counts, D1 backup, validate new tables |
-| 2 | Entity-scope existing employee records, HR settings, leave, medical, categories, approvals, claim items, payroll, attachments and audit | Not started | All API/SQL paths enforce entity and tests fail closed |
+| 2 | Entity-scope existing employee records, HR settings, leave, medical, categories, approvals, claim items, payroll, attachments and audit | **Phase 2A code committed; Phase 2B incomplete** | All API/SQL paths enforce entity and tests fail closed |
 | 3 | Entity management and membership assignment for platform administrator; per-user Entity selector and context | Not started | No endpoint leaks another Entity via guessed IDs |
 | 4 | Full adversarial integration tests, historical reports/backups, deployment cutover | Not started | Two-tenant isolation and rollback tests pass |
 
@@ -28,6 +28,25 @@ Status: design and security gate; NOT production-enabled.
 
 ### Design detail requiring care during Phase 2
 The current `oa_employee` profile is keyed by `user_id` and the current `oa_settings` row is keyed by constant `id=1`; both require real per-Entity ownership, not a cosmetic UI filter. Legacy attachment keys under `oa/<user_id>/...` must remain accessible to authorized legacy users while new keys should be Entity-prefixed. All mutation routes must scope ownership **before** invoking approval, finance or file operations.
+
+## Phase 2A implementation (code committed, production not verified)
+
+- `9011_entity_ownership_foundation.sql`: adds indexed non-null `entity_id` defaulting to `legacy-primary` on employee, leave, expense claim, expense item, approval step, payslip, file and audit log records. **No ownership changes or deletions**, only legacy labeling.
+- `overlay/lib/oa/entity.ts` exposes `requireLegacyOaAccess()`, rejecting unauthorized users and requests for any non-legacy Entity.
+- `overlay/app/api/oa/route.ts`: GET/POST fail closed on missing active primary membership, with HTTP 403 rather than unhandled 500; sync and admin employee registration add primary Entity membership.
+- `overlay/app/api/oa/files/[id]/route.ts`: upload/download check primary membership; file retrieval SQL also restricts `entity_id`; new R2 uploads are saved under `oa/legacy-primary/...` while old keys remain usable via existing metadata.
+- `update-deploy.sh`: reviewed migration 9011 is allowed and verified; backup occurs before pending migrations.
+
+**Still NOT safe to create or use a second Entity:** existing settings, leave types, holidays and expense categories remain global; employee profile keys are not yet composite; most business queries and workflow updates still use global IDs or user IDs. Phase 2B must refactor those with mandatory entity scope, separate category/settings per company, isolate exports and emails, and add adversarial tests **before enabling** Entity creation or a switcher.
+
+### Phase 2A operational acceptance
+
+1. Verify both migrations 9010 and 9011 were backed up, applied, and their row counts match original tables; inspect Cloudflare D1 logs for any migration errors.
+2. Verify every legacy row has `entity_id='legacy-primary'` and each active employee belongs to `oa_entity_member`.
+3. Verify authorized login and admin employee sync, leave, expense claim, approval, payroll and attachments still work.
+4. Verify unassigned authenticated users receive 403 for `/api/oa` and cannot download another user's attachment.
+5. Verify requests with `entity_id` not equal to `legacy-primary` receive 403.
+6. Do **not** deploy a tenant-selection UI or allow creating a second active Entity while Phase 2B remains incomplete.
 
 ## Non-negotiable invariants
 1. Existing smarten-oa D1 data remains owned by one legacy entity; no destructive resets.
