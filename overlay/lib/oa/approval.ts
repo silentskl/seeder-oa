@@ -47,7 +47,7 @@ export async function createApprovalWorkflow(entityType: ApprovalEntity, entityI
   );
   if (Number(existing?.n ?? 0) > 0) return getApprovalSteps(entityType, entityId,companyId);
 
-  const s = await settings();
+  const s = await settings(companyId);
   const flow = normalizeApprovalFlow(
     entityType === "leave" ? s?.leave_approval_flow : s?.expense_approval_flow,
   );
