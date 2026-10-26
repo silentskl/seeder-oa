@@ -34,7 +34,7 @@ export function EntityInvitePanel({token}:{token:string}){
     setError("");setStatus("working");
     try{
       const response=mode==="signUp"
-        ? await authClient.signUp.email({name:name.trim()||invite.email.split("@")[0],email:invite.email,password})
+        ? await authClient.signUp.email({name:name.trim()||invite.email.split("@")[0],email:invite.email,password},{headers:{"x-oa-invite-token":token}})
         : await authClient.signIn.email({email:invite.email,password});
       if(response.error)throw new Error(response.error.message||"Authentication failed");
       await redeem();
