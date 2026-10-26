@@ -101,6 +101,8 @@ fi
 npx wrangler whoami
 # Fail closed on auth errors including 7403; NEVER deploy without database verification.
 npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS employees FROM oa_employee;"
+echo "[DEPLOY] Validating reviewed multi-entity migrations with local SQLite..."
+node "$ROOT/tests/multi-entity-migrations.test.mjs"
 echo "[DEPLOY] Synchronizing migrations from reviewed overlay..."
 mkdir -p migrations
 for source in "$ROOT"/overlay/migrations/*.sql; do
