@@ -184,7 +184,7 @@ fi
 # or active company membership. This catches partial/corrupt migrations.
 LEGACY_EMPLOYEE_MISSING="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM oa_employee e LEFT JOIN oa_entity_employee p ON p.entity_id='legacy-primary' AND p.user_id=e.user_id LEFT JOIN oa_entity_member m ON m.entity_id='legacy-primary' AND m.user_id=e.user_id AND m.active=1 WHERE e.entity_id='legacy-primary' AND (p.user_id IS NULL OR m.user_id IS NULL);" 2>&1)" || { echo "$LEGACY_EMPLOYEE_MISSING" >&2; exit 1; }
 echo "$LEGACY_EMPLOYEE_MISSING"
-if ! printf '%s\\n' "$LEGACY_EMPLOYEE_MISSING" | grep -Eq '(^|[[:space:]│])0([[:space:]│]|$)'; then
+if ! printf '%s\n' "$LEGACY_EMPLOYEE_MISSING" | grep -Eq '(^|[[:space:]│])0([[:space:]│]|$)'; then
   echo "ERROR: legacy employee is missing entity membership or composite employee profile; refusing deployment." >&2
   exit 1
 fi
