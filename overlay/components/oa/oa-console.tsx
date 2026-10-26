@@ -154,7 +154,13 @@ function EntityManagement({reload}:{reload:()=>Promise<void>}){
         </form>
       </Card>}
     </div>
-    {selected&&<Card><h3 className="font-medium">Members · {data.manageable.find(x=>x.id===selected)?.display_name||selected}</h3>
+    {selected&&<Card>
+      <h3 className="font-medium">Company settings · {data.manageable.find(x=>x.id===selected)?.display_name||selected}</h3>
+      <form key={selected} className="my-3 flex flex-wrap gap-2" onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget);void operate(()=>entityRequest("updateEntity",{entityId:selected,displayName:f.get("displayName")}))}}>
+        <input name="displayName" className={field+" flex-1"} defaultValue={data.manageable.find(x=>x.id===selected)?.display_name||""} aria-label="Company display name" required/>
+        <button type="submit" className={button} disabled={!data.multiEntityEnabled}>Update name</button>
+      </form>
+      <h3 className="font-medium">Members</h3>
       <div className="mt-2 grid gap-2 text-sm">{members.map(m=><div key={m.user_id} className="flex flex-wrap items-center justify-between gap-2 border-b py-2">
         <span>{m.name||m.email} · {m.role}{m.active===0?" (inactive)":""}</span>
         <div className="flex flex-wrap gap-2">
