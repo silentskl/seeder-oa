@@ -80,13 +80,13 @@ async function leaveSummary(userId: string) {
   const from = `${year}-01-01`, to = `${year}-12-31`;
   const approved = await one<{days:number|null}>(
     `SELECT SUM(l.business_days) AS days FROM oa_leave_request l
-     JOIN oa_leave_type t ON t.code=l.leave_type_code
+     JOIN oa_entity_leave_type t ON t.code=l.leave_type_code AND t.entity_id=l.entity_id
      WHERE l.entity_id='legacy-primary' AND l.user_id=? AND l.status='approved' AND t.deducts_annual=1 AND l.start_date BETWEEN ? AND ?`,
     [userId, from, to],
   );
   const pending = await one<{days:number|null}>(
     `SELECT SUM(l.business_days) AS days FROM oa_leave_request l
-     JOIN oa_leave_type t ON t.code=l.leave_type_code
+     JOIN oa_entity_leave_type t ON t.code=l.leave_type_code AND t.entity_id=l.entity_id
      WHERE l.entity_id='legacy-primary' AND l.user_id=? AND l.status='submitted' AND t.deducts_annual=1 AND l.start_date BETWEEN ? AND ?`,
     [userId, from, to],
   );
@@ -224,10 +224,10 @@ export async function GET(request: NextRequest) {
     if (resource === "leave") {
       return ok({
         summary: await leaveSummary(viewer.id),
-        types: await all(`SELECT * FROM oa_leave_type WHERE active=1 ORDER BY sort_order,name`),
+        types: await all(`SELECT * FROM oa_entity_leave_type WHERE entity_id='legacy-primary' AND active=1 ORDER BY sort_order,name`),
         requests: await all(
           `SELECT l.*, t.name AS leave_type_name, f.original_name AS attachment_name
-           FROM oa_leave_request l JOIN oa_leave_type t ON t.code=l.leave_type_code
+           FROM oa_leave_request l JOIN oa_entity_leave_type t ON t.code=l.leave_type_code AND t.entity_id=l.entity_id
            LEFT JOIN oa_file f ON f.id=l.attachment_file_id
            WHERE l.entity_id='legacy-primary' AND l.user_id=? ORDER BY l.submitted_at DESC LIMIT 100`, [viewer.id],
         ),
@@ -290,7 +290,7 @@ export async function GET(request: NextRequest) {
           `SELECT l.*,u.name,u.email,t.name AS leave_type_name,s.step_no,s.approver_type,s.assigned_user_id
            FROM oa_approval_step s
            JOIN oa_leave_request l ON l.id=s.entity_id AND s.entity_type='leave'
-           JOIN user u ON u.id=l.user_id JOIN oa_leave_type t ON t.code=l.leave_type_code
+           JOIN user u ON u.id=l.user_id JOIN oa_entity_leave_type t ON t.code=l.leave_type_code AND t.entity_id=l.entity_id
            WHERE ${stepFilter} AND s.company_entity_id='legacy-primary' AND l.entity_id='legacy-primary' AND l.status='submitted' ORDER BY l.submitted_at`, params),
         expenses: await withExpenseItems(await all(
           `SELECT x.*,u.name,u.email,s.step_no,s.approver_type,s.assigned_user_id
@@ -344,8 +344,8 @@ export async function GET(request: NextRequest) {
                 e.legal_name,e.personal_email,e.phone,e.address,e.nationality,e.date_of_birth,
                 e.employment_type,e.work_location,e.base_salary_minor,e.salary_period,e.salary_effective_date,
                 m.name AS manager_name
-         FROM user u LEFT JOIN oa_entity_employee e ON e.user_id=u.id AND e.entity_id='legacy-primary' LEFT JOIN user m ON m.id=e.manager_user_id
-         WHERE u.id <> 'vcs-bot' AND e.entity_id='legacy-primary'
+         FROM oa_entity_member em JOIN user u ON u.id=em.user_id LEFT JOIN oa_entity_employee e ON e.user_id=u.id AND e.entity_id=em.entity_id LEFT JOIN user m ON m.id=e.manager_user_id
+         WHERE u.id <> 'vcs-bot' AND em.entity_id='legacy-primary' AND em.active=1
          ORDER BY COALESCE(e.active,1) DESC,u.name,u.email`,
       ));
     }
@@ -457,7 +457,7 @@ export async function POST(request: NextRequest) {
 
     if (action === "createLeave") {
       const typeCode = text(body.leaveTypeCode, 50);
-      const type = await one<{code:string}>(`SELECT code FROM oa_leave_type WHERE code=? AND active=1`, [typeCode]);
+      const type = await one<{code:string}>(`SELECT code FROM oa_entity_leave_type WHERE entity_id=? AND code=? AND active=1`, [LEGACY_ENTITY_ID,typeCode]);
       if (!type) return fail("Invalid leave type");
       const startDate = date(body.startDate), endDate = date(body.endDate);
       const dayPart = ["full","am","pm"].includes(body.dayPart) ? body.dayPart : "full";
