@@ -426,17 +426,26 @@ export async function POST(request: NextRequest) {
 
     if (action === "syncEmployees") {
       if (!admin) return fail("Forbidden",403);
-      // Sync only explicitly enrolled people. Never enroll every Seeder user
-      // into the selected company simply because they exist in the login DB.
       const config=await settings(companyId);
-      await run(
-        `INSERT OR IGNORE INTO oa_employee(user_id,annual_leave_days,payroll_currency,reimbursement_currency,entity_id)
-         SELECT m.user_id,?,?,?,${companySql}
-         FROM oa_entity_member m JOIN user u ON u.id=m.user_id
-         WHERE m.entity_id=? AND m.active=1`,
-        [Number(config?.default_annual_leave_days ?? 14),config?.base_currency ?? "SGD",config?.base_currency ?? "SGD",companyId],
-      );
-      await audit(viewer.id,action,"employee",null,{scope:companyId,enrollment:"existing-members-only"});
+      const ent=companyId===LEGACY_ENTITY_ID;
+      if(ent){
+        await run(
+          `INSERT OR IGNORE INTO oa_employee(user_id,annual_leave_days,payroll_currency,reimbursement_currency,entity_id)
+           SELECT m.user_id,?,?,?,?
+           FROM oa_entity_member m JOIN user u ON u.id=m.user_id
+           WHERE m.entity_id=? AND m.active=1`,
+          [Number(config?.default_annual_leave_days??14),config?.base_currency??"SGD",config?.base_currency??"SGD",companyId,companyId],
+        );
+      }else{
+        await run(
+          `INSERT OR IGNORE INTO oa_entity_employee(entity_id,user_id,annual_leave_days,payroll_currency,reimbursement_currency)
+           SELECT m.entity_id,m.user_id,?,?,?
+           FROM oa_entity_member m JOIN user u ON u.id=m.user_id
+           WHERE m.entity_id=? AND m.active=1`,
+          [Number(config?.default_annual_leave_days??14),config?.base_currency??"SGD",config?.base_currency??"SGD",companyId],
+        );
+      }
+      await audit(viewer.id,action,"employee",null,{scope:companyId,enrollment:"existing-members-only"},companyId);
       return ok({synced:true});
     }
 
@@ -457,8 +466,9 @@ export async function POST(request: NextRequest) {
       const baseSalaryMinor = majorToMinor(body.baseSalary || 0, payrollCurrency);
       const salaryPeriod = text(body.salaryPeriod || "monthly", 20);
       if (!['monthly','annual'].includes(salaryPeriod)) return fail("Invalid salary period");
+      const employeeTable=companyId===LEGACY_ENTITY_ID?"oa_employee":"oa_entity_employee";
       await run(
-        `UPDATE oa_employee SET employee_no=?,department=?,job_title=?,manager_user_id=?,join_date=?,annual_leave_days=?,medical_insurance_limit_minor=?,payroll_currency=?,reimbursement_currency=?,active=?,
+        `UPDATE ${employeeTable} SET employee_no=?,department=?,job_title=?,manager_user_id=?,join_date=?,annual_leave_days=?,medical_insurance_limit_minor=?,payroll_currency=?,reimbursement_currency=?,active=?,
          legal_name=?,personal_email=?,phone=?,address=?,nationality=?,date_of_birth=?,employment_type=?,work_location=?,base_salary_minor=?,salary_period=?,salary_effective_date=?,updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND entity_id=${companySql}`,
         [
           text(body.employeeNo,100)||null,text(body.department,200)||null,text(body.jobTitle,200)||null,managerId,
