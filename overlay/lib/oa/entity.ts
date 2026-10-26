@@ -50,3 +50,28 @@ export async function requireLegacyOaAccess(userId:string, requestedEntityId?:un
   }
   return requireEntityAccess(userId, LEGACY_ENTITY_ID);
 }
+
+/**
+ * Strictly validate an Entity key before using it as a quoted SQL literal.
+ * Prefer bound parameters in new queries. This helper is limited to the
+ * existing templated OA SQL while converting to company-aware query methods.
+ */
+export function entitySqlLiteral(entityId:string):string {
+  if(entityId!==LEGACY_ENTITY_ID &&
+     !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(entityId)) {
+    throw new EntityAccessError(403,"Invalid Entity");
+  }
+  return "'" + entityId + "'";
+}
+
+/**
+ * Until the tenant isolation acceptance suite passes, only the original
+ * company can be used for business operations. Stage other Entity records
+ * in the database but never expose their data through incomplete handlers.
+ */
+export async function resolveBusinessEntityAccess(userId:string,selectedId?:unknown):Promise<EntityAccess>{
+  const id=selectedId==null||String(selectedId)===""?LEGACY_ENTITY_ID:String(selectedId);
+  entitySqlLiteral(id); // validated format even for a requested non-legacy ID
+  if(id!==LEGACY_ENTITY_ID)throw new EntityAccessError(403,"Multi-Entity business access is not enabled");
+  return requireEntityAccess(userId,id);
+}
