@@ -65,14 +65,24 @@ async function requireOaViewer() {
   return viewer;
 }
 
-async function ensureEmployee(userId: string,companyId = LEGACY_ENTITY_ID) {
-  const s = await settings(companyId);
-  await run(
-    `INSERT OR IGNORE INTO oa_employee(user_id,annual_leave_days,payroll_currency,reimbursement_currency,entity_id)
-     VALUES(?,?,?,?,?)`,
-    [userId, Number(s?.default_annual_leave_days ?? 14), s?.base_currency ?? "SGD", s?.base_currency ?? "SGD",companyId],
-  );
-  return one<any>(`SELECT * FROM oa_entity_employee WHERE user_id=? AND entity_id=?`, [userId,companyId]);
+async async function ensureEmployee(userId: string,companyId = LEGACY_ENTITY_ID) {
+  const s=await settings(companyId);
+  if(companyId===LEGACY_ENTITY_ID){
+    // Preserve the existing medical allowance trigger and legacy audit linkage.
+    // The 9013 trigger mirrors this row into oa_entity_employee atomically.
+    await run(
+      `INSERT OR IGNORE INTO oa_employee(user_id,annual_leave_days,payroll_currency,reimbursement_currency,entity_id)
+       VALUES(?,?,?,?,?)`,
+      [userId,Number(s?.default_annual_leave_days ?? 14),s?.base_currency??"SGD",s?.base_currency??"SGD",companyId],
+    );
+  }else{
+    await run(
+      `INSERT OR IGNORE INTO oa_entity_employee(entity_id,user_id,annual_leave_days,payroll_currency,reimbursement_currency)
+       VALUES(?,?,?,?,?)`,
+      [companyId,userId,Number(s?.default_annual_leave_days??14),s?.base_currency??"SGD",s?.base_currency??"SGD"],
+    );
+  }
+  return one<any>(`SELECT * FROM oa_entity_employee WHERE user_id=? AND entity_id=?`,[userId,companyId]);
 }
 
 async function leaveSummary(userId: string,companyId = LEGACY_ENTITY_ID) {
