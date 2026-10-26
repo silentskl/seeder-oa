@@ -59,7 +59,11 @@ function expenseYear(value: string) {
   return year;
 }
 
-async function requireOaViewer() {
+async async function companyAudit(companyId:string,actorUserId:string|null,action:string,type:string,id:string|null,details?:unknown){
+  return audit(actorUserId,action,type,id,details,companyId);
+}
+
+function requireOaViewer() {
   const viewer = await getViewer();
   if (!viewer) throw new Error("UNAUTHORIZED");
   return viewer;
@@ -420,7 +424,7 @@ export async function POST(request: NextRequest) {
         const result=await run(`UPDATE oa_entity_expense_category SET active=? WHERE entity_id=? AND name=?`,[operation==="activate"?1:0,companyId,name]);
         if(!result.meta?.changes)return fail("Category not found",404);
       } else return fail("Unsupported category operation");
-      await audit(viewer.id,action,"expense_category",name,{operation});
+      await companyAudit(companyId,viewer.id,action,"expense_category",name,{operation});
       return ok({updated:true});
     }
 
@@ -445,7 +449,7 @@ export async function POST(request: NextRequest) {
           [Number(config?.default_annual_leave_days??14),config?.base_currency??"SGD",config?.base_currency??"SGD",companyId],
         );
       }
-      await audit(viewer.id,action,"employee",null,{scope:companyId,enrollment:"existing-members-only"},companyId);
+      await companyAudit(companyId,viewer.id,action,"employee",null,{scope:companyId,enrollment:"existing-members-only"});
       return ok({synced:true});
     }
 
@@ -478,7 +482,7 @@ export async function POST(request: NextRequest) {
           baseSalaryMinor,salaryPeriod,optionalDate(body.salaryEffectiveDate),userId
         ],
       );
-      await audit(viewer.id, action, "employee", userId, { payrollCurrency, reimbursementCurrency, leaveDays, medicalInsuranceLimitMinor, salaryChanged: true });
+      await companyAudit(companyId,viewer.id, action, "employee", userId, { payrollCurrency, reimbursementCurrency, leaveDays, medicalInsuranceLimitMinor, salaryChanged: true });
       return ok({ updated: true });
     }
 
@@ -501,7 +505,7 @@ export async function POST(request: NextRequest) {
         [id,viewer.id,typeCode,startDate,endDate,dayPart,days,text(body.reason,2000)||null,fileId,companyId],
       );
       await createApprovalWorkflow("leave", id, viewer.id,companyId);
-      await audit(viewer.id, action, "leave", id, { days, typeCode });
+      await companyAudit(companyId,viewer.id, action, "leave", id, { days, typeCode });
       await notifySubmitted("leave", id,companyId);
       return ok({ id, businessDays: days, approvalSteps: await getApprovalSteps("leave", id,companyId) }, 201);
     }
@@ -511,7 +515,7 @@ export async function POST(request: NextRequest) {
       const result = await run(`UPDATE oa_leave_request SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND entity_id=${companySql} AND status='submitted'`,[id,viewer.id]);
       if (!result.meta?.changes) return fail("Leave request cannot be cancelled",409);
       await cancelApprovalWorkflow("leave", id,companyId);
-      await audit(viewer.id, action, "leave", id); return ok({ cancelled:true });
+      await companyAudit(companyId,viewer.id, action, "leave", id); return ok({ cancelled:true });
     }
 
     if (action === "createExpenseClaim") {
@@ -572,7 +576,7 @@ export async function POST(request: NextRequest) {
       }
       await db.batch(statements);
       await createApprovalWorkflow("expense",id,viewer.id,companyId);
-      await audit(viewer.id,action,"expense",id,{itemCount:prepared.length,total,medicalTotal});
+      await companyAudit(companyId,viewer.id,action,"expense",id,{itemCount:prepared.length,total,medicalTotal});
       await notifySubmitted("expense",id,companyId);
       return ok({id,total,itemCount:prepared.length,approvalSteps:await getApprovalSteps("expense",id,companyId)},201);
     }
@@ -618,7 +622,7 @@ export async function POST(request: NextRequest) {
       if (fileId) statements.push(db.prepare(`INSERT INTO oa_expense_item_document(item_id,file_id) VALUES(?,?)`).bind(itemId,fileId));
       await db.batch(statements);
       await createApprovalWorkflow("expense", id, viewer.id,companyId);
-      await audit(viewer.id,action,"expense",id,{category,originalCurrency,reimbursementCurrency,fx,medicalInsuranceAmountMinor,medicalInsuranceCurrency});
+      await companyAudit(companyId,viewer.id,action,"expense",id,{category,originalCurrency,reimbursementCurrency,fx,medicalInsuranceAmountMinor,medicalInsuranceCurrency});
       await notifySubmitted("expense", id,companyId);
       return ok({id,category,originalMinor,reimbursementMinor,fx,medicalInsuranceSummary: category===MEDICAL_INSURANCE_CATEGORY?await medicalInsuranceSummary(viewer.id,expenseYear(expenseDate)):null,approvalSteps:await getApprovalSteps("expense",id,companyId)},201);
     }
@@ -628,7 +632,7 @@ export async function POST(request: NextRequest) {
       const result=await run(`UPDATE oa_expense_claim SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND entity_id=${companySql} AND status='submitted'`,[id,viewer.id]);
       if (!result.meta?.changes) return fail("Expense cannot be cancelled",409);
       await cancelApprovalWorkflow("expense", id,companyId);
-      await audit(viewer.id,action,"expense",id); return ok({cancelled:true});
+      await companyAudit(companyId,viewer.id,action,"expense",id); return ok({cancelled:true});
     }
 
     if (action === "updateExpenseCategory") {
@@ -661,7 +665,7 @@ export async function POST(request: NextRequest) {
         [category,medicalInsuranceAmountMinor,medicalInsuranceCurrency,viewer.id,id,companyId],
       );
       await run(`UPDATE oa_expense_item SET category=? WHERE claim_id=? AND entity_id=?`,[category,id,companyId]);
-      await audit(viewer.id,action,"expense",id,{oldCategory:claim.category,newCategory:category,medicalInsuranceAmountMinor,medicalInsuranceCurrency});
+      await companyAudit(companyId,viewer.id,action,"expense",id,{oldCategory:claim.category,newCategory:category,medicalInsuranceAmountMinor,medicalInsuranceCurrency});
       return ok({updated:true,category});
     }
 
@@ -678,7 +682,7 @@ export async function POST(request: NextRequest) {
       if (action==="rejectLeave") {
         await rejectCurrentStep("leave",id,viewer.id,note,companyId);
         await run(`UPDATE oa_leave_request SET status='rejected',decided_at=CURRENT_TIMESTAMP,decided_by=?,decision_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=?`,[viewer.id,note,id,companyId]);
-        await audit(viewer.id,action,"leave",id,{stepNo:step.step_no});
+        await companyAudit(companyId,viewer.id,action,"leave",id,{stepNo:step.step_no});
         await notifyDecision("leave",id,viewer.id,"rejected",true,companyId);
         return ok({status:"rejected",complete:true});
       }
@@ -686,7 +690,7 @@ export async function POST(request: NextRequest) {
       if (result.complete) {
         await run(`UPDATE oa_leave_request SET status='approved',decided_at=CURRENT_TIMESTAMP,decided_by=?,decision_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=?`,[viewer.id,note,id,companyId]);
       }
-      await audit(viewer.id,action,"leave",id,{stepNo:step.step_no,complete:result.complete});
+      await companyAudit(companyId,viewer.id,action,"leave",id,{stepNo:step.step_no,complete:result.complete});
       await notifyDecision("leave",id,viewer.id,"approved",result.complete,companyId);
       return ok({status:result.complete?"approved":"submitted",complete:result.complete,nextStep:result.nextStep});
     }
@@ -704,7 +708,7 @@ export async function POST(request: NextRequest) {
       if (action==="rejectExpense") {
         await rejectCurrentStep("expense",id,viewer.id,note,companyId);
         await run(`UPDATE oa_expense_claim SET status='rejected',decided_at=CURRENT_TIMESTAMP,decided_by=?,decision_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=?`,[viewer.id,note,id,companyId]);
-        await audit(viewer.id,action,"expense",id,{stepNo:step.step_no});
+        await companyAudit(companyId,viewer.id,action,"expense",id,{stepNo:step.step_no});
         await notifyDecision("expense",id,viewer.id,"rejected",true,companyId);
         return ok({status:"rejected",complete:true});
       }
@@ -712,7 +716,7 @@ export async function POST(request: NextRequest) {
       if (result.complete) {
         await run(`UPDATE oa_expense_claim SET status='approved',decided_at=CURRENT_TIMESTAMP,decided_by=?,decision_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=?`,[viewer.id,note,id,companyId]);
       }
-      await audit(viewer.id,action,"expense",id,{stepNo:step.step_no,complete:result.complete});
+      await companyAudit(companyId,viewer.id,action,"expense",id,{stepNo:step.step_no,complete:result.complete});
       await notifyDecision("expense",id,viewer.id,"approved",result.complete,companyId);
       return ok({status:result.complete?"approved":"submitted",complete:result.complete,nextStep:result.nextStep});
     }
@@ -722,7 +726,7 @@ export async function POST(request: NextRequest) {
       const id=text(body.id,100);
       const result=await run(`UPDATE oa_expense_claim SET status='paid',paid_at=CURRENT_TIMESTAMP,paid_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='approved'`,[viewer.id,id,companyId]);
       if (!result.meta?.changes) return fail("Only approved expenses can be paid",409);
-      await audit(viewer.id,action,"expense",id); return ok({status:"paid"});
+      await companyAudit(companyId,viewer.id,action,"expense",id); return ok({status:"paid"});
     }
 
     if (action === "createPayslip") {
@@ -786,7 +790,7 @@ export async function POST(request: NextRequest) {
         [id,userId,date(body.periodStart),date(body.periodEnd),payDate,currency,baseSalary,allowances,bonus,commission,employeeContribution,employerContribution,tax,otherDeductions,gross,net,reportingCurrency,fx.rate,fx.providerDate,fx.source,netReporting,JSON.stringify(customFields),text(body.note,2000)||null,attachmentId,viewer.id,
          text(employeeProfile.legal_name||employeeProfile.name||employeeProfile.email,200)||null,text(employeeProfile.employee_no,100)||null,employeeProfile.join_date||null,text(employeeProfile.job_title,200)||null,text(employeeProfile.department,200)||null,text(employeeProfile.salary_period||"monthly",20),companyId],
       );
-      await audit(viewer.id,action,"payslip",id,{currency,reportingCurrency,fx,customFieldCount:customFields.length,customContributions,customDeductions,employeeNo:employeeProfile.employee_no||null,joinDate:employeeProfile.join_date||null});
+      await companyAudit(companyId,viewer.id,action,"payslip",id,{currency,reportingCurrency,fx,customFieldCount:customFields.length,customContributions,customDeductions,employeeNo:employeeProfile.employee_no||null,joinDate:employeeProfile.join_date||null});
       return ok({id,gross,net,netReporting,fx,customContributions,customDeductions},201);
     }
 
@@ -795,14 +799,14 @@ export async function POST(request: NextRequest) {
       const id=text(body.id,100);
       const result=await run(`UPDATE oa_payslip SET status='published',published_at=CURRENT_TIMESTAMP,published_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='draft'`,[viewer.id,id,companyId]);
       if (!result.meta?.changes) return fail("Only draft payslips can be published",409);
-      await audit(viewer.id,action,"payslip",id); return ok({status:"published"});
+      await companyAudit(companyId,viewer.id,action,"payslip",id); return ok({status:"published"});
     }
 
     if (action === "voidPayslip") {
       if (!admin) return fail("Forbidden",403);
       const id=text(body.id,100);
       await run(`UPDATE oa_payslip SET status='void',updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=?`,[id,companyId]);
-      await audit(viewer.id,action,"payslip",id); return ok({status:"void"});
+      await companyAudit(companyId,viewer.id,action,"payslip",id); return ok({status:"void"});
     }
 
     if (action === "updateSettings") {
@@ -818,7 +822,7 @@ export async function POST(request: NextRequest) {
       }else{
         await run(`UPDATE oa_entity_settings SET company_name=?,base_currency=?,default_annual_leave_days=?,leave_approval_flow=?,expense_approval_flow=?,updated_at=CURRENT_TIMESTAMP WHERE entity_id=?`,[companyName,baseCurrency,defaultLeave,leaveApprovalFlow,expenseApprovalFlow,companyId]);
       }
-      await audit(viewer.id,action,"settings","1",{baseCurrency,defaultLeave}); return ok({updated:true});
+      await companyAudit(companyId,viewer.id,action,"settings","1",{baseCurrency,defaultLeave}); return ok({updated:true});
     }
 
     if (action === "updateEmailSettings") {
@@ -841,7 +845,7 @@ export async function POST(request: NextRequest) {
       }else{
         await run(`UPDATE oa_entity_settings SET email_enabled=?,email_provider=?,email_from_name=?,email_from_address=?,email_reply_to=?,email_api_key_encrypted=?,updated_at=CURRENT_TIMESTAMP WHERE entity_id=?`,[enabled,provider,fromName,fromAddress,replyTo,encrypted,companyId]);
       }
-      await audit(viewer.id,action,"settings","1",{enabled:Boolean(enabled),provider,fromAddress,replyTo,apiKeyChanged:Boolean(newApiKey),apiKeyCleared:clearApiKey});
+      await companyAudit(companyId,viewer.id,action,"settings","1",{enabled:Boolean(enabled),provider,fromAddress,replyTo,apiKeyChanged:Boolean(newApiKey),apiKeyCleared:clearApiKey});
       return ok({updated:true,email:await publicEmailSettings(companyId)});
     }
 
@@ -849,7 +853,7 @@ export async function POST(request: NextRequest) {
       if (!admin) return fail("Forbidden",403);
       const to = emailAddress(body.to || viewer.email, true)!;
       const result = await sendTestEmail(to,{id:viewer.id,name:viewer.name??null,email:viewer.email},companyId);
-      await audit(viewer.id,action,"email",null,{to});
+      await companyAudit(companyId,viewer.id,action,"email",null,{to});
       return ok({sent:true,result});
     }
 
@@ -858,12 +862,12 @@ export async function POST(request: NextRequest) {
       const holidayDate=date(body.holidayDate), name=text(body.name,200); if (!name) return fail("Holiday name is required");
       const id=crypto.randomUUID();
       await run(`INSERT INTO oa_entity_holiday(id,entity_id,holiday_date,name,created_by) VALUES(?,?,?,?,?) ON CONFLICT(entity_id,holiday_date) DO UPDATE SET name=excluded.name,created_by=excluded.created_by`,[id,companyId,holidayDate,name,viewer.id]);
-      await audit(viewer.id,action,"holiday",id,{holidayDate,name}); return ok({id});
+      await companyAudit(companyId,viewer.id,action,"holiday",id,{holidayDate,name}); return ok({id});
     }
 
     if (action === "deleteHoliday") {
       if (!admin) return fail("Forbidden",403);
-      const id=text(body.id,100); await run(`DELETE FROM oa_entity_holiday WHERE id=? AND entity_id=?`,[id,companyId]); await audit(viewer.id,action,"holiday",id); return ok({deleted:true});
+      const id=text(body.id,100); await run(`DELETE FROM oa_entity_holiday WHERE id=? AND entity_id=?`,[id,companyId]); await companyAudit(companyId,viewer.id,action,"holiday",id); return ok({deleted:true});
     }
 
     if (action === "fxQuote") {
