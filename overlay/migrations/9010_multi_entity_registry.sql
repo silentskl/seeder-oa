@@ -30,5 +30,9 @@ UPDATE oa_entity SET
   base_currency=COALESCE((SELECT NULLIF(trim(base_currency),'') FROM oa_settings WHERE id=1),base_currency)
 WHERE id='legacy-primary';
 INSERT OR IGNORE INTO oa_entity_member(entity_id,user_id,role)
-SELECT 'legacy-primary',e.user_id,'employee' FROM oa_employee e
+SELECT 'legacy-primary',e.user_id,CASE WHEN u.role IN ('owner','admin') THEN 'admin' ELSE 'employee' END FROM oa_employee e
 JOIN user u ON u.id=e.user_id;
+
+-- Legacy Seeder administrators remain company administrators after cutover.
+UPDATE oa_entity_member SET role='admin' WHERE entity_id='legacy-primary'
+ AND user_id IN (SELECT id FROM user WHERE role IN ('owner','admin'));
