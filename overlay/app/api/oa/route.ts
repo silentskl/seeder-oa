@@ -408,6 +408,11 @@ export async function POST(request: NextRequest) {
     const companyId=access.entityId,companySql=entitySqlLiteral(companyId);
     const admin = access.role==="admin";
     const action = text(body.action, 80);
+    if (companyId===LEGACY_ENTITY_ID && [
+      "approveLeave","rejectLeave","approveExpense","rejectExpense",
+      "updateExpenseCategory","markExpensePaid","createPayslip",
+      "publishPayslip","voidPayslip","updateEmployee","syncEmployees"
+    ].includes(action)) return fail("Legacy records require ownership verification",423);
     await ensureEmployee(viewer.id,companyId);
 
     if (action === "manageExpenseCategory") {
