@@ -379,7 +379,7 @@ export async function GET(request: NextRequest) {
       if (!admin) return fail("Forbidden", 403);
       return ok({
         settings: await settings(companyId),
-        email: await publicEmailSettings(),
+        email: await publicEmailSettings(companyId),
         holidays: await all(`SELECT * FROM oa_entity_holiday WHERE entity_id=${companySql} ORDER BY holiday_date DESC LIMIT 300`),
         fxCache: await all(`SELECT * FROM oa_fx_rate ORDER BY fetched_at DESC LIMIT 30`),
         emailLog: await all(`SELECT id,event_key,entity_type,entity_id,recipient_email,subject,provider,status,error,created_at FROM oa_email_log WHERE company_entity_id=${companySql} ORDER BY created_at DESC LIMIT 50`),
@@ -842,13 +842,13 @@ export async function POST(request: NextRequest) {
         await run(`UPDATE oa_entity_settings SET email_enabled=?,email_provider=?,email_from_name=?,email_from_address=?,email_reply_to=?,email_api_key_encrypted=?,updated_at=CURRENT_TIMESTAMP WHERE entity_id=?`,[enabled,provider,fromName,fromAddress,replyTo,encrypted,companyId]);
       }
       await audit(viewer.id,action,"settings","1",{enabled:Boolean(enabled),provider,fromAddress,replyTo,apiKeyChanged:Boolean(newApiKey),apiKeyCleared:clearApiKey});
-      return ok({updated:true,email:await publicEmailSettings()});
+      return ok({updated:true,email:await publicEmailSettings(companyId)});
     }
 
     if (action === "testEmail") {
       if (!admin) return fail("Forbidden",403);
       const to = emailAddress(body.to || viewer.email, true)!;
-      const result = await sendTestEmail(to,{id:viewer.id,name:viewer.name??null,email:viewer.email});
+      const result = await sendTestEmail(to,{id:viewer.id,name:viewer.name??null,email:viewer.email},companyId);
       await audit(viewer.id,action,"email",null,{to});
       return ok({sent:true,result});
     }
