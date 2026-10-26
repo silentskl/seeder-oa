@@ -1,4 +1,5 @@
 import { all, one } from "./db";
+import { getOaEnv } from "./env";
 
 export const LEGACY_ENTITY_ID = "legacy-primary";
 export type EntityRole = "admin" | "manager" | "employee";
@@ -72,6 +73,7 @@ export function entitySqlLiteral(entityId:string):string {
 export async function resolveBusinessEntityAccess(userId:string,selectedId?:unknown):Promise<EntityAccess>{
   const id=selectedId==null||String(selectedId)===""?LEGACY_ENTITY_ID:String(selectedId);
   entitySqlLiteral(id); // validated format even for a requested non-legacy ID
-  if(id!==LEGACY_ENTITY_ID)throw new EntityAccessError(403,"Multi-Entity business access is not enabled");
+  if(id!==LEGACY_ENTITY_ID && !getOaEnv().multiEntityBusinessEnabled)
+    throw new EntityAccessError(403,"Multi-Entity business access is not enabled");
   return requireEntityAccess(userId,id);
 }
