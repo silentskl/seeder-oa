@@ -41,6 +41,8 @@ echo "[MULTI-ENTITY] Running local SQLite migration fixtures..."
 node "$ROOT/tests/multi-entity-migrations.test.mjs"
 echo "[OA] Checking TypeScript/TSX parser diagnostics before Next.js build..."
 node "$ROOT/scripts/check-oa-syntax.mjs" "$APP"
+echo "[OA] Running complete TypeScript type check (before Webpack build)..."
+(cd "$APP" && ./node_modules/.bin/tsc --noEmit)
 echo "[MULTI-ENTITY] Building production bundle..."
 (cd "$APP" && npm run build)
 if [[ "$MODE" == "check" ]]; then
