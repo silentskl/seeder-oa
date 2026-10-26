@@ -439,7 +439,7 @@ function Approvals({busy,run}:{busy:boolean;run:any}){
     return {from:iso(from),to:iso(end)};
   },[recordRange,recordFrom,recordTo]);
   const loadHistory=useCallback(async()=>{
-    const q=new URLSearchParams({resource:"expenseHistory",page:String(historyPage),userId:recordUser});
+    const q=new URLSearchParams({resource:"expenseHistory",entity_id:selectedOaEntityId,page:String(historyPage),userId:recordUser});
     if(recordDates.from)q.set("from",recordDates.from);
     if(recordDates.to)q.set("to",recordDates.to);
     try{const res=await fetch("/api/oa?"+q.toString(),{cache:"no-store"});setHistory(await readOaResponse(res));setHistoryError("");}
