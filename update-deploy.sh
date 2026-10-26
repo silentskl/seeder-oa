@@ -124,7 +124,7 @@ echo "$PENDING"
 # Whitelist only migrations reviewed for this production upgrade.
 MIGRATIONS="$(printf '%s\n' "$PENDING" | grep -Eo '[0-9]{4}_[[:alnum:]_-]+\\.sql' | sort -u || true)"
 if [[ -n "$MIGRATIONS" ]]; then
-  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles|9014_email_log_company|9015_entity_leave_types)\\.sql$' || true)"
+  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles|9014_email_log_company|9015_entity_leave_types|9016_entity_medical_allowance)\\.sql$' || true)"
   if [[ -n "$UNKNOWN" ]]; then
     echo "ERROR: unexpected pending migrations: $UNKNOWN" >&2
     exit 1
@@ -188,6 +188,12 @@ LEAVE_CATALOG_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT 
 echo "$LEAVE_CATALOG_CHECK"
 if ! printf '%s\\n' "$LEAVE_CATALOG_CHECK" | grep -Eq '(^|[[:space:]│])1([[:space:]│]|$)'; then
   echo "ERROR: company leave type table missing; refusing deployment." >&2
+  exit 1
+fi
+MEDICAL_SCOPE_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM sqlite_master WHERE type='trigger' AND name IN ('oa_medical_allowance_insert','oa_medical_allowance_update') AND sql LIKE '%entity_id%';" 2>&1)" || { echo "$MEDICAL_SCOPE_CHECK" >&2; exit 1; }
+echo "$MEDICAL_SCOPE_CHECK"
+if ! printf '%s\\n' "$MEDICAL_SCOPE_CHECK" | grep -Eq '(^|[[:space:]│])2([[:space:]│]|$)'; then
+  echo "ERROR: entity-scoped medical allowance triggers missing; refusing deployment." >&2
   exit 1
 fi
 # Verify the schema actually exists, even when Wrangler's migration ledger is out of sync.
