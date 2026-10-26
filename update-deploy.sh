@@ -122,7 +122,7 @@ echo "$PENDING"
 # Whitelist only migrations reviewed for this production upgrade.
 MIGRATIONS="$(printf '%s\n' "$PENDING" | grep -Eo '[0-9]{4}_[[:alnum:]_-]+\\.sql' | sort -u || true)"
 if [[ -n "$MIGRATIONS" ]]; then
-  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management)\\.sql$' || true)"
+  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry)\\.sql$' || true)"
   if [[ -n "$UNKNOWN" ]]; then
     echo "ERROR: unexpected pending migrations: $UNKNOWN" >&2
     exit 1
@@ -147,6 +147,13 @@ if [[ -n "$MIGRATIONS" ]]; then
   fi
 else
   echo "[DEPLOY] No pending migrations; backup and migration skipped."
+fi
+# Phase-1 registry must exist before publishing any code that imports entity helpers.
+REGISTRY_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM oa_entity WHERE id='legacy-primary';" 2>&1)" || { echo "$REGISTRY_CHECK" >&2; exit 1; }
+echo "$REGISTRY_CHECK"
+if ! printf '%s\n' "$REGISTRY_CHECK" | grep -Eq '(^|[[:space:]│])1([[:space:]│]|$)'; then
+  echo "ERROR: legacy-primary entity not found in production D1; refusing deployment." >&2
+  exit 1
 fi
 # Verify the schema actually exists, even when Wrangler's migration ledger is out of sync.
 SCHEMA_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='oa_expense_category';" 2>&1)" || { echo "$SCHEMA_CHECK" >&2; exit 1; }
