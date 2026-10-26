@@ -195,7 +195,7 @@ async function usersForStep(step: ApprovalStep | null, companyId = LEGACY_ENTITY
     return user?.email ? [user] : [];
   }
   return all<UserRef>(
-    `SELECT u.id,u.name,u.email FROM user u JOIN oa_entity_member m ON m.user_id=u.id AND m.entity_id=? AND m.active=1 WHERE u.role IN ('owner','admin') AND u.id <> 'vcs-bot' AND u.email IS NOT NULL AND trim(u.email) <> '' ORDER BY CASE WHEN u.role='owner' THEN 0 ELSE 1 END,u.name,u.email`,
+    `SELECT u.id,u.name,u.email FROM user u JOIN oa_entity_member m ON m.user_id=u.id AND m.entity_id=? AND m.active=1 WHERE m.role='admin' AND u.id <> 'vcs-bot' AND u.email IS NOT NULL AND trim(u.email) <> '' ORDER BY u.name,u.email`,
     [companyId],
   );
 }
