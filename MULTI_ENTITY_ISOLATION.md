@@ -94,6 +94,10 @@ The Phase 2B implementation now has entity-aware business API paths, using `reso
 
 **Vulnerability fixed during Phase 4 review:** `overlay/app/api/oa/payslips/[id]/pdf/route.ts` previously queried by payslip ID alone and treated global Seeder admins as entitled to any PDF. It now checks Entity membership, restricts the payslip query to the selected Entity, uses the correct company's employee profile and settings, and checks Entity admin role. All PDF download links include the Entity.
 
+**Additional Phase 4 database protection (`9017_entity_database_guards.sql`):** SQLite triggers now prevent removal of the last active Entity admin, forbid cross-company Claim/ExpenseItem/Document joins, reject mismatched receipt and leave/payslip attachments, and reject ApprovalSteps linked to records belonging to another Entity. The deployment script explicitly whitelists migration 9017 and refuses release unless all 14 triggers are installed. The offline verifier also checks preexisting relationships for mismatches.
+
+**Management UX:** company administrators can enroll existing Seeder users by exact email, change the role of current Entity members, and activate/deactivate membership without reading another Entity's roster. Company creation uses default catalog entries instead of cloning Legacy Entity's customized configuration. Company and membership mutations are audit-logged.
+
 **Checks committed:**
 - `scripts/check-phase2b-isolation.mjs`: Phase 2B implementation structural checks.
 - `scripts/check-phase34-release.mjs`: Phase 3/4 static checks for switcher, backend permissions, PDF/R2 direct download protection, management controls, and feature flag. `update-deploy.sh` executes both static checks **before** contacting Cloudflare.
