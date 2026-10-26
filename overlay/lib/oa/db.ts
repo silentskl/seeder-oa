@@ -18,11 +18,11 @@ export async function run(sql: string, binds: unknown[] = []) {
   return db.prepare(sql).bind(...binds).run();
 }
 
-export async function audit(actorUserId: string | null, action: string, entityType: string, entityId: string | null, details?: unknown) {
+export async function audit(actorUserId: string | null, action: string, entityType: string, entityId: string | null, details?: unknown, companyId = 'legacy-primary') {
   await run(
-    `INSERT INTO oa_audit_log (id, actor_user_id, action, entity_type, entity_id, details_json)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [crypto.randomUUID(), actorUserId, action, entityType, entityId, details == null ? null : JSON.stringify(details)],
+    `INSERT INTO oa_audit_log (id, actor_user_id, action, entity_type, entity_id, details_json, company_entity_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [crypto.randomUUID(), actorUserId, action, entityType, entityId, details == null ? null : JSON.stringify(details),companyId],
   );
 }
 
