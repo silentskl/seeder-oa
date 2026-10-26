@@ -262,6 +262,8 @@ if ! printf '%s\n' "$SCHEMA_CHECK" | grep -Eq '(^|[[:space:]│])1([[:space:]│
 fi
 echo "[OA] Checking TypeScript/TSX parser diagnostics before Next.js build..."
 node "$ROOT/scripts/check-oa-syntax.mjs" "$APP"
+echo "[OA] Running complete TypeScript type check (before Webpack build)..."
+(cd "$APP" && ./node_modules/.bin/tsc --noEmit)
 echo "[DEPLOY] Building production bundle..."
 npm run build
 echo "[DEPLOY] Publishing Cloudflare Worker smarten-oa (oa.smartenx.com)..."
