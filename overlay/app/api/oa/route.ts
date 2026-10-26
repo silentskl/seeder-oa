@@ -214,7 +214,7 @@ export async function GET(request: NextRequest) {
     const companyId=access.entityId,companySql=entitySqlLiteral(companyId);
     const admin = access.role==="admin";
     const resource = request.nextUrl.searchParams.get("resource") || "bootstrap";
-    await ensureEmployee(viewer.id);
+    await ensureEmployee(viewer.id,companyId);
 
     if (resource === "bootstrap") {
       const employee = await one<any>(
@@ -222,14 +222,14 @@ export async function GET(request: NextRequest) {
          FROM oa_entity_employee e JOIN user u ON u.id=e.user_id
          LEFT JOIN user m ON m.id=e.manager_user_id WHERE e.user_id=? AND e.entity_id=?`, [viewer.id,companyId],
       );
-      const s = await settings();
+      const s = await settings(companyId);
       const managed = await one<{n:number}>(`SELECT COUNT(*) AS n FROM oa_employee WHERE manager_user_id=? AND entity_id=? AND active=1`, [viewer.id,companyId]);
-      return ok({ viewer, admin, isManager: Number(managed?.n ?? 0) > 0, employee, leaveSummary: await leaveSummary(viewer.id), medicalInsuranceSummary: await medicalInsuranceSummary(viewer.id), settings: s, currencies: COMMON_CURRENCIES, expenseCategories: await activeExpenseCategories() });
+      return ok({ viewer, admin, isManager: Number(managed?.n ?? 0) > 0, employee, leaveSummary: await leaveSummary(viewer.id,companyId), medicalInsuranceSummary: await medicalInsuranceSummary(viewer.id,undefined,companyId), settings: s, currencies: COMMON_CURRENCIES, expenseCategories: await activeExpenseCategories(companyId) });
     }
 
     if (resource === "leave") {
       return ok({
-        summary: await leaveSummary(viewer.id),
+        summary: await leaveSummary(viewer.id,companyId),
         types: await all(`SELECT * FROM oa_entity_leave_type WHERE entity_id=${companySql} AND active=1 ORDER BY sort_order,name`),
         requests: await all(
           `SELECT l.*, t.name AS leave_type_name, f.original_name AS attachment_name
@@ -268,9 +268,9 @@ export async function GET(request: NextRequest) {
            WHERE s.company_entity_id=${companySql} AND s.entity_type='expense' AND s.entity_id IN (SELECT id FROM oa_expense_claim WHERE entity_id=${companySql} AND user_id=?)
            ORDER BY s.entity_id,s.step_no`, [viewer.id],
         ),
-        medicalInsuranceSummary: await medicalInsuranceSummary(viewer.id),
-        categorySummary: await expenseCategorySummary(viewer.id),
-        categories: await activeExpenseCategories(),
+        medicalInsuranceSummary: await medicalInsuranceSummary(viewer.id,undefined,companyId),
+        categorySummary: await expenseCategorySummary(viewer.id,undefined,companyId),
+        categories: await activeExpenseCategories(companyId),
       });
     }
 
@@ -286,7 +286,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (resource === "approvals") {
-      await ensureSubmittedWorkflows();
+      await ensureSubmittedWorkflows(companyId);
       const stepFilter = admin
         ? `s.status='pending'`
         : `s.status='pending' AND s.approver_type='manager' AND s.assigned_user_id=?`;
@@ -307,8 +307,8 @@ export async function GET(request: NextRequest) {
         approvedExpenses: admin ? await withExpenseItems(await all(
           `SELECT x.*,u.name,u.email FROM oa_expense_claim x JOIN user u ON u.id=x.user_id
            WHERE x.entity_id=${companySql} AND x.status='approved' ORDER BY x.decided_at,x.submitted_at`)) : [],
-        expenseCategories: await activeExpenseCategories(),
-        settings: await settings(),
+        expenseCategories: await activeExpenseCategories(companyId),
+        settings: await settings(companyId),
       });
     }
 
@@ -368,7 +368,7 @@ export async function GET(request: NextRequest) {
     if (resource === "settings") {
       if (!admin) return fail("Forbidden", 403);
       return ok({
-        settings: await settings(),
+        settings: await settings(companyId),
         email: await publicEmailSettings(),
         holidays: await all(`SELECT * FROM oa_entity_holiday WHERE entity_id=${companySql} ORDER BY holiday_date DESC LIMIT 300`),
         fxCache: await all(`SELECT * FROM oa_fx_rate ORDER BY fetched_at DESC LIMIT 30`),
@@ -393,7 +393,7 @@ export async function POST(request: NextRequest) {
     const companyId=access.entityId,companySql=entitySqlLiteral(companyId);
     const admin = access.role==="admin";
     const action = text(body.action, 80);
-    await ensureEmployee(viewer.id);
+    await ensureEmployee(viewer.id,companyId);
 
     if (action === "manageExpenseCategory") {
       if (!admin) return fail("Forbidden",403);
@@ -418,7 +418,7 @@ export async function POST(request: NextRequest) {
       if (!admin) return fail("Forbidden",403);
       // Sync only explicitly enrolled people. Never enroll every Seeder user
       // into the selected company simply because they exist in the login DB.
-      const config=await settings();
+      const config=await settings(companyId);
       await run(
         `INSERT OR IGNORE INTO oa_employee(user_id,annual_leave_days,payroll_currency,reimbursement_currency,entity_id)
          SELECT m.user_id,?,?,?,${companySql}
@@ -435,7 +435,7 @@ export async function POST(request: NextRequest) {
       const userId = text(body.userId, 200); if (!userId) return fail("userId is required");
       const member=await one<{user_id:string}>(`SELECT user_id FROM oa_entity_member WHERE entity_id=? AND user_id=? AND active=1`,[companyId,userId]);
       if(!member)return fail("Employee is not enrolled in this Entity",404);
-      await ensureEmployee(userId);
+      await ensureEmployee(userId,companyId);
       const payrollCurrency = normalizeCurrency(body.payrollCurrency || "SGD");
       const reimbursementCurrency = normalizeCurrency(body.reimbursementCurrency || payrollCurrency);
       const leaveDays = Number(body.annualLeaveDays);
@@ -468,7 +468,7 @@ export async function POST(request: NextRequest) {
       if (!type) return fail("Invalid leave type");
       const startDate = date(body.startDate), endDate = date(body.endDate);
       const dayPart = ["full","am","pm"].includes(body.dayPart) ? body.dayPart : "full";
-      const days = await businessDays(startDate, endDate, dayPart);
+      const days = await businessDays(startDate, endDate, dayPart,companyId);
       const fileId = text(body.attachmentFileId, 100) || null;
       if (fileId) {
         const file = await one<{owner_user_id:string}>(`SELECT owner_user_id FROM oa_file WHERE id=? AND entity_id=?`,[fileId,companyId]);
@@ -480,24 +480,24 @@ export async function POST(request: NextRequest) {
          VALUES(?,?,?,?,?,?,?,?,?,?)`,
         [id,viewer.id,typeCode,startDate,endDate,dayPart,days,text(body.reason,2000)||null,fileId,companyId],
       );
-      await createApprovalWorkflow("leave", id, viewer.id);
+      await createApprovalWorkflow("leave", id, viewer.id,companyId);
       await audit(viewer.id, action, "leave", id, { days, typeCode });
-      await notifySubmitted("leave", id);
-      return ok({ id, businessDays: days, approvalSteps: await getApprovalSteps("leave", id) }, 201);
+      await notifySubmitted("leave", id,companyId);
+      return ok({ id, businessDays: days, approvalSteps: await getApprovalSteps("leave", id,companyId) }, 201);
     }
 
     if (action === "cancelLeave") {
       const id = text(body.id,100);
       const result = await run(`UPDATE oa_leave_request SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND entity_id=${companySql} AND status='submitted'`,[id,viewer.id]);
       if (!result.meta?.changes) return fail("Leave request cannot be cancelled",409);
-      await cancelApprovalWorkflow("leave", id);
+      await cancelApprovalWorkflow("leave", id,companyId);
       await audit(viewer.id, action, "leave", id); return ok({ cancelled:true });
     }
 
     if (action === "createExpenseClaim") {
       const inputs=body.items;
       if(!Array.isArray(inputs)||inputs.length<1||inputs.length>50) return fail("Claim requires 1–50 items");
-      const employee=await ensureEmployee(viewer.id);
+      const employee=await ensureEmployee(viewer.id,companyId);
       const payrollCurrency=normalizeCurrency(employee?.payroll_currency||"SGD");
       const reimbursementCurrency=normalizeCurrency(body.reimbursementCurrency||employee?.reimbursement_currency||payrollCurrency);
       const prepared=[] as any[];
@@ -506,7 +506,7 @@ export async function POST(request: NextRequest) {
       for(let i=0;i<inputs.length;i++){
         const item=inputs[i];
         const expenseDate=date(item.expenseDate);
-        const category=await expenseCategory(item.category);
+        const category=await expenseCategory(item.category,companyId);
         if(category===MEDICAL_INSURANCE_CATEGORY && reimbursementCurrency!==payrollCurrency)
           return fail(`Medical Insurance requires payroll currency ${payrollCurrency}`);
         const description=text(item.description,2000);
@@ -534,7 +534,7 @@ export async function POST(request: NextRequest) {
       }
       if(medicalTotal>0 && (medicalTotal!==total || medicalByYear.size!==1)) return fail("Medical Insurance items must be submitted in a separate claim for one calendar year");
       for(const [year,amount] of medicalByYear){
-        const summary=await medicalInsuranceSummary(viewer.id,year);
+        const summary=await medicalInsuranceSummary(viewer.id,year,companyId);
         if(amount>summary.availableMinor) return fail(`Medical Insurance annual limit exceeded for ${year}. Available: ${formatMoney(summary.availableMinor,summary.currency)}`,409);
       }
       const first=prepared[0],id=crypto.randomUUID();
@@ -551,17 +551,17 @@ export async function POST(request: NextRequest) {
         for(const fileId of x.docs) statements.push(db.prepare(`INSERT INTO oa_expense_item_document(item_id,file_id) VALUES(?,?)`).bind(x.id,fileId));
       }
       await db.batch(statements);
-      await createApprovalWorkflow("expense",id,viewer.id);
+      await createApprovalWorkflow("expense",id,viewer.id,companyId);
       await audit(viewer.id,action,"expense",id,{itemCount:prepared.length,total,medicalTotal});
-      await notifySubmitted("expense",id);
-      return ok({id,total,itemCount:prepared.length,approvalSteps:await getApprovalSteps("expense",id)},201);
+      await notifySubmitted("expense",id,companyId);
+      return ok({id,total,itemCount:prepared.length,approvalSteps:await getApprovalSteps("expense",id,companyId)},201);
     }
 
     if (action === "createExpense") {
       const expenseDate = date(body.expenseDate);
       const category = await expenseCategory(body.category || "Other");
       const originalCurrency = normalizeCurrency(body.originalCurrency);
-      const employee = await ensureEmployee(viewer.id);
+      const employee = await ensureEmployee(viewer.id,companyId);
       const payrollCurrency = normalizeCurrency(employee?.payroll_currency || "SGD");
       const reimbursementCurrency = category === MEDICAL_INSURANCE_CATEGORY
         ? payrollCurrency
@@ -597,24 +597,24 @@ export async function POST(request: NextRequest) {
       ];
       if (fileId) statements.push(db.prepare(`INSERT INTO oa_expense_item_document(item_id,file_id) VALUES(?,?)`).bind(itemId,fileId));
       await db.batch(statements);
-      await createApprovalWorkflow("expense", id, viewer.id);
+      await createApprovalWorkflow("expense", id, viewer.id,companyId);
       await audit(viewer.id,action,"expense",id,{category,originalCurrency,reimbursementCurrency,fx,medicalInsuranceAmountMinor,medicalInsuranceCurrency});
-      await notifySubmitted("expense", id);
-      return ok({id,category,originalMinor,reimbursementMinor,fx,medicalInsuranceSummary: category===MEDICAL_INSURANCE_CATEGORY?await medicalInsuranceSummary(viewer.id,expenseYear(expenseDate)):null,approvalSteps:await getApprovalSteps("expense",id)},201);
+      await notifySubmitted("expense", id,companyId);
+      return ok({id,category,originalMinor,reimbursementMinor,fx,medicalInsuranceSummary: category===MEDICAL_INSURANCE_CATEGORY?await medicalInsuranceSummary(viewer.id,expenseYear(expenseDate)):null,approvalSteps:await getApprovalSteps("expense",id,companyId)},201);
     }
 
     if (action === "cancelExpense") {
       const id=text(body.id,100);
       const result=await run(`UPDATE oa_expense_claim SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND entity_id=${companySql} AND status='submitted'`,[id,viewer.id]);
       if (!result.meta?.changes) return fail("Expense cannot be cancelled",409);
-      await cancelApprovalWorkflow("expense", id);
+      await cancelApprovalWorkflow("expense", id,companyId);
       await audit(viewer.id,action,"expense",id); return ok({cancelled:true});
     }
 
     if (action === "updateExpenseCategory") {
       if (!admin) return fail("Forbidden",403);
       const id=text(body.id,100);
-      const category=await expenseCategory(body.category);
+      const category=await expenseCategory(body.category,companyId);
       const claim=await one<any>(
         `SELECT x.*,e.payroll_currency FROM oa_expense_claim x
          LEFT JOIN oa_entity_employee e ON e.user_id=x.user_id AND e.entity_id=x.entity_id WHERE x.id=? AND x.entity_id=?`,
@@ -627,7 +627,7 @@ export async function POST(request: NextRequest) {
       let medicalInsuranceAmountMinor:number|null=null;
       let medicalInsuranceCurrency:string|null=null;
       if (category===MEDICAL_INSURANCE_CATEGORY) {
-        const employee=await ensureEmployee(claim.user_id);
+        const employee=await ensureEmployee(claim.user_id,companyId);
         const payrollCurrency=normalizeCurrency(employee?.payroll_currency||claim.payroll_currency||claim.reimbursement_currency||"SGD");
         const originalCurrency=normalizeCurrency(claim.original_currency);
         const fx=await getFxQuote(originalCurrency,payrollCurrency,claim.expense_date);
@@ -650,24 +650,24 @@ export async function POST(request: NextRequest) {
       const row=await one<{user_id:string;status:string}>(`SELECT user_id,status FROM oa_leave_request WHERE id=? AND entity_id=?`,[id,companyId]);
       if (!row) return fail("Leave request not found",404);
       if (row.status!=="submitted") return fail("Leave request is no longer pending",409);
-      await createApprovalWorkflow("leave", id, row.user_id);
-      const step=await getPendingStep("leave",id);
+      await createApprovalWorkflow("leave", id, row.user_id,companyId);
+      const step=await getPendingStep("leave",id,companyId);
       if (!step) return fail("No pending approval step",409);
       if (!canActOnStep(step,viewer.id,admin)) return fail("Forbidden",403);
       const note=text(body.note,1000)||null;
       if (action==="rejectLeave") {
-        await rejectCurrentStep("leave",id,viewer.id,note);
+        await rejectCurrentStep("leave",id,viewer.id,note,companyId);
         await run(`UPDATE oa_leave_request SET status='rejected',decided_at=CURRENT_TIMESTAMP,decided_by=?,decision_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=?`,[viewer.id,note,id,companyId]);
         await audit(viewer.id,action,"leave",id,{stepNo:step.step_no});
-        await notifyDecision("leave",id,viewer.id,"rejected",true);
+        await notifyDecision("leave",id,viewer.id,"rejected",true,companyId);
         return ok({status:"rejected",complete:true});
       }
-      const result=await approveCurrentStep("leave",id,viewer.id,note);
+      const result=await approveCurrentStep("leave",id,viewer.id,note,companyId);
       if (result.complete) {
         await run(`UPDATE oa_leave_request SET status='approved',decided_at=CURRENT_TIMESTAMP,decided_by=?,decision_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=?`,[viewer.id,note,id,companyId]);
       }
       await audit(viewer.id,action,"leave",id,{stepNo:step.step_no,complete:result.complete});
-      await notifyDecision("leave",id,viewer.id,"approved",result.complete);
+      await notifyDecision("leave",id,viewer.id,"approved",result.complete,companyId);
       return ok({status:result.complete?"approved":"submitted",complete:result.complete,nextStep:result.nextStep});
     }
 
@@ -676,24 +676,24 @@ export async function POST(request: NextRequest) {
       const row=await one<{user_id:string;status:string}>(`SELECT user_id,status FROM oa_expense_claim WHERE id=? AND entity_id=?`,[id,companyId]);
       if (!row) return fail("Expense not found",404);
       if (row.status!=="submitted") return fail("Expense is no longer pending",409);
-      await createApprovalWorkflow("expense", id, row.user_id);
-      const step=await getPendingStep("expense",id);
+      await createApprovalWorkflow("expense", id, row.user_id,companyId);
+      const step=await getPendingStep("expense",id,companyId);
       if (!step) return fail("No pending approval step",409);
       if (!canActOnStep(step,viewer.id,admin)) return fail("Forbidden",403);
       const note=text(body.note,1000)||null;
       if (action==="rejectExpense") {
-        await rejectCurrentStep("expense",id,viewer.id,note);
+        await rejectCurrentStep("expense",id,viewer.id,note,companyId);
         await run(`UPDATE oa_expense_claim SET status='rejected',decided_at=CURRENT_TIMESTAMP,decided_by=?,decision_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=?`,[viewer.id,note,id,companyId]);
         await audit(viewer.id,action,"expense",id,{stepNo:step.step_no});
-        await notifyDecision("expense",id,viewer.id,"rejected",true);
+        await notifyDecision("expense",id,viewer.id,"rejected",true,companyId);
         return ok({status:"rejected",complete:true});
       }
-      const result=await approveCurrentStep("expense",id,viewer.id,note);
+      const result=await approveCurrentStep("expense",id,viewer.id,note,companyId);
       if (result.complete) {
         await run(`UPDATE oa_expense_claim SET status='approved',decided_at=CURRENT_TIMESTAMP,decided_by=?,decision_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=?`,[viewer.id,note,id,companyId]);
       }
       await audit(viewer.id,action,"expense",id,{stepNo:step.step_no,complete:result.complete});
-      await notifyDecision("expense",id,viewer.id,"approved",result.complete);
+      await notifyDecision("expense",id,viewer.id,"approved",result.complete,companyId);
       return ok({status:result.complete?"approved":"submitted",complete:result.complete,nextStep:result.nextStep});
     }
 
@@ -710,14 +710,14 @@ export async function POST(request: NextRequest) {
       const userId=text(body.userId,200); if (!userId) return fail("Employee is required");
       const member=await one<{user_id:string}>(`SELECT user_id FROM oa_entity_member WHERE entity_id=? AND user_id=? AND active=1`,[companyId,userId]);
       if(!member)return fail("Employee is not enrolled in this Entity",404);
-      await ensureEmployee(userId);
+      await ensureEmployee(userId,companyId);
       const employeeProfile=await one<any>(
         `SELECT e.*,u.name,u.email FROM oa_entity_employee e JOIN user u ON u.id=e.user_id WHERE e.user_id=? AND e.entity_id=${companySql}`,
         [userId],
       );
       if (!employeeProfile) return fail("Employee profile not found",404);
       const currency=normalizeCurrency(body.currency||employeeProfile.payroll_currency||"SGD");
-      const s=await settings(); const reportingCurrency=normalizeCurrency(s?.base_currency||"SGD");
+      const s=await settings(companyId); const reportingCurrency=normalizeCurrency(s?.base_currency||"SGD");
       const payDate=date(body.payDate);
       const baseSalaryInput=text(body.baseSalary,100);
       const baseSalary=baseSalaryInput
