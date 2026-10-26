@@ -40,14 +40,15 @@ SELECT 'legacy-primary',name,active,sort_order,created_at FROM oa_expense_catego
 CREATE INDEX IF NOT EXISTS idx_entity_category_active ON oa_entity_expense_category(entity_id,active,sort_order);
 
 CREATE TABLE IF NOT EXISTS oa_entity_holiday (
+ id TEXT NOT NULL PRIMARY KEY,
  entity_id TEXT NOT NULL REFERENCES oa_entity(id) ON DELETE RESTRICT,
  holiday_date TEXT NOT NULL,
  name TEXT NOT NULL,
  created_by TEXT,
- PRIMARY KEY(entity_id,holiday_date)
+ UNIQUE(entity_id,holiday_date)
 );
-INSERT OR IGNORE INTO oa_entity_holiday(entity_id,holiday_date,name,created_by)
-SELECT 'legacy-primary',holiday_date,name,created_by FROM oa_holiday;
+INSERT OR IGNORE INTO oa_entity_holiday(id,entity_id,holiday_date,name,created_by)
+SELECT id,'legacy-primary',holiday_date,name,created_by FROM oa_holiday;
 
 -- This migration does not change legacy oa_settings or oa_holiday in place.
 -- No new entity can become active until the application reads/writes these
