@@ -3,7 +3,7 @@ import { getViewer } from "@/lib/auth-server";
 import { all, audit, one, run, settings } from "@/lib/oa/db";
 import { getFxQuote } from "@/lib/oa/fx";
 import { getOaEnv } from "@/lib/oa/env";
-import { EntityAccessError, LEGACY_ENTITY_ID, requireLegacyOaAccess } from "@/lib/oa/entity";
+import { EntityAccessError, LEGACY_ENTITY_ID, entitySqlLiteral, resolveBusinessEntityAccess } from "@/lib/oa/entity";
 import { businessDays } from "@/lib/oa/leave";
 import { COMMON_CURRENCIES, convertMinor, formatMoney, majorToMinor, normalizeCurrency } from "@/lib/oa/money";
 import { approveCurrentStep, cancelApprovalWorkflow, canActOnStep, createApprovalWorkflow, ensureSubmittedWorkflows, getApprovalSteps, getPendingStep, normalizeApprovalFlow, rejectCurrentStep } from "@/lib/oa/approval";
@@ -205,7 +205,8 @@ async function withExpenseItems<T extends Record<string,unknown>>(claims:T[]):Pr
 export async function GET(request: NextRequest) {
   try {
     const viewer = await requireOaViewer();
-    const access=await requireLegacyOaAccess(viewer.id, request.nextUrl.searchParams.get("entity_id"));
+    const access=await resolveBusinessEntityAccess(viewer.id, request.nextUrl.searchParams.get("entity_id"));
+    const companyId=access.entityId,companySql=entitySqlLiteral(companyId);
     const admin = access.role==="admin";
     const resource = request.nextUrl.searchParams.get("resource") || "bootstrap";
     await ensureEmployee(viewer.id);
@@ -214,29 +215,29 @@ export async function GET(request: NextRequest) {
       const employee = await one<any>(
         `SELECT e.*, u.name, u.email, m.name AS manager_name
          FROM oa_entity_employee e JOIN user u ON u.id=e.user_id
-         LEFT JOIN user m ON m.id=e.manager_user_id WHERE e.user_id=? AND e.entity_id=?`, [viewer.id,LEGACY_ENTITY_ID],
+         LEFT JOIN user m ON m.id=e.manager_user_id WHERE e.user_id=? AND e.entity_id=?`, [viewer.id,companyId],
       );
       const s = await settings();
-      const managed = await one<{n:number}>(`SELECT COUNT(*) AS n FROM oa_employee WHERE manager_user_id=? AND entity_id=? AND active=1`, [viewer.id,LEGACY_ENTITY_ID]);
+      const managed = await one<{n:number}>(`SELECT COUNT(*) AS n FROM oa_employee WHERE manager_user_id=? AND entity_id=? AND active=1`, [viewer.id,companyId]);
       return ok({ viewer, admin, isManager: Number(managed?.n ?? 0) > 0, employee, leaveSummary: await leaveSummary(viewer.id), medicalInsuranceSummary: await medicalInsuranceSummary(viewer.id), settings: s, currencies: COMMON_CURRENCIES, expenseCategories: await activeExpenseCategories() });
     }
 
     if (resource === "leave") {
       return ok({
         summary: await leaveSummary(viewer.id),
-        types: await all(`SELECT * FROM oa_entity_leave_type WHERE entity_id='legacy-primary' AND active=1 ORDER BY sort_order,name`),
+        types: await all(`SELECT * FROM oa_entity_leave_type WHERE entity_id=${companySql} AND active=1 ORDER BY sort_order,name`),
         requests: await all(
           `SELECT l.*, t.name AS leave_type_name, f.original_name AS attachment_name
            FROM oa_leave_request l JOIN oa_entity_leave_type t ON t.code=l.leave_type_code AND t.entity_id=l.entity_id
            LEFT JOIN oa_file f ON f.id=l.attachment_file_id
-           WHERE l.entity_id='legacy-primary' AND l.user_id=? ORDER BY l.submitted_at DESC LIMIT 100`, [viewer.id],
+           WHERE l.entity_id=${companySql} AND l.user_id=? ORDER BY l.submitted_at DESC LIMIT 100`, [viewer.id],
         ),
         approvalSteps: await all(
           `SELECT s.*,du.name AS decided_by_name,au.name AS assigned_user_name
            FROM oa_approval_step s
            LEFT JOIN user du ON du.id=s.decided_by
            LEFT JOIN user au ON au.id=s.assigned_user_id
-           WHERE s.company_entity_id='legacy-primary' AND s.entity_type='leave' AND s.entity_id IN (SELECT id FROM oa_leave_request WHERE entity_id='legacy-primary' AND user_id=?)
+           WHERE s.company_entity_id=${companySql} AND s.entity_type='leave' AND s.entity_id IN (SELECT id FROM oa_leave_request WHERE entity_id=${companySql} AND user_id=?)
            ORDER BY s.entity_id,s.step_no`, [viewer.id],
         ),
       });
@@ -244,7 +245,7 @@ export async function GET(request: NextRequest) {
 
     if (resource === "expenseCategories") {
       if (!admin) return fail("Forbidden",403);
-      return ok(await all<{name:string;active:number;sort_order:number}>(`SELECT name,active,sort_order FROM oa_entity_expense_category WHERE entity_id='legacy-primary' ORDER BY sort_order,name`));
+      return ok(await all<{name:string;active:number;sort_order:number}>(`SELECT name,active,sort_order FROM oa_entity_expense_category WHERE entity_id=${companySql} ORDER BY sort_order,name`));
     }
 
     if (resource === "expenses") {
@@ -252,14 +253,14 @@ export async function GET(request: NextRequest) {
         claims: await withExpenseItems(await all(
           `SELECT e.*, f.original_name AS receipt_name FROM oa_expense_claim e
            LEFT JOIN oa_file f ON f.id=e.receipt_file_id
-           WHERE e.entity_id='legacy-primary' AND e.user_id=? ORDER BY e.submitted_at DESC LIMIT 100`, [viewer.id],
+           WHERE e.entity_id=${companySql} AND e.user_id=? ORDER BY e.submitted_at DESC LIMIT 100`, [viewer.id],
         )),
         approvalSteps: await all(
           `SELECT s.*,du.name AS decided_by_name,au.name AS assigned_user_name
            FROM oa_approval_step s
            LEFT JOIN user du ON du.id=s.decided_by
            LEFT JOIN user au ON au.id=s.assigned_user_id
-           WHERE s.company_entity_id='legacy-primary' AND s.entity_type='expense' AND s.entity_id IN (SELECT id FROM oa_expense_claim WHERE entity_id='legacy-primary' AND user_id=?)
+           WHERE s.company_entity_id=${companySql} AND s.entity_type='expense' AND s.entity_id IN (SELECT id FROM oa_expense_claim WHERE entity_id=${companySql} AND user_id=?)
            ORDER BY s.entity_id,s.step_no`, [viewer.id],
         ),
         medicalInsuranceSummary: await medicalInsuranceSummary(viewer.id),
@@ -275,7 +276,7 @@ export async function GET(request: NextRequest) {
          FROM oa_payslip p JOIN user u ON u.id=p.user_id
          LEFT JOIN oa_employee e ON e.user_id=p.user_id
          LEFT JOIN oa_file f ON f.id=p.attachment_file_id
-         WHERE p.entity_id='legacy-primary' AND p.user_id=? AND p.status='published' ORDER BY p.pay_date DESC LIMIT 100`, [viewer.id],
+         WHERE p.entity_id=${companySql} AND p.user_id=? AND p.status='published' ORDER BY p.pay_date DESC LIMIT 100`, [viewer.id],
       ));
     }
 
@@ -291,16 +292,16 @@ export async function GET(request: NextRequest) {
            FROM oa_approval_step s
            JOIN oa_leave_request l ON l.id=s.entity_id AND s.entity_type='leave'
            JOIN user u ON u.id=l.user_id JOIN oa_entity_leave_type t ON t.code=l.leave_type_code AND t.entity_id=l.entity_id
-           WHERE ${stepFilter} AND s.company_entity_id='legacy-primary' AND l.entity_id='legacy-primary' AND l.status='submitted' ORDER BY l.submitted_at`, params),
+           WHERE ${stepFilter} AND s.company_entity_id=${companySql} AND l.entity_id=${companySql} AND l.status='submitted' ORDER BY l.submitted_at`, params),
         expenses: await withExpenseItems(await all(
           `SELECT x.*,u.name,u.email,s.step_no,s.approver_type,s.assigned_user_id
            FROM oa_approval_step s
            JOIN oa_expense_claim x ON x.id=s.entity_id AND s.entity_type='expense'
            JOIN user u ON u.id=x.user_id
-           WHERE ${stepFilter} AND s.company_entity_id='legacy-primary' AND x.entity_id='legacy-primary' AND x.status='submitted' ORDER BY x.submitted_at`, params)),
+           WHERE ${stepFilter} AND s.company_entity_id=${companySql} AND x.entity_id=${companySql} AND x.status='submitted' ORDER BY x.submitted_at`, params)),
         approvedExpenses: admin ? await withExpenseItems(await all(
           `SELECT x.*,u.name,u.email FROM oa_expense_claim x JOIN user u ON u.id=x.user_id
-           WHERE x.entity_id='legacy-primary' AND x.status='approved' ORDER BY x.decided_at,x.submitted_at`)) : [],
+           WHERE x.entity_id=${companySql} AND x.status='approved' ORDER BY x.decided_at,x.submitted_at`)) : [],
         expenseCategories: await activeExpenseCategories(),
         settings: await settings(),
       });
@@ -315,7 +316,7 @@ export async function GET(request: NextRequest) {
       const from=text(query.get("from")||"",10);
       const to=text(query.get("to")||"",10);
       if ((from&&!/^\d{4}-\d{2}-\d{2}$/.test(from))||(to&&!/^\d{4}-\d{2}-\d{2}$/.test(to)))return fail("Invalid date",400);
-      const where=["x.entity_id='legacy-primary'"],params:any[]=[];
+      const where=[`x.entity_id=${companySql}`],params:any[]=[];
       if(userId&&userId!=="ALL"){where.push("x.user_id=?");params.push(userId);}
       if(from){where.push("x.expense_date>=?");params.push(from);}
       if(to){where.push("x.expense_date<=?");params.push(to);}
@@ -345,7 +346,7 @@ export async function GET(request: NextRequest) {
                 e.employment_type,e.work_location,e.base_salary_minor,e.salary_period,e.salary_effective_date,
                 m.name AS manager_name
          FROM oa_entity_member em JOIN user u ON u.id=em.user_id LEFT JOIN oa_entity_employee e ON e.user_id=u.id AND e.entity_id=em.entity_id LEFT JOIN user m ON m.id=e.manager_user_id
-         WHERE u.id <> 'vcs-bot' AND em.entity_id='legacy-primary' AND em.active=1
+         WHERE u.id <> 'vcs-bot' AND em.entity_id=${companySql} AND em.active=1
          ORDER BY COALESCE(e.active,1) DESC,u.name,u.email`,
       ));
     }
@@ -355,7 +356,7 @@ export async function GET(request: NextRequest) {
       return ok(await all(
         `SELECT p.*,u.name,u.email,e.employee_no AS current_employee_no,e.join_date AS current_join_date,f.original_name AS attachment_name FROM oa_payslip p
          JOIN user u ON u.id=p.user_id LEFT JOIN oa_entity_employee e ON e.user_id=p.user_id AND e.entity_id=p.entity_id LEFT JOIN oa_file f ON f.id=p.attachment_file_id
-         WHERE p.entity_id='legacy-primary' ORDER BY p.pay_date DESC,p.created_at DESC LIMIT 200`,
+         WHERE p.entity_id=${companySql} ORDER BY p.pay_date DESC,p.created_at DESC LIMIT 200`,
       ));
     }
 
@@ -364,9 +365,9 @@ export async function GET(request: NextRequest) {
       return ok({
         settings: await settings(),
         email: await publicEmailSettings(),
-        holidays: await all(`SELECT * FROM oa_entity_holiday WHERE entity_id='legacy-primary' ORDER BY holiday_date DESC LIMIT 300`),
+        holidays: await all(`SELECT * FROM oa_entity_holiday WHERE entity_id=${companySql} ORDER BY holiday_date DESC LIMIT 300`),
         fxCache: await all(`SELECT * FROM oa_fx_rate ORDER BY fetched_at DESC LIMIT 30`),
-        emailLog: await all(`SELECT id,event_key,entity_type,entity_id,recipient_email,subject,provider,status,error,created_at FROM oa_email_log WHERE company_entity_id='legacy-primary' ORDER BY created_at DESC LIMIT 50`),
+        emailLog: await all(`SELECT id,event_key,entity_type,entity_id,recipient_email,subject,provider,status,error,created_at FROM oa_email_log WHERE company_entity_id=${companySql} ORDER BY created_at DESC LIMIT 50`),
       });
     }
 
@@ -383,7 +384,8 @@ export async function POST(request: NextRequest) {
   try {
     const viewer = await requireOaViewer();
     const body = await request.json() as Record<string, any>;
-    const access=await requireLegacyOaAccess(viewer.id, body.entity_id ?? body.entityId);
+    const access=await resolveBusinessEntityAccess(viewer.id, body.entity_id ?? body.entityId);
+    const companyId=access.entityId,companySql=entitySqlLiteral(companyId);
     const admin = access.role==="admin";
     const action = text(body.action, 80);
     await ensureEmployee(viewer.id);
@@ -395,12 +397,12 @@ export async function POST(request: NextRequest) {
       if(!name || name.length>100) return fail("Category name is required");
       if(operation==="add"){
         if(!/^[\p{L}\p{N}][\p{L}\p{N} &()'.,/_-]*$/u.test(name))return fail("Invalid category name");
-        const existing=await one<{name:string}>(`SELECT name FROM oa_entity_expense_category WHERE entity_id=? AND name=? COLLATE NOCASE`,[LEGACY_ENTITY_ID,name]);
+        const existing=await one<{name:string}>(`SELECT name FROM oa_entity_expense_category WHERE entity_id=? AND name=? COLLATE NOCASE`,[companyId,name]);
         if(existing)return fail("Category already exists; reactivate it instead",409);
-        await run(`INSERT INTO oa_entity_expense_category(entity_id,name,sort_order) VALUES(?,?,COALESCE((SELECT MAX(sort_order)+10 FROM oa_entity_expense_category WHERE entity_id=?),10))`,[LEGACY_ENTITY_ID,name,LEGACY_ENTITY_ID]);
+        await run(`INSERT INTO oa_entity_expense_category(entity_id,name,sort_order) VALUES(?,?,COALESCE((SELECT MAX(sort_order)+10 FROM oa_entity_expense_category WHERE entity_id=?),10))`,[companyId,name,companyId]);
       } else if(operation==="activate"||operation==="deactivate"){
         if(name===MEDICAL_INSURANCE_CATEGORY && operation==="deactivate")return fail("Medical Insurance is a protected category",409);
-        const result=await run(`UPDATE oa_entity_expense_category SET active=? WHERE entity_id=? AND name=?`,[operation==="activate"?1:0,LEGACY_ENTITY_ID,name]);
+        const result=await run(`UPDATE oa_entity_expense_category SET active=? WHERE entity_id=? AND name=?`,[operation==="activate"?1:0,companyId,name]);
         if(!result.meta?.changes)return fail("Category not found",404);
       } else return fail("Unsupported category operation");
       await audit(viewer.id,action,"expense_category",name,{operation});
@@ -414,19 +416,19 @@ export async function POST(request: NextRequest) {
       const config=await settings();
       await run(
         `INSERT OR IGNORE INTO oa_employee(user_id,annual_leave_days,payroll_currency,reimbursement_currency,entity_id)
-         SELECT m.user_id,?,?,?,'legacy-primary'
+         SELECT m.user_id,?,?,?,${companySql}
          FROM oa_entity_member m JOIN user u ON u.id=m.user_id
          WHERE m.entity_id=? AND m.active=1`,
-        [Number(config?.default_annual_leave_days ?? 14),config?.base_currency ?? "SGD",config?.base_currency ?? "SGD",LEGACY_ENTITY_ID],
+        [Number(config?.default_annual_leave_days ?? 14),config?.base_currency ?? "SGD",config?.base_currency ?? "SGD",companyId],
       );
-      await audit(viewer.id,action,"employee",null,{scope:LEGACY_ENTITY_ID,enrollment:"existing-members-only"});
+      await audit(viewer.id,action,"employee",null,{scope:companyId,enrollment:"existing-members-only"});
       return ok({synced:true});
     }
 
     if (action === "updateEmployee") {
       if (!admin) return fail("Forbidden", 403);
       const userId = text(body.userId, 200); if (!userId) return fail("userId is required");
-      const member=await one<{user_id:string}>(`SELECT user_id FROM oa_entity_member WHERE entity_id=? AND user_id=? AND active=1`,[LEGACY_ENTITY_ID,userId]);
+      const member=await one<{user_id:string}>(`SELECT user_id FROM oa_entity_member WHERE entity_id=? AND user_id=? AND active=1`,[companyId,userId]);
       if(!member)return fail("Employee is not enrolled in this Entity",404);
       await ensureEmployee(userId);
       const payrollCurrency = normalizeCurrency(body.payrollCurrency || "SGD");
@@ -435,14 +437,14 @@ export async function POST(request: NextRequest) {
       if (!Number.isFinite(leaveDays) || leaveDays < 0 || leaveDays > 365) return fail("Invalid annual leave entitlement");
       const medicalInsuranceLimitMinor = majorToMinor(body.medicalInsuranceLimit || 0, payrollCurrency);
       const managerId = text(body.managerUserId, 200) || null;
-      if (managerId && !(await one(`SELECT user_id FROM oa_entity_member WHERE entity_id=? AND user_id=? AND active=1`,[LEGACY_ENTITY_ID,managerId]))) return fail("Manager must belong to the same Entity",403);
+      if (managerId && !(await one(`SELECT user_id FROM oa_entity_member WHERE entity_id=? AND user_id=? AND active=1`,[companyId,managerId]))) return fail("Manager must belong to the same Entity",403);
       if (managerId === userId) return fail("Employee cannot be their own manager");
       const baseSalaryMinor = majorToMinor(body.baseSalary || 0, payrollCurrency);
       const salaryPeriod = text(body.salaryPeriod || "monthly", 20);
       if (!['monthly','annual'].includes(salaryPeriod)) return fail("Invalid salary period");
       await run(
         `UPDATE oa_employee SET employee_no=?,department=?,job_title=?,manager_user_id=?,join_date=?,annual_leave_days=?,medical_insurance_limit_minor=?,payroll_currency=?,reimbursement_currency=?,active=?,
-         legal_name=?,personal_email=?,phone=?,address=?,nationality=?,date_of_birth=?,employment_type=?,work_location=?,base_salary_minor=?,salary_period=?,salary_effective_date=?,updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND entity_id='legacy-primary'`,
+         legal_name=?,personal_email=?,phone=?,address=?,nationality=?,date_of_birth=?,employment_type=?,work_location=?,base_salary_minor=?,salary_period=?,salary_effective_date=?,updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND entity_id=${companySql}`,
         [
           text(body.employeeNo,100)||null,text(body.department,200)||null,text(body.jobTitle,200)||null,managerId,
           date(body.joinDate || new Date().toISOString().slice(0,10)),leaveDays,medicalInsuranceLimitMinor,payrollCurrency,reimbursementCurrency,body.active === false ? 0 : 1,
@@ -457,21 +459,21 @@ export async function POST(request: NextRequest) {
 
     if (action === "createLeave") {
       const typeCode = text(body.leaveTypeCode, 50);
-      const type = await one<{code:string}>(`SELECT code FROM oa_entity_leave_type WHERE entity_id=? AND code=? AND active=1`, [LEGACY_ENTITY_ID,typeCode]);
+      const type = await one<{code:string}>(`SELECT code FROM oa_entity_leave_type WHERE entity_id=? AND code=? AND active=1`, [companyId,typeCode]);
       if (!type) return fail("Invalid leave type");
       const startDate = date(body.startDate), endDate = date(body.endDate);
       const dayPart = ["full","am","pm"].includes(body.dayPart) ? body.dayPart : "full";
       const days = await businessDays(startDate, endDate, dayPart);
       const fileId = text(body.attachmentFileId, 100) || null;
       if (fileId) {
-        const file = await one<{owner_user_id:string}>(`SELECT owner_user_id FROM oa_file WHERE id=? AND entity_id=?`,[fileId,LEGACY_ENTITY_ID]);
+        const file = await one<{owner_user_id:string}>(`SELECT owner_user_id FROM oa_file WHERE id=? AND entity_id=?`,[fileId,companyId]);
         if (!file || file.owner_user_id !== viewer.id) return fail("Invalid attachment");
       }
       const id = crypto.randomUUID();
       await run(
         `INSERT INTO oa_leave_request(id,user_id,leave_type_code,start_date,end_date,day_part,business_days,reason,attachment_file_id,entity_id)
          VALUES(?,?,?,?,?,?,?,?,?,?)`,
-        [id,viewer.id,typeCode,startDate,endDate,dayPart,days,text(body.reason,2000)||null,fileId,LEGACY_ENTITY_ID],
+        [id,viewer.id,typeCode,startDate,endDate,dayPart,days,text(body.reason,2000)||null,fileId,companyId],
       );
       await createApprovalWorkflow("leave", id, viewer.id);
       await audit(viewer.id, action, "leave", id, { days, typeCode });
@@ -481,7 +483,7 @@ export async function POST(request: NextRequest) {
 
     if (action === "cancelLeave") {
       const id = text(body.id,100);
-      const result = await run(`UPDATE oa_leave_request SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND entity_id='legacy-primary' AND status='submitted'`,[id,viewer.id]);
+      const result = await run(`UPDATE oa_leave_request SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND entity_id=${companySql} AND status='submitted'`,[id,viewer.id]);
       if (!result.meta?.changes) return fail("Leave request cannot be cancelled",409);
       await cancelApprovalWorkflow("leave", id);
       await audit(viewer.id, action, "leave", id); return ok({ cancelled:true });
@@ -511,7 +513,7 @@ export async function POST(request: NextRequest) {
         if(!Array.isArray(docs)||docs.length>20||new Set(docs).size!==docs.length) return fail("Invalid item documents");
         for(const fileId of docs){
           if(typeof fileId!=="string"||!fileId||fileId.length>100) return fail("Invalid file ID");
-          const file=await one<{owner_user_id:string;kind:string}>(`SELECT owner_user_id,kind FROM oa_file WHERE id=? AND entity_id=?`,[fileId,LEGACY_ENTITY_ID]);
+          const file=await one<{owner_user_id:string;kind:string}>(`SELECT owner_user_id,kind FROM oa_file WHERE id=? AND entity_id=?`,[fileId,companyId]);
           if(!file||file.owner_user_id!==viewer.id||file.kind!=="receipt") return fail("Invalid receipt document",403);
         }
         const fx=await getFxQuote(originalCurrency,reimbursementCurrency,expenseDate);
@@ -536,11 +538,11 @@ export async function POST(request: NextRequest) {
         id,viewer.id,first.expenseDate,medicalTotal>0?MEDICAL_INSURANCE_CATEGORY:(prepared.length===1?first.category:"Other"),prepared.length===1?first.description:`${prepared.length} expense items`,
         prepared.length===1?first.originalMinor:total,prepared.length===1?first.originalCurrency:reimbursementCurrency,
         reimbursementCurrency,prepared.length===1?first.fx.rate:1,first.fx.providerDate,first.fx.source,total,
-        first.docs[0]||null,medicalTotal||null,medicalTotal?payrollCurrency:null,LEGACY_ENTITY_ID)];
+        first.docs[0]||null,medicalTotal||null,medicalTotal?payrollCurrency:null,companyId)];
       for(let i=0;i<prepared.length;i++){
         const x=prepared[i];
         statements.push(db.prepare(`INSERT INTO oa_expense_item(id,claim_id,sort_order,expense_date,category,description,original_amount_minor,original_currency,reimbursement_amount_minor,fx_rate,fx_rate_date,fx_source,entity_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(
-          x.id,id,i,x.expenseDate,x.category,x.description,x.originalMinor,x.originalCurrency,x.minor,x.fx.rate,x.fx.providerDate,x.fx.source,LEGACY_ENTITY_ID));
+          x.id,id,i,x.expenseDate,x.category,x.description,x.originalMinor,x.originalCurrency,x.minor,x.fx.rate,x.fx.providerDate,x.fx.source,companyId));
         for(const fileId of x.docs) statements.push(db.prepare(`INSERT INTO oa_expense_item_document(item_id,file_id) VALUES(?,?)`).bind(x.id,fileId));
       }
       await db.batch(statements);
@@ -576,7 +578,7 @@ export async function POST(request: NextRequest) {
       }
       const fileId = text(body.receiptFileId,100)||null;
       if (fileId) {
-        const file=await one<{owner_user_id:string}>(`SELECT owner_user_id FROM oa_file WHERE id=? AND entity_id=?`,[fileId,LEGACY_ENTITY_ID]);
+        const file=await one<{owner_user_id:string}>(`SELECT owner_user_id FROM oa_file WHERE id=? AND entity_id=?`,[fileId,companyId]);
         if (!file || file.owner_user_id!==viewer.id) return fail("Invalid receipt");
       }
       const id=crypto.randomUUID();
@@ -584,9 +586,9 @@ export async function POST(request: NextRequest) {
       const {db} = getOaEnv();
       const statements = [
         db.prepare(`INSERT INTO oa_expense_claim(id,user_id,expense_date,category,description,original_amount_minor,original_currency,reimbursement_currency,fx_rate,fx_rate_date,fx_source,reimbursement_amount_minor,receipt_file_id,medical_insurance_amount_minor,medical_insurance_currency,entity_id)
-         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,viewer.id,expenseDate,category,text(body.description,2000),originalMinor,originalCurrency,reimbursementCurrency,fx.rate,fx.providerDate,fx.source,reimbursementMinor,fileId,medicalInsuranceAmountMinor,medicalInsuranceCurrency,LEGACY_ENTITY_ID),
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,viewer.id,expenseDate,category,text(body.description,2000),originalMinor,originalCurrency,reimbursementCurrency,fx.rate,fx.providerDate,fx.source,reimbursementMinor,fileId,medicalInsuranceAmountMinor,medicalInsuranceCurrency,companyId),
         db.prepare(`INSERT INTO oa_expense_item(id,claim_id,sort_order,expense_date,category,description,original_amount_minor,original_currency,reimbursement_amount_minor,fx_rate,fx_rate_date,fx_source,entity_id)
-         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(itemId,id,0,expenseDate,category,text(body.description,2000),originalMinor,originalCurrency,reimbursementMinor,fx.rate,fx.providerDate,fx.source,LEGACY_ENTITY_ID),
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(itemId,id,0,expenseDate,category,text(body.description,2000),originalMinor,originalCurrency,reimbursementMinor,fx.rate,fx.providerDate,fx.source,companyId),
       ];
       if (fileId) statements.push(db.prepare(`INSERT INTO oa_expense_item_document(item_id,file_id) VALUES(?,?)`).bind(itemId,fileId));
       await db.batch(statements);
@@ -598,7 +600,7 @@ export async function POST(request: NextRequest) {
 
     if (action === "cancelExpense") {
       const id=text(body.id,100);
-      const result=await run(`UPDATE oa_expense_claim SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND entity_id='legacy-primary' AND status='submitted'`,[id,viewer.id]);
+      const result=await run(`UPDATE oa_expense_claim SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND entity_id=${companySql} AND status='submitted'`,[id,viewer.id]);
       if (!result.meta?.changes) return fail("Expense cannot be cancelled",409);
       await cancelApprovalWorkflow("expense", id);
       await audit(viewer.id,action,"expense",id); return ok({cancelled:true});
@@ -611,11 +613,11 @@ export async function POST(request: NextRequest) {
       const claim=await one<any>(
         `SELECT x.*,e.payroll_currency FROM oa_expense_claim x
          LEFT JOIN oa_entity_employee e ON e.user_id=x.user_id AND e.entity_id=x.entity_id WHERE x.id=? AND x.entity_id=?`,
-        [id,LEGACY_ENTITY_ID],
+        [id,companyId],
       );
       if (!claim) return fail("Expense not found",404);
       // Header-only category corrections would desynchronise item-level reports.
-      const itemCount = await one<{n:number}>(`SELECT COUNT(*) AS n FROM oa_expense_item WHERE claim_id=? AND entity_id=?`,[id,LEGACY_ENTITY_ID]);
+      const itemCount = await one<{n:number}>(`SELECT COUNT(*) AS n FROM oa_expense_item WHERE claim_id=? AND entity_id=?`,[id,companyId]);
       if (Number(itemCount?.n || 0) > 1) return fail("Multi-item claims require item-level category correction",409);
       let medicalInsuranceAmountMinor:number|null=null;
       let medicalInsuranceCurrency:string|null=null;
@@ -631,16 +633,16 @@ export async function POST(request: NextRequest) {
         `UPDATE oa_expense_claim
          SET category=?,medical_insurance_amount_minor=?,medical_insurance_currency=?,category_updated_at=CURRENT_TIMESTAMP,category_updated_by=?,updated_at=CURRENT_TIMESTAMP
          WHERE id=? AND entity_id=?`,
-        [category,medicalInsuranceAmountMinor,medicalInsuranceCurrency,viewer.id,id,LEGACY_ENTITY_ID],
+        [category,medicalInsuranceAmountMinor,medicalInsuranceCurrency,viewer.id,id,companyId],
       );
-      await run(`UPDATE oa_expense_item SET category=? WHERE claim_id=? AND entity_id=?`,[category,id,LEGACY_ENTITY_ID]);
+      await run(`UPDATE oa_expense_item SET category=? WHERE claim_id=? AND entity_id=?`,[category,id,companyId]);
       await audit(viewer.id,action,"expense",id,{oldCategory:claim.category,newCategory:category,medicalInsuranceAmountMinor,medicalInsuranceCurrency});
       return ok({updated:true,category});
     }
 
     if (["approveLeave","rejectLeave"].includes(action)) {
       const id=text(body.id,100);
-      const row=await one<{user_id:string;status:string}>(`SELECT user_id,status FROM oa_leave_request WHERE id=? AND entity_id=?`,[id,LEGACY_ENTITY_ID]);
+      const row=await one<{user_id:string;status:string}>(`SELECT user_id,status FROM oa_leave_request WHERE id=? AND entity_id=?`,[id,companyId]);
       if (!row) return fail("Leave request not found",404);
       if (row.status!=="submitted") return fail("Leave request is no longer pending",409);
       await createApprovalWorkflow("leave", id, row.user_id);
@@ -650,14 +652,14 @@ export async function POST(request: NextRequest) {
       const note=text(body.note,1000)||null;
       if (action==="rejectLeave") {
         await rejectCurrentStep("leave",id,viewer.id,note);
-        await run(`UPDATE oa_leave_request SET status='rejected',decided_at=CURRENT_TIMESTAMP,decided_by=?,decision_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=?`,[viewer.id,note,id,LEGACY_ENTITY_ID]);
+        await run(`UPDATE oa_leave_request SET status='rejected',decided_at=CURRENT_TIMESTAMP,decided_by=?,decision_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=?`,[viewer.id,note,id,companyId]);
         await audit(viewer.id,action,"leave",id,{stepNo:step.step_no});
         await notifyDecision("leave",id,viewer.id,"rejected",true);
         return ok({status:"rejected",complete:true});
       }
       const result=await approveCurrentStep("leave",id,viewer.id,note);
       if (result.complete) {
-        await run(`UPDATE oa_leave_request SET status='approved',decided_at=CURRENT_TIMESTAMP,decided_by=?,decision_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=?`,[viewer.id,note,id,LEGACY_ENTITY_ID]);
+        await run(`UPDATE oa_leave_request SET status='approved',decided_at=CURRENT_TIMESTAMP,decided_by=?,decision_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=?`,[viewer.id,note,id,companyId]);
       }
       await audit(viewer.id,action,"leave",id,{stepNo:step.step_no,complete:result.complete});
       await notifyDecision("leave",id,viewer.id,"approved",result.complete);
@@ -666,7 +668,7 @@ export async function POST(request: NextRequest) {
 
     if (["approveExpense","rejectExpense"].includes(action)) {
       const id=text(body.id,100);
-      const row=await one<{user_id:string;status:string}>(`SELECT user_id,status FROM oa_expense_claim WHERE id=? AND entity_id=?`,[id,LEGACY_ENTITY_ID]);
+      const row=await one<{user_id:string;status:string}>(`SELECT user_id,status FROM oa_expense_claim WHERE id=? AND entity_id=?`,[id,companyId]);
       if (!row) return fail("Expense not found",404);
       if (row.status!=="submitted") return fail("Expense is no longer pending",409);
       await createApprovalWorkflow("expense", id, row.user_id);
@@ -676,14 +678,14 @@ export async function POST(request: NextRequest) {
       const note=text(body.note,1000)||null;
       if (action==="rejectExpense") {
         await rejectCurrentStep("expense",id,viewer.id,note);
-        await run(`UPDATE oa_expense_claim SET status='rejected',decided_at=CURRENT_TIMESTAMP,decided_by=?,decision_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=?`,[viewer.id,note,id,LEGACY_ENTITY_ID]);
+        await run(`UPDATE oa_expense_claim SET status='rejected',decided_at=CURRENT_TIMESTAMP,decided_by=?,decision_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=?`,[viewer.id,note,id,companyId]);
         await audit(viewer.id,action,"expense",id,{stepNo:step.step_no});
         await notifyDecision("expense",id,viewer.id,"rejected",true);
         return ok({status:"rejected",complete:true});
       }
       const result=await approveCurrentStep("expense",id,viewer.id,note);
       if (result.complete) {
-        await run(`UPDATE oa_expense_claim SET status='approved',decided_at=CURRENT_TIMESTAMP,decided_by=?,decision_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=?`,[viewer.id,note,id,LEGACY_ENTITY_ID]);
+        await run(`UPDATE oa_expense_claim SET status='approved',decided_at=CURRENT_TIMESTAMP,decided_by=?,decision_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=?`,[viewer.id,note,id,companyId]);
       }
       await audit(viewer.id,action,"expense",id,{stepNo:step.step_no,complete:result.complete});
       await notifyDecision("expense",id,viewer.id,"approved",result.complete);
@@ -693,7 +695,7 @@ export async function POST(request: NextRequest) {
     if (action === "markExpensePaid") {
       if (!admin) return fail("Forbidden",403);
       const id=text(body.id,100);
-      const result=await run(`UPDATE oa_expense_claim SET status='paid',paid_at=CURRENT_TIMESTAMP,paid_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='approved'`,[viewer.id,id,LEGACY_ENTITY_ID]);
+      const result=await run(`UPDATE oa_expense_claim SET status='paid',paid_at=CURRENT_TIMESTAMP,paid_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='approved'`,[viewer.id,id,companyId]);
       if (!result.meta?.changes) return fail("Only approved expenses can be paid",409);
       await audit(viewer.id,action,"expense",id); return ok({status:"paid"});
     }
@@ -701,11 +703,11 @@ export async function POST(request: NextRequest) {
     if (action === "createPayslip") {
       if (!admin) return fail("Forbidden",403);
       const userId=text(body.userId,200); if (!userId) return fail("Employee is required");
-      const member=await one<{user_id:string}>(`SELECT user_id FROM oa_entity_member WHERE entity_id=? AND user_id=? AND active=1`,[LEGACY_ENTITY_ID,userId]);
+      const member=await one<{user_id:string}>(`SELECT user_id FROM oa_entity_member WHERE entity_id=? AND user_id=? AND active=1`,[companyId,userId]);
       if(!member)return fail("Employee is not enrolled in this Entity",404);
       await ensureEmployee(userId);
       const employeeProfile=await one<any>(
-        `SELECT e.*,u.name,u.email FROM oa_entity_employee e JOIN user u ON u.id=e.user_id WHERE e.user_id=? AND e.entity_id='legacy-primary'`,
+        `SELECT e.*,u.name,u.email FROM oa_entity_employee e JOIN user u ON u.id=e.user_id WHERE e.user_id=? AND e.entity_id=${companySql}`,
         [userId],
       );
       if (!employeeProfile) return fail("Employee profile not found",404);
@@ -749,7 +751,7 @@ export async function POST(request: NextRequest) {
       const netReporting=convertMinor(net,currency,reportingCurrency,fx.rate);
       const attachmentId=text(body.attachmentFileId,100)||null;
       if (attachmentId) {
-        const file=await one<{owner_user_id:string}>(`SELECT owner_user_id FROM oa_file WHERE id=? AND entity_id=?`,[attachmentId,LEGACY_ENTITY_ID]);
+        const file=await one<{owner_user_id:string}>(`SELECT owner_user_id FROM oa_file WHERE id=? AND entity_id=?`,[attachmentId,companyId]);
         if (!file || file.owner_user_id!==userId) return fail("Payslip attachment must belong to the employee");
       }
       const id=crypto.randomUUID();
@@ -757,7 +759,7 @@ export async function POST(request: NextRequest) {
         `INSERT INTO oa_payslip(id,user_id,period_start,period_end,pay_date,currency,base_salary_minor,allowances_minor,bonus_minor,commission_minor,employee_contribution_minor,employer_contribution_minor,tax_minor,other_deductions_minor,gross_minor,net_minor,reporting_currency,fx_rate_to_reporting,fx_rate_date,fx_source,net_reporting_minor,custom_fields_json,note,attachment_file_id,created_by,employee_name_snapshot,employee_no_snapshot,join_date_snapshot,job_title_snapshot,department_snapshot,salary_period_snapshot,entity_id)
          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [id,userId,date(body.periodStart),date(body.periodEnd),payDate,currency,baseSalary,allowances,bonus,commission,employeeContribution,employerContribution,tax,otherDeductions,gross,net,reportingCurrency,fx.rate,fx.providerDate,fx.source,netReporting,JSON.stringify(customFields),text(body.note,2000)||null,attachmentId,viewer.id,
-         text(employeeProfile.legal_name||employeeProfile.name||employeeProfile.email,200)||null,text(employeeProfile.employee_no,100)||null,employeeProfile.join_date||null,text(employeeProfile.job_title,200)||null,text(employeeProfile.department,200)||null,text(employeeProfile.salary_period||"monthly",20),LEGACY_ENTITY_ID],
+         text(employeeProfile.legal_name||employeeProfile.name||employeeProfile.email,200)||null,text(employeeProfile.employee_no,100)||null,employeeProfile.join_date||null,text(employeeProfile.job_title,200)||null,text(employeeProfile.department,200)||null,text(employeeProfile.salary_period||"monthly",20),companyId],
       );
       await audit(viewer.id,action,"payslip",id,{currency,reportingCurrency,fx,customFieldCount:customFields.length,customContributions,customDeductions,employeeNo:employeeProfile.employee_no||null,joinDate:employeeProfile.join_date||null});
       return ok({id,gross,net,netReporting,fx,customContributions,customDeductions},201);
@@ -766,7 +768,7 @@ export async function POST(request: NextRequest) {
     if (action === "publishPayslip") {
       if (!admin) return fail("Forbidden",403);
       const id=text(body.id,100);
-      const result=await run(`UPDATE oa_payslip SET status='published',published_at=CURRENT_TIMESTAMP,published_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='draft'`,[viewer.id,id,LEGACY_ENTITY_ID]);
+      const result=await run(`UPDATE oa_payslip SET status='published',published_at=CURRENT_TIMESTAMP,published_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='draft'`,[viewer.id,id,companyId]);
       if (!result.meta?.changes) return fail("Only draft payslips can be published",409);
       await audit(viewer.id,action,"payslip",id); return ok({status:"published"});
     }
@@ -774,7 +776,7 @@ export async function POST(request: NextRequest) {
     if (action === "voidPayslip") {
       if (!admin) return fail("Forbidden",403);
       const id=text(body.id,100);
-      await run(`UPDATE oa_payslip SET status='void',updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=?`,[id,LEGACY_ENTITY_ID]);
+      await run(`UPDATE oa_payslip SET status='void',updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=?`,[id,companyId]);
       await audit(viewer.id,action,"payslip",id); return ok({status:"void"});
     }
 
@@ -821,13 +823,13 @@ export async function POST(request: NextRequest) {
       if (!admin) return fail("Forbidden",403);
       const holidayDate=date(body.holidayDate), name=text(body.name,200); if (!name) return fail("Holiday name is required");
       const id=crypto.randomUUID();
-      await run(`INSERT INTO oa_entity_holiday(id,entity_id,holiday_date,name,created_by) VALUES(?,?,?,?,?) ON CONFLICT(entity_id,holiday_date) DO UPDATE SET name=excluded.name,created_by=excluded.created_by`,[id,LEGACY_ENTITY_ID,holidayDate,name,viewer.id]);
+      await run(`INSERT INTO oa_entity_holiday(id,entity_id,holiday_date,name,created_by) VALUES(?,?,?,?,?) ON CONFLICT(entity_id,holiday_date) DO UPDATE SET name=excluded.name,created_by=excluded.created_by`,[id,companyId,holidayDate,name,viewer.id]);
       await audit(viewer.id,action,"holiday",id,{holidayDate,name}); return ok({id});
     }
 
     if (action === "deleteHoliday") {
       if (!admin) return fail("Forbidden",403);
-      const id=text(body.id,100); await run(`DELETE FROM oa_entity_holiday WHERE id=? AND entity_id=?`,[id,LEGACY_ENTITY_ID]); await audit(viewer.id,action,"holiday",id); return ok({deleted:true});
+      const id=text(body.id,100); await run(`DELETE FROM oa_entity_holiday WHERE id=? AND entity_id=?`,[id,companyId]); await audit(viewer.id,action,"holiday",id); return ok({deleted:true});
     }
 
     if (action === "fxQuote") {
