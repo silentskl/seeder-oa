@@ -13,6 +13,7 @@ const api=read("app/api/oa/route.ts");
 const entity=read("lib/oa/entity.ts");
 const invites=read("app/api/oa/invitations/route.ts");
 const invitePage=read("components/oa/entity-invite.tsx");
+const auth=read("lib/auth.ts");
 const tests=[
  ["Switcher remounts workspace to clear stale tenant data",/OaWorkspace key=\{entityId\}/.test(ui)],
  ["Business GET sends selected entity",/\/api\/oa\?resource=\$\{encodeURIComponent\(resource\)\}&entity_id=\$\{encodeURIComponent\(selectedOaEntityId\)\}/.test(ui)],
@@ -45,6 +46,10 @@ const inviteChecks=[
  ["Invitation redemption uses transactional D1 batch",/await db\.batch\(\[/.test(invites)],
  ["Invitation creation requires company admin",/await permission\(viewer,entityId\)/.test(invites)],
  ["Invite page supports sign-up and sign-in",/authClient\.signUp\.email/.test(invitePage)&&/authClient\.signIn\.email/.test(invitePage)],
+ ["Invite page submits token with signup",/x-oa-invite-token/.test(invitePage)],
+ ["Seeder signup verifies OA invitation on server",/OA_ENTITY_INVITE_SIGNUP_GATE_V1/.test(auth)&&/allowedByOaInvite/.test(auth)],
+ ["Seeder signup still denies public registration",/Sign-up is disabled\. Ask an admin to invite you\./.test(auth)],
+ ["Invited signup cannot auto-promote to platform Owner",/if \(ctx\?\.headers\?\.get\("x-oa-invite-token"\)\) return;/.test(auth)],
 ];
 let failures=0;
 for(const [name,good] of [...tests,...inviteChecks]){console.log((good?"PASS ":"FAIL ")+name);if(!good)failures++}
