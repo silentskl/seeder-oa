@@ -583,7 +583,7 @@ export async function POST(request: NextRequest) {
 
     if (action === "createExpense") {
       const expenseDate = date(body.expenseDate);
-      const category = await expenseCategory(body.category || "Other");
+      const category = await expenseCategory(body.category || "Other",companyId);
       const originalCurrency = normalizeCurrency(body.originalCurrency);
       const employee = await ensureEmployee(viewer.id,companyId);
       const payrollCurrency = normalizeCurrency(employee?.payroll_currency || "SGD");
@@ -599,7 +599,7 @@ export async function POST(request: NextRequest) {
       if (category === MEDICAL_INSURANCE_CATEGORY) {
         medicalInsuranceAmountMinor = reimbursementMinor;
         medicalInsuranceCurrency = payrollCurrency;
-        const summary = await medicalInsuranceSummary(viewer.id, expenseYear(expenseDate));
+        const summary = await medicalInsuranceSummary(viewer.id, expenseYear(expenseDate),companyId);
         const projectedMinor = summary.reimbursedMinor + summary.pendingMinor + reimbursementMinor;
         if (projectedMinor > summary.entitlementMinor) {
           return fail(`Medical Insurance annual claim limit exceeded. Available: ${formatMoney(summary.availableMinor, summary.currency)}; this claim: ${formatMoney(reimbursementMinor, summary.currency)}.`, 409);
@@ -624,7 +624,7 @@ export async function POST(request: NextRequest) {
       await createApprovalWorkflow("expense", id, viewer.id,companyId);
       await companyAudit(companyId,viewer.id,action,"expense",id,{category,originalCurrency,reimbursementCurrency,fx,medicalInsuranceAmountMinor,medicalInsuranceCurrency});
       await notifySubmitted("expense", id,companyId);
-      return ok({id,category,originalMinor,reimbursementMinor,fx,medicalInsuranceSummary: category===MEDICAL_INSURANCE_CATEGORY?await medicalInsuranceSummary(viewer.id,expenseYear(expenseDate)):null,approvalSteps:await getApprovalSteps("expense",id,companyId)},201);
+      return ok({id,category,originalMinor,reimbursementMinor,fx,medicalInsuranceSummary: category===MEDICAL_INSURANCE_CATEGORY?await medicalInsuranceSummary(viewer.id,expenseYear(expenseDate),companyId):null,approvalSteps:await getApprovalSteps("expense",id,companyId)},201);
     }
 
     if (action === "cancelExpense") {
