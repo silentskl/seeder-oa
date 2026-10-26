@@ -59,7 +59,7 @@ export async function GET(_request:NextRequest, context:{params:Promise<{id:stri
 
   let allowed=file.owner_user_id===viewer.id || isAdminTier(viewer.role);
   if(!allowed && (file.kind==="receipt" || file.kind==="leave_attachment")) {
-    const employee=await one<{manager_user_id:string|null}>(`SELECT manager_user_id FROM oa_employee WHERE user_id=?`,[file.owner_user_id]);
+    const employee=await one<{manager_user_id:string|null}>(`SELECT manager_user_id FROM oa_employee WHERE user_id=? AND entity_id=?`,[file.owner_user_id,LEGACY_ENTITY_ID]);
     allowed=employee?.manager_user_id===viewer.id;
   }
   if(!allowed) return fail("Forbidden",403);
