@@ -67,6 +67,8 @@ The Phase 2B implementation now has entity-aware business API paths, using `reso
 
 **Static gate:** `node scripts/check-phase2b-isolation.mjs overlay` checks critical paths in the reviewed overlay. `update-deploy.sh` now runs the same guard against the applied app before it contacts production D1 and runs backup/migrations. This guard checks implementation shape; it does not substitute for exercised request, authorization, payroll, R2 and migration tests.
 
+**Migration integrity gate:** `update-deploy.sh` rejects publishing if any legacy employee lacks either an active `oa_entity_member` mapping or an `oa_entity_employee` scoped profile. The legacy user's manager status comes from `oa_entity_employee` rather than the old single-company `oa_employee` table.
+
 **Feature flag:** `OA_MULTI_ENTITY_BUSINESS_ENABLED` is false by default. It MUST remain unset in production while the two-company integration and rollback tests are pending. Existing legacy Entity remains the sole permitted business context.
 
 ### Phase 2B remaining release gates
