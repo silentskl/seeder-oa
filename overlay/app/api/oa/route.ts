@@ -608,12 +608,12 @@ export async function POST(request: NextRequest) {
       const category=await expenseCategory(body.category);
       const claim=await one<any>(
         `SELECT x.*,e.payroll_currency FROM oa_expense_claim x
-         LEFT JOIN oa_employee e ON e.user_id=x.user_id WHERE x.id=?`,
-        [id],
+         LEFT JOIN oa_employee e ON e.user_id=x.user_id AND e.entity_id=x.entity_id WHERE x.id=? AND x.entity_id=?`,
+        [id,LEGACY_ENTITY_ID],
       );
       if (!claim) return fail("Expense not found",404);
       // Header-only category corrections would desynchronise item-level reports.
-      const itemCount = await one<{n:number}>(`SELECT COUNT(*) AS n FROM oa_expense_item WHERE claim_id=?`,[id]);
+      const itemCount = await one<{n:number}>(`SELECT COUNT(*) AS n FROM oa_expense_item WHERE claim_id=? AND entity_id=?`,[id,LEGACY_ENTITY_ID]);
       if (Number(itemCount?.n || 0) > 1) return fail("Multi-item claims require item-level category correction",409);
       let medicalInsuranceAmountMinor:number|null=null;
       let medicalInsuranceCurrency:string|null=null;
@@ -628,8 +628,8 @@ export async function POST(request: NextRequest) {
       await run(
         `UPDATE oa_expense_claim
          SET category=?,medical_insurance_amount_minor=?,medical_insurance_currency=?,category_updated_at=CURRENT_TIMESTAMP,category_updated_by=?,updated_at=CURRENT_TIMESTAMP
-         WHERE id=?`,
-        [category,medicalInsuranceAmountMinor,medicalInsuranceCurrency,viewer.id,id],
+         WHERE id=? AND entity_id=?`,
+        [category,medicalInsuranceAmountMinor,medicalInsuranceCurrency,viewer.id,id,LEGACY_ENTITY_ID],
       );
       await run(`UPDATE oa_expense_item SET category=? WHERE claim_id=? AND entity_id=?`,[category,id,LEGACY_ENTITY_ID]);
       await audit(viewer.id,action,"expense",id,{oldCategory:claim.category,newCategory:category,medicalInsuranceAmountMinor,medicalInsuranceCurrency});
@@ -648,14 +648,14 @@ export async function POST(request: NextRequest) {
       const note=text(body.note,1000)||null;
       if (action==="rejectLeave") {
         await rejectCurrentStep("leave",id,viewer.id,note);
-        await run(`UPDATE oa_leave_request SET status='rejected',decided_at=CURRENT_TIMESTAMP,decided_by=?,decision_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`,[viewer.id,note,id]);
+        await run(`UPDATE oa_leave_request SET status='rejected',decided_at=CURRENT_TIMESTAMP,decided_by=?,decision_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=?`,[viewer.id,note,id,LEGACY_ENTITY_ID]);
         await audit(viewer.id,action,"leave",id,{stepNo:step.step_no});
         await notifyDecision("leave",id,viewer.id,"rejected",true);
         return ok({status:"rejected",complete:true});
       }
       const result=await approveCurrentStep("leave",id,viewer.id,note);
       if (result.complete) {
-        await run(`UPDATE oa_leave_request SET status='approved',decided_at=CURRENT_TIMESTAMP,decided_by=?,decision_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`,[viewer.id,note,id]);
+        await run(`UPDATE oa_leave_request SET status='approved',decided_at=CURRENT_TIMESTAMP,decided_by=?,decision_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=?`,[viewer.id,note,id,LEGACY_ENTITY_ID]);
       }
       await audit(viewer.id,action,"leave",id,{stepNo:step.step_no,complete:result.complete});
       await notifyDecision("leave",id,viewer.id,"approved",result.complete);
@@ -674,14 +674,14 @@ export async function POST(request: NextRequest) {
       const note=text(body.note,1000)||null;
       if (action==="rejectExpense") {
         await rejectCurrentStep("expense",id,viewer.id,note);
-        await run(`UPDATE oa_expense_claim SET status='rejected',decided_at=CURRENT_TIMESTAMP,decided_by=?,decision_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`,[viewer.id,note,id]);
+        await run(`UPDATE oa_expense_claim SET status='rejected',decided_at=CURRENT_TIMESTAMP,decided_by=?,decision_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=?`,[viewer.id,note,id,LEGACY_ENTITY_ID]);
         await audit(viewer.id,action,"expense",id,{stepNo:step.step_no});
         await notifyDecision("expense",id,viewer.id,"rejected",true);
         return ok({status:"rejected",complete:true});
       }
       const result=await approveCurrentStep("expense",id,viewer.id,note);
       if (result.complete) {
-        await run(`UPDATE oa_expense_claim SET status='approved',decided_at=CURRENT_TIMESTAMP,decided_by=?,decision_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`,[viewer.id,note,id]);
+        await run(`UPDATE oa_expense_claim SET status='approved',decided_at=CURRENT_TIMESTAMP,decided_by=?,decision_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=?`,[viewer.id,note,id,LEGACY_ENTITY_ID]);
       }
       await audit(viewer.id,action,"expense",id,{stepNo:step.step_no,complete:result.complete});
       await notifyDecision("expense",id,viewer.id,"approved",result.complete);
@@ -691,7 +691,7 @@ export async function POST(request: NextRequest) {
     if (action === "markExpensePaid") {
       if (!admin) return fail("Forbidden",403);
       const id=text(body.id,100);
-      const result=await run(`UPDATE oa_expense_claim SET status='paid',paid_at=CURRENT_TIMESTAMP,paid_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='approved'`,[viewer.id,id]);
+      const result=await run(`UPDATE oa_expense_claim SET status='paid',paid_at=CURRENT_TIMESTAMP,paid_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='approved'`,[viewer.id,id,LEGACY_ENTITY_ID]);
       if (!result.meta?.changes) return fail("Only approved expenses can be paid",409);
       await audit(viewer.id,action,"expense",id); return ok({status:"paid"});
     }
@@ -762,7 +762,7 @@ export async function POST(request: NextRequest) {
     if (action === "publishPayslip") {
       if (!admin) return fail("Forbidden",403);
       const id=text(body.id,100);
-      const result=await run(`UPDATE oa_payslip SET status='published',published_at=CURRENT_TIMESTAMP,published_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='draft'`,[viewer.id,id]);
+      const result=await run(`UPDATE oa_payslip SET status='published',published_at=CURRENT_TIMESTAMP,published_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='draft'`,[viewer.id,id,LEGACY_ENTITY_ID]);
       if (!result.meta?.changes) return fail("Only draft payslips can be published",409);
       await audit(viewer.id,action,"payslip",id); return ok({status:"published"});
     }
@@ -770,7 +770,7 @@ export async function POST(request: NextRequest) {
     if (action === "voidPayslip") {
       if (!admin) return fail("Forbidden",403);
       const id=text(body.id,100);
-      await run(`UPDATE oa_payslip SET status='void',updated_at=CURRENT_TIMESTAMP WHERE id=?`,[id]);
+      await run(`UPDATE oa_payslip SET status='void',updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=?`,[id,LEGACY_ENTITY_ID]);
       await audit(viewer.id,action,"payslip",id); return ok({status:"void"});
     }
 
