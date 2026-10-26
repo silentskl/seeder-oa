@@ -148,6 +148,14 @@ The Employees tab now includes `Add existing user`, `Generate invitation link`, 
 - **Audit and operations:** creation/acceptance/revocation are Entity-scoped and logged. Direct role assignments continue to be gated by company-admin permissions.
 - **Deployment:** migration 9018, `/api/oa/invitations`, invite landing page and the new UI component are required in the source parity/predeployment checks. A local TypeScript/build verification and multi-Entity staging acceptance are still mandatory before considering the overall system fully security-certified.
 
+## Invite-only registration compatibility fix
+
+Seeder's original `lib/auth.ts` denies email/password signup after the first owner is created. This also blocks the OA invitation registration form. `patch-oa-invite-auth.py` amends that **specific** `databaseHooks.user.create.before` gate during `apply-to-existing.sh` so that a signup is admitted only when the Better Auth request carries an OA invitation bearer token with the expected SHA-256 digest, matching email, unexpired/unrevoked/unaccepted status, and active Entity. Public registration remains closed. The post-create Owner promotion hook explicitly skips invited users.
+
+The OA invitation registration form sends `x-oa-invite-token` with its Better Auth signup call. The standard `/api/oa/invitations` acceptance still verifies the signed-in email and consumes the invitation token once before granting the specified Entity membership.
+
+Run `bash scripts/update-multi-entity.sh --check ./seeder-oa-app` to reapply the patch and validate syntax/type/build; follow with the guarded `--deploy` command only after a successful check. An invitation link already issued remains valid until expiry and should be reusable after the fix if it has not been accepted or revoked.
+
 ## Non-negotiable invariants
 1. Existing smarten-oa D1 data remains owned by one legacy entity; no destructive resets.
 2. Every business request resolves an authenticated entity membership on the server; client-provided entity_id is never authorization.
