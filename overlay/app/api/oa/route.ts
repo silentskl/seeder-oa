@@ -71,7 +71,7 @@ async function ensureEmployee(userId: string) {
      VALUES(?,?,?,?,?)`,
     [userId, Number(s?.default_annual_leave_days ?? 14), s?.base_currency ?? "SGD", s?.base_currency ?? "SGD",LEGACY_ENTITY_ID],
   );
-  return one<any>(`SELECT * FROM oa_employee WHERE user_id=? AND entity_id=?`, [userId,LEGACY_ENTITY_ID]);
+  return one<any>(`SELECT * FROM oa_entity_employee WHERE user_id=? AND entity_id=?`, [userId,LEGACY_ENTITY_ID]);
 }
 
 async function leaveSummary(userId: string) {
@@ -213,7 +213,7 @@ export async function GET(request: NextRequest) {
     if (resource === "bootstrap") {
       const employee = await one<any>(
         `SELECT e.*, u.name, u.email, m.name AS manager_name
-         FROM oa_employee e JOIN user u ON u.id=e.user_id
+         FROM oa_entity_employee e JOIN user u ON u.id=e.user_id
          LEFT JOIN user m ON m.id=e.manager_user_id WHERE e.user_id=? AND e.entity_id=?`, [viewer.id,LEGACY_ENTITY_ID],
       );
       const s = await settings();
@@ -344,7 +344,7 @@ export async function GET(request: NextRequest) {
                 e.legal_name,e.personal_email,e.phone,e.address,e.nationality,e.date_of_birth,
                 e.employment_type,e.work_location,e.base_salary_minor,e.salary_period,e.salary_effective_date,
                 m.name AS manager_name
-         FROM user u LEFT JOIN oa_employee e ON e.user_id=u.id LEFT JOIN user m ON m.id=e.manager_user_id
+         FROM user u LEFT JOIN oa_entity_employee e ON e.user_id=u.id AND e.entity_id='legacy-primary' LEFT JOIN user m ON m.id=e.manager_user_id
          WHERE u.id <> 'vcs-bot' AND e.entity_id='legacy-primary'
          ORDER BY COALESCE(e.active,1) DESC,u.name,u.email`,
       ));
@@ -354,7 +354,7 @@ export async function GET(request: NextRequest) {
       if (!admin) return fail("Forbidden", 403);
       return ok(await all(
         `SELECT p.*,u.name,u.email,e.employee_no AS current_employee_no,e.join_date AS current_join_date,f.original_name AS attachment_name FROM oa_payslip p
-         JOIN user u ON u.id=p.user_id LEFT JOIN oa_employee e ON e.user_id=p.user_id LEFT JOIN oa_file f ON f.id=p.attachment_file_id
+         JOIN user u ON u.id=p.user_id LEFT JOIN oa_entity_employee e ON e.user_id=p.user_id AND e.entity_id=p.entity_id LEFT JOIN oa_file f ON f.id=p.attachment_file_id
          WHERE p.entity_id='legacy-primary' ORDER BY p.pay_date DESC,p.created_at DESC LIMIT 200`,
       ));
     }
@@ -610,7 +610,7 @@ export async function POST(request: NextRequest) {
       const category=await expenseCategory(body.category);
       const claim=await one<any>(
         `SELECT x.*,e.payroll_currency FROM oa_expense_claim x
-         LEFT JOIN oa_employee e ON e.user_id=x.user_id AND e.entity_id=x.entity_id WHERE x.id=? AND x.entity_id=?`,
+         LEFT JOIN oa_entity_employee e ON e.user_id=x.user_id AND e.entity_id=x.entity_id WHERE x.id=? AND x.entity_id=?`,
         [id,LEGACY_ENTITY_ID],
       );
       if (!claim) return fail("Expense not found",404);
@@ -703,7 +703,7 @@ export async function POST(request: NextRequest) {
       const userId=text(body.userId,200); if (!userId) return fail("Employee is required");
       await ensureEmployee(userId);
       const employeeProfile=await one<any>(
-        `SELECT e.*,u.name,u.email FROM oa_employee e JOIN user u ON u.id=e.user_id WHERE e.user_id=? AND e.entity_id='legacy-primary'`,
+        `SELECT e.*,u.name,u.email FROM oa_entity_employee e JOIN user u ON u.id=e.user_id WHERE e.user_id=? AND e.entity_id='legacy-primary'`,
         [userId],
       );
       if (!employeeProfile) return fail("Employee profile not found",404);
