@@ -155,11 +155,11 @@ if ! printf '%s\n' "$REGISTRY_CHECK" | grep -Eq '(^|[[:space:]│])1([[:space:]�
   echo "ERROR: legacy-primary entity not found in production D1; refusing deployment." >&2
   exit 1
 fi
-# Phase 2A owner columns: fail closed if any migration is skipped.
-OWNERSHIP_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM pragma_table_info('oa_expense_claim') WHERE name='entity_id';" 2>&1)" || { echo "$OWNERSHIP_CHECK" >&2; exit 1; }
+# Check all eight Phase-2A tables, not just expense claims.
+OWNERSHIP_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT (SELECT COUNT(*) FROM pragma_table_info('oa_employee') WHERE name='entity_id')+(SELECT COUNT(*) FROM pragma_table_info('oa_leave_request') WHERE name='entity_id')+(SELECT COUNT(*) FROM pragma_table_info('oa_expense_claim') WHERE name='entity_id')+(SELECT COUNT(*) FROM pragma_table_info('oa_payslip') WHERE name='entity_id')+(SELECT COUNT(*) FROM pragma_table_info('oa_file') WHERE name='entity_id')+(SELECT COUNT(*) FROM pragma_table_info('oa_approval_step') WHERE name='entity_id')+(SELECT COUNT(*) FROM pragma_table_info('oa_audit_log') WHERE name='entity_id')+(SELECT COUNT(*) FROM pragma_table_info('oa_expense_item') WHERE name='entity_id') AS n;" 2>&1)" || { echo "$OWNERSHIP_CHECK" >&2; exit 1; }
 echo "$OWNERSHIP_CHECK"
-if ! printf '%s\n' "$OWNERSHIP_CHECK" | grep -Eq '(^|[[:space:]│])1([[:space:]│]|$)'; then
-  echo "ERROR: expense claim entity ownership column missing; refusing deployment." >&2
+if ! printf '%s\\n' "$OWNERSHIP_CHECK" | grep -Eq '(^|[[:space:]│])8([[:space:]│]|$)'; then
+  echo "ERROR: Phase 2A ownership columns missing; refusing deployment." >&2
   exit 1
 fi
 # Verify the schema actually exists, even when Wrangler's migration ledger is out of sync.
