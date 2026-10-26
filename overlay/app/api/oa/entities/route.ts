@@ -77,7 +77,14 @@ export async function POST(request:NextRequest){
       if(!entityId)return fail("entityId is required");
       await managePermission(viewer.id,viewer.role,entityId);
       if(!await one(`SELECT id FROM oa_entity WHERE id=? AND active=1`,[entityId]))return fail("Entity not found",404);
-      const userId=clean(data.userId,200),role=clean(data.role,20) as Role;
+      let userId=clean(data.userId,200);
+      const userEmail=clean(data.userEmail,320);
+      const role=clean(data.role,20) as Role;
+      if(!userId && userEmail){
+        const user=await one<{id:string}>(`SELECT id FROM user WHERE lower(email)=lower(?)`,[userEmail]);
+        if(!user)return fail("User not found",404);
+        userId=user.id;
+      }
       if(!userId||!roles.has(role))return fail("Valid user and role required");
       if(!await one(`SELECT id FROM user WHERE id=?`,[userId]))return fail("User not found",404);
       const isActive=data.active!==false;
