@@ -155,9 +155,25 @@ function EntityManagement({reload}:{reload:()=>Promise<void>}){
       </Card>}
     </div>
     {selected&&<Card><h3 className="font-medium">Members · {data.manageable.find(x=>x.id===selected)?.display_name||selected}</h3>
-      <div className="mt-2 grid gap-1 text-sm">{members.map(m=><div key={m.user_id} className="flex justify-between border-b py-1"><span>{m.name||m.email}</span><span>{m.role}{m.active===0?" (inactive)":""}</span></div>)}</div>
-      <form className="mt-3 grid gap-2 sm:grid-cols-3" onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget);void operate(async()=>{await entityRequest("setMember",{entityId:selected,userId:f.get("userId"),role:f.get("role"),active:f.get("active")==="true"});await loadMembers(selected);})}}>
-        <input name="userId" className={field} required placeholder="Existing user ID"/>
+      <div className="mt-2 grid gap-2 text-sm">{members.map(m=><div key={m.user_id} className="flex flex-wrap items-center justify-between gap-2 border-b py-2">
+        <span>{m.name||m.email} · {m.role}{m.active===0?" (inactive)":""}</span>
+        <div className="flex flex-wrap gap-2">
+          <select aria-label={"Role for "+(m.name||m.email)} className={field} defaultValue={m.role} id={"role-"+m.user_id} disabled={!data.multiEntityEnabled}>
+            <option value="employee">Employee</option><option value="manager">Manager</option><option value="admin">Entity Admin</option>
+          </select>
+          <button type="button" className={button} disabled={!data.multiEntityEnabled} onClick={()=>void operate(async()=>{
+            const role=(document.getElementById("role-"+m.user_id) as HTMLSelectElement)?.value||m.role;
+            await entityRequest("setMember",{entityId:selected,userId:m.user_id,role,active:m.active===1});
+            await loadMembers(selected);
+          })}>Save</button>
+          <button type="button" className={secondary} disabled={!data.multiEntityEnabled} onClick={()=>void operate(async()=>{
+            await entityRequest("setMember",{entityId:selected,userId:m.user_id,role:m.role,active:m.active!==1});
+            await loadMembers(selected);
+          })}>{m.active===1?"Deactivate":"Reactivate"}</button>
+        </div>
+      </div>)}</div>
+      <form className="mt-3 grid gap-2 sm:grid-cols-3" onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget);void operate(async()=>{await entityRequest("setMember",{entityId:selected,userEmail:f.get("userEmail"),role:f.get("role"),active:f.get("active")==="true"});await loadMembers(selected);})}}>
+        <input name="userEmail" className={field} type="email" required placeholder="Existing user email"/>
         <select name="role" className={field}><option value="employee">Employee</option><option value="manager">Manager</option><option value="admin">Entity Admin</option></select>
         <select name="active" className={field}><option value="true">Active</option><option value="false">Deactivate</option></select>
         <button type="submit" className={button} disabled={!data.multiEntityEnabled}>Save membership</button>
