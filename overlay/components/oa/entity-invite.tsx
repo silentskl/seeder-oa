@@ -1,5 +1,5 @@
 "use client";
-import {useEffect,useState} from "react";
+import {useEffect,useState,type FormEvent} from "react";
 import {authClient} from "@/lib/auth-client";
 
 type Invitation={email:string;role:string;company:string;expiresAt:string};
@@ -29,7 +29,7 @@ export function EntityInvitePanel({token}:{token:string}){
     if(!res.ok)throw new Error(data.error||"Invitation acceptance failed");
     setStatus("accepted");
   }
-  async function submit(e:React.FormEvent<HTMLFormElement>){
+  async function submit(e:FormEvent<HTMLFormElement>){
     e.preventDefault();if(!invite)return;
     setError("");setStatus("working");
     try{
