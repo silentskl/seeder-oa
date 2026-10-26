@@ -366,7 +366,7 @@ export async function GET(request: NextRequest) {
         email: await publicEmailSettings(),
         holidays: await all(`SELECT * FROM oa_entity_holiday WHERE entity_id='legacy-primary' ORDER BY holiday_date DESC LIMIT 300`),
         fxCache: await all(`SELECT * FROM oa_fx_rate ORDER BY fetched_at DESC LIMIT 30`),
-        emailLog: await all(`SELECT id,event_key,entity_type,entity_id,recipient_email,subject,provider,status,error,created_at FROM oa_email_log ORDER BY created_at DESC LIMIT 50`),
+        emailLog: await all(`SELECT id,event_key,entity_type,entity_id,recipient_email,subject,provider,status,error,created_at FROM oa_email_log WHERE company_entity_id='legacy-primary' ORDER BY created_at DESC LIMIT 50`),
       });
     }
 
