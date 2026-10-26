@@ -35,12 +35,12 @@ const EXPENSE_CATEGORIES = ["Travel","Meals","Transport","Accommodation","Office
 
 async function activeExpenseCategories():Promise<string[]> {
   try {
-    const rows=await all<{name:string}>(`SELECT name FROM oa_expense_category WHERE active=1 ORDER BY sort_order,name`);
+    const rows=await all<{name:string}>(`SELECT name FROM oa_entity_expense_category WHERE entity_id='legacy-primary' AND active=1 ORDER BY sort_order,name`);
     return rows.map(r=>r.name);
   } catch(error) {
     // Older production D1 may not yet have migration 9009. Keep OA accessible until migration succeeds.
     const message=error instanceof Error?error.message:String(error);
-    if (/no such table:\\s*oa_expense_category/i.test(message)) return [...EXPENSE_CATEGORIES];
+    if (/no such table:\\s*oa_entity_expense_category/i.test(message)) return [...EXPENSE_CATEGORIES];
     throw error;
   }
 }
@@ -244,7 +244,7 @@ export async function GET(request: NextRequest) {
 
     if (resource === "expenseCategories") {
       if (!admin) return fail("Forbidden",403);
-      return ok(await all<{name:string;active:number;sort_order:number}>(`SELECT name,active,sort_order FROM oa_expense_category ORDER BY sort_order,name`));
+      return ok(await all<{name:string;active:number;sort_order:number}>(`SELECT name,active,sort_order FROM oa_entity_expense_category WHERE entity_id='legacy-primary' ORDER BY sort_order,name`));
     }
 
     if (resource === "expenses") {
@@ -395,12 +395,12 @@ export async function POST(request: NextRequest) {
       if(!name || name.length>100) return fail("Category name is required");
       if(operation==="add"){
         if(!/^[\p{L}\p{N}][\p{L}\p{N} &()'.,/_-]*$/u.test(name))return fail("Invalid category name");
-        const existing=await one<{name:string}>(`SELECT name FROM oa_expense_category WHERE name=? COLLATE NOCASE`,[name]);
+        const existing=await one<{name:string}>(`SELECT name FROM oa_entity_expense_category WHERE entity_id=? AND name=? COLLATE NOCASE`,[LEGACY_ENTITY_ID,name]);
         if(existing)return fail("Category already exists; reactivate it instead",409);
-        await run(`INSERT INTO oa_expense_category(name,sort_order) VALUES(?,COALESCE((SELECT MAX(sort_order)+10 FROM oa_expense_category),10))`,[name]);
+        await run(`INSERT INTO oa_entity_expense_category(entity_id,name,sort_order) VALUES(?,?,COALESCE((SELECT MAX(sort_order)+10 FROM oa_entity_expense_category WHERE entity_id=?),10))`,[LEGACY_ENTITY_ID,name,LEGACY_ENTITY_ID]);
       } else if(operation==="activate"||operation==="deactivate"){
         if(name===MEDICAL_INSURANCE_CATEGORY && operation==="deactivate")return fail("Medical Insurance is a protected category",409);
-        const result=await run(`UPDATE oa_expense_category SET active=? WHERE name=?`,[operation==="activate"?1:0,name]);
+        const result=await run(`UPDATE oa_entity_expense_category SET active=? WHERE entity_id=? AND name=?`,[operation==="activate"?1:0,LEGACY_ENTITY_ID,name]);
         if(!result.meta?.changes)return fail("Category not found",404);
       } else return fail("Unsupported category operation");
       await audit(viewer.id,action,"expense_category",name,{operation});
