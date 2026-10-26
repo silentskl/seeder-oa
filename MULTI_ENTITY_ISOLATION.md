@@ -2,6 +2,33 @@
 
 Status: design and security gate; NOT production-enabled.
 
+## Implementation phases and delivery status (2026-10-26)
+
+| Phase | Scope | Status | Release gate |
+| --- | --- | --- | --- |
+| 1 | Entity registry, membership schema, legacy backfill, server authorization primitives | **Code committed; not deployed** | Review existing employee counts, D1 backup, validate new tables |
+| 2 | Entity-scope existing employee records, HR settings, leave, medical, categories, approvals, claim items, payroll, attachments and audit | Not started | All API/SQL paths enforce entity and tests fail closed |
+| 3 | Entity management and membership assignment for platform administrator; per-user Entity selector and context | Not started | No endpoint leaks another Entity via guessed IDs |
+| 4 | Full adversarial integration tests, historical reports/backups, deployment cutover | Not started | Two-tenant isolation and rollback tests pass |
+
+### Phase 1 files
+- `overlay/migrations/9010_multi_entity_registry.sql`: additive `oa_entity`, `oa_entity_member`, existing-company registry and employee membership backfill.
+- `overlay/lib/oa/entity.ts`: fail-closed server-side membership lookup and list of visible Entities, not yet wired to business requests.
+- `update-deploy.sh`: allow only reviewed migration 9010 alongside earlier known migrations; back up production D1 before migration, verify legacy entity afterward.
+
+### Production safety note
+**Do not add a second active Entity, expose an Entity selector, or rely on membership tables for isolation yet.** Existing OA API, file, approval, payroll and reporting routes remain single-company and do NOT filter by `entity_id`. Phase 1 preserves their behavior; it is deliberately not a finished security boundary.
+
+### Phase 1 acceptance checks
+1. Record D1 backup path and verify export is nonempty before migration.
+2. Verify `SELECT COUNT(*) FROM oa_entity WHERE id='legacy-primary'` returns 1.
+3. Verify `SELECT COUNT(*) FROM oa_entity_member WHERE entity_id='legacy-primary'` equals the count of existing employees with valid user rows.
+4. Verify all existing OA employee, expense, leave, payslip, file and category totals are unchanged before/after phase 1.
+5. Run current employee login, expenses, approval and payslip smoke tests; no new company is permitted until Phase 4.
+
+### Design detail requiring care during Phase 2
+The current `oa_employee` profile is keyed by `user_id` and the current `oa_settings` row is keyed by constant `id=1`; both require real per-Entity ownership, not a cosmetic UI filter. Legacy attachment keys under `oa/<user_id>/...` must remain accessible to authorized legacy users while new keys should be Entity-prefixed. All mutation routes must scope ownership **before** invoking approval, finance or file operations.
+
 ## Non-negotiable invariants
 1. Existing smarten-oa D1 data remains owned by one legacy entity; no destructive resets.
 2. Every business request resolves an authenticated entity membership on the server; client-provided entity_id is never authorization.
