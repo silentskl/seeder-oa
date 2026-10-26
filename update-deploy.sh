@@ -90,6 +90,9 @@ fi
 CRITICAL_OA_FILES=(
   "app/api/oa/route.ts"
   "app/api/oa/entities/route.ts"
+  "app/api/oa/invitations/route.ts"
+  "app/(auth)/oa-invite/page.tsx"
+  "components/oa/entity-invite.tsx"
   "app/api/oa/files/[id]/route.ts"
   "app/api/oa/payslips/[id]/pdf/route.ts"
   "components/oa/oa-console.tsx"
@@ -166,7 +169,7 @@ echo "$PENDING"
 # Whitelist only migrations reviewed for this production upgrade.
 MIGRATIONS="$(printf '%s\n' "$PENDING" | grep -Eo '[0-9]{4}_[[:alnum:]_-]+\.sql' | sort -u || true)"
 if [[ -n "$MIGRATIONS" ]]; then
-  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles|9014_email_log_company|9015_entity_leave_types|9016_entity_medical_allowance|9017_entity_database_guards)\.sql$' || true)"
+  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles|9014_email_log_company|9015_entity_leave_types|9016_entity_medical_allowance|9017_entity_database_guards|9018_entity_invitations)\.sql$' || true)"
   if [[ -n "$UNKNOWN" ]]; then
     echo "ERROR: unexpected pending migrations: $UNKNOWN" >&2
     exit 1
@@ -252,6 +255,12 @@ echo "$DB_GUARD_CHECK"
 if ! printf '%s\n' "$DB_GUARD_CHECK" | grep -Eq '(^|[[:space:]│])14([[:space:]│]|$)'; then
   echo "ERROR: entity database security guards are incomplete; refusing deployment." >&2
   exit 1
+fi
+# Secure invitations need the reviewed one-time token table before the Worker publishes.
+INVITATION_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='oa_entity_invitation';" 2>&1)" || { echo "$INVITATION_CHECK" >&2; exit 1; }
+echo "$INVITATION_CHECK"
+if ! printf '%s\n' "$INVITATION_CHECK" | grep -Eq '(^|[[:space:]│])1([[:space:]│]|$)'; then
+  echo "ERROR: secure Entity invitation migration not applied; refusing deploy." >&2; exit 1
 fi
 # Verify the schema actually exists, even when Wrangler's migration ledger is out of sync.
 SCHEMA_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='oa_expense_category';" 2>&1)" || { echo "$SCHEMA_CHECK" >&2; exit 1; }
