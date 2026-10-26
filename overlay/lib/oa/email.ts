@@ -191,11 +191,12 @@ async function requestContext(entityType: ApprovalEntity, entityId: string, comp
 async function usersForStep(step: ApprovalStep | null, companyId = LEGACY_ENTITY_ID): Promise<UserRef[]> {
   if (!step) return [];
   if (step.approver_type === "manager" && step.assigned_user_id) {
-    const user = await one<UserRef>(`SELECT id,name,email FROM user WHERE id=?`, [step.assigned_user_id]);
+    const user = await one<UserRef>(`SELECT u.id,u.name,u.email FROM user u JOIN oa_entity_member m ON m.user_id=u.id AND m.entity_id=? AND m.active=1 WHERE u.id=?`, [companyId,step.assigned_user_id]);
     return user?.email ? [user] : [];
   }
   return all<UserRef>(
-    `SELECT id,name,email FROM user WHERE role IN ('owner','admin') AND id <> 'vcs-bot' AND email IS NOT NULL AND trim(email) <> '' ORDER BY CASE WHEN role='owner' THEN 0 ELSE 1 END,name,email`,
+    `SELECT u.id,u.name,u.email FROM user u JOIN oa_entity_member m ON m.user_id=u.id AND m.entity_id=? AND m.active=1 WHERE u.role IN ('owner','admin') AND u.id <> 'vcs-bot' AND u.email IS NOT NULL AND trim(u.email) <> '' ORDER BY CASE WHEN u.role='owner' THEN 0 ELSE 1 END,u.name,u.email`,
+    [companyId],
   );
 }
 
