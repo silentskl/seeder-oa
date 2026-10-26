@@ -67,6 +67,49 @@ def validate(db):
         WHERE i.entity_id<>c.entity_id
     """).fetchone()[0]
     if mismatched_items: errors.append(f"{mismatched_items} expense items owned by the wrong company")
+    # Historic cross-company relationships must be checked even if an earlier
+    # migration added the owner columns without composite foreign keys.
+    relationships = {
+      "expense document": """SELECT COUNT(*) FROM oa_expense_item_document d
+        LEFT JOIN oa_expense_item i ON i.id=d.item_id
+        LEFT JOIN oa_file f ON f.id=d.file_id
+        WHERE i.id IS NULL OR f.id IS NULL OR i.entity_id<>f.entity_id""",
+      "claim receipt": """SELECT COUNT(*) FROM oa_expense_claim c
+        LEFT JOIN oa_file f ON f.id=c.receipt_file_id
+        WHERE c.receipt_file_id IS NOT NULL AND
+          (f.id IS NULL OR c.entity_id<>f.entity_id)""",
+      "leave attachment": """SELECT COUNT(*) FROM oa_leave_request l
+        LEFT JOIN oa_file f ON f.id=l.attachment_file_id
+        WHERE l.attachment_file_id IS NOT NULL AND
+          (f.id IS NULL OR l.entity_id<>f.entity_id)""",
+      "payslip attachment": """SELECT COUNT(*) FROM oa_payslip p
+        LEFT JOIN oa_file f ON f.id=p.attachment_file_id
+        WHERE p.attachment_file_id IS NOT NULL AND
+          (f.id IS NULL OR p.entity_id<>f.entity_id)""",
+      "approval workflow": """SELECT COUNT(*) FROM oa_approval_step a
+        LEFT JOIN oa_leave_request l ON l.id=a.entity_id AND a.entity_type='leave'
+        LEFT JOIN oa_expense_claim c ON c.id=a.entity_id AND a.entity_type='expense'
+        WHERE (a.entity_type='leave' AND (l.id IS NULL OR l.entity_id<>a.company_entity_id))
+           OR (a.entity_type='expense' AND (c.id IS NULL OR c.entity_id<>a.company_entity_id))
+           OR a.entity_type NOT IN ('leave','expense')""",
+    }
+    for label, query in relationships.items():
+        n=db.execute(query).fetchone()[0]
+        print(f"{label} cross-company/orphan associations: {n}")
+        if n: errors.append(f"{label}: {n} invalid cross-company associations")
+    guards = (
+        "oa_entity_keep_last_admin_update","oa_entity_keep_last_admin_delete",
+        "oa_claim_item_company_insert","oa_claim_item_company_update",
+        "oa_expense_document_company_insert","oa_expense_document_company_update",
+        "oa_leave_attachment_company_insert","oa_leave_attachment_company_update",
+        "oa_claim_receipt_company_insert","oa_claim_receipt_company_update",
+        "oa_payslip_attachment_company_insert","oa_payslip_attachment_company_update",
+        "oa_approval_company_insert","oa_approval_company_update",
+    )
+    found=db.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN ("+
+        ",".join("?" for _ in guards)+")",guards).fetchone()[0]
+    if found!=len(guards):errors.append(f"Entity DB guard triggers incomplete: {found}/{len(guards)}")
     # SQLite FK check works only for constraints already declared in migrations;
     # many legacy ownership columns were added without FK, so checks above matter.
     fk=list(db.execute("PRAGMA foreign_key_check"))
