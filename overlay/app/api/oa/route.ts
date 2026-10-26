@@ -583,7 +583,7 @@ export async function POST(request: NextRequest) {
       const itemId = crypto.randomUUID();
       const {db} = getOaEnv();
       const statements = [
-        db.prepare(`INSERT INTO oa_expense_claim(id,user_id,expense_date,category,description,original_amount_minor,original_currency,reimbursement_currency,fx_rate,fx_rate_date,fx_source,reimbursement_amount_minor,receipt_file_id,medical_insurance_amount_minor,medical_insurance_currency)
+        db.prepare(`INSERT INTO oa_expense_claim(id,user_id,expense_date,category,description,original_amount_minor,original_currency,reimbursement_currency,fx_rate,fx_rate_date,fx_source,reimbursement_amount_minor,receipt_file_id,medical_insurance_amount_minor,medical_insurance_currency,entity_id)
          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,viewer.id,expenseDate,category,text(body.description,2000),originalMinor,originalCurrency,reimbursementCurrency,fx.rate,fx.providerDate,fx.source,reimbursementMinor,fileId,medicalInsuranceAmountMinor,medicalInsuranceCurrency,LEGACY_ENTITY_ID),
         db.prepare(`INSERT INTO oa_expense_item(id,claim_id,sort_order,expense_date,category,description,original_amount_minor,original_currency,reimbursement_amount_minor,fx_rate,fx_rate_date,fx_source,entity_id)
          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(itemId,id,0,expenseDate,category,text(body.description,2000),originalMinor,originalCurrency,reimbursementMinor,fx.rate,fx.providerDate,fx.source,LEGACY_ENTITY_ID),
