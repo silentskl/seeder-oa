@@ -812,7 +812,12 @@ export async function POST(request: NextRequest) {
       if (!Number.isFinite(defaultLeave)||defaultLeave<0||defaultLeave>365) return fail("Invalid default annual leave entitlement");
       const leaveApprovalFlow = normalizeApprovalFlow(body.leaveApprovalFlow);
       const expenseApprovalFlow = normalizeApprovalFlow(body.expenseApprovalFlow);
-      await run(`UPDATE oa_settings SET company_name=?,base_currency=?,default_annual_leave_days=?,leave_approval_flow=?,expense_approval_flow=?,updated_at=CURRENT_TIMESTAMP WHERE id=1`,[text(body.companyName,200)||"Company",baseCurrency,defaultLeave,leaveApprovalFlow,expenseApprovalFlow]);
+      const companyName=text(body.companyName,200)||"Company";
+      if(companyId===LEGACY_ENTITY_ID){
+        await run(`UPDATE oa_settings SET company_name=?,base_currency=?,default_annual_leave_days=?,leave_approval_flow=?,expense_approval_flow=?,updated_at=CURRENT_TIMESTAMP WHERE id=1`,[companyName,baseCurrency,defaultLeave,leaveApprovalFlow,expenseApprovalFlow]);
+      }else{
+        await run(`UPDATE oa_entity_settings SET company_name=?,base_currency=?,default_annual_leave_days=?,leave_approval_flow=?,expense_approval_flow=?,updated_at=CURRENT_TIMESTAMP WHERE entity_id=?`,[companyName,baseCurrency,defaultLeave,leaveApprovalFlow,expenseApprovalFlow,companyId]);
+      }
       await audit(viewer.id,action,"settings","1",{baseCurrency,defaultLeave}); return ok({updated:true});
     }
 
@@ -826,12 +831,16 @@ export async function POST(request: NextRequest) {
       const replyTo = emailAddress(body.emailReplyTo);
       const newApiKey = text(body.emailApiKey,1000);
       const clearApiKey = body.clearEmailApiKey === true;
-      const existing = await one<{email_api_key_encrypted:string|null}>(`SELECT email_api_key_encrypted FROM oa_settings WHERE id=1`);
+      const existing = await one<{email_api_key_encrypted:string|null}>(`SELECT email_api_key_encrypted FROM oa_entity_settings WHERE entity_id=?`,[companyId]);
       let encrypted = clearApiKey ? null : existing?.email_api_key_encrypted ?? null;
       if (newApiKey) encrypted = await encryptEmailSecret(newApiKey);
       if (enabled && !fromAddress) return fail("From email address is required when email notifications are enabled");
       if (enabled && !encrypted) return fail("Resend API key is required when email notifications are enabled");
-      await run(`UPDATE oa_settings SET email_enabled=?,email_provider=?,email_from_name=?,email_from_address=?,email_reply_to=?,email_api_key_encrypted=?,updated_at=CURRENT_TIMESTAMP WHERE id=1`,[enabled,provider,fromName,fromAddress,replyTo,encrypted]);
+      if(companyId===LEGACY_ENTITY_ID){
+        await run(`UPDATE oa_settings SET email_enabled=?,email_provider=?,email_from_name=?,email_from_address=?,email_reply_to=?,email_api_key_encrypted=?,updated_at=CURRENT_TIMESTAMP WHERE id=1`,[enabled,provider,fromName,fromAddress,replyTo,encrypted]);
+      }else{
+        await run(`UPDATE oa_entity_settings SET email_enabled=?,email_provider=?,email_from_name=?,email_from_address=?,email_reply_to=?,email_api_key_encrypted=?,updated_at=CURRENT_TIMESTAMP WHERE entity_id=?`,[enabled,provider,fromName,fromAddress,replyTo,encrypted,companyId]);
+      }
       await audit(viewer.id,action,"settings","1",{enabled:Boolean(enabled),provider,fromAddress,replyTo,apiKeyChanged:Boolean(newApiKey),apiKeyCleared:clearApiKey});
       return ok({updated:true,email:await publicEmailSettings()});
     }
