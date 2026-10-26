@@ -1,10 +1,11 @@
 import { all } from "./db";
+import { LEGACY_ENTITY_ID } from "./entity";
 
 function assertDate(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error("Invalid date");
 }
 
-export async function businessDays(startDate: string, endDate: string, dayPart: "full"|"am"|"pm" = "full") {
+export async function businessDays(startDate: string, endDate: string, dayPart: "full"|"am"|"pm" = "full", companyId = LEGACY_ENTITY_ID) {
   assertDate(startDate); assertDate(endDate);
   const start = new Date(`${startDate}T12:00:00Z`);
   const end = new Date(`${endDate}T12:00:00Z`);
@@ -12,7 +13,7 @@ export async function businessDays(startDate: string, endDate: string, dayPart: 
   if (dayPart !== "full" && startDate !== endDate) throw new Error("Half-day leave must start and end on the same date");
 
   const rows = await all<{holiday_date:string}>(
-    `SELECT holiday_date FROM oa_holiday WHERE holiday_date BETWEEN ? AND ?`, [startDate, endDate],
+    `SELECT holiday_date FROM oa_entity_holiday WHERE entity_id=? AND holiday_date BETWEEN ? AND ?`, [companyId,startDate, endDate],
   );
   const holidays = new Set(rows.map((r) => r.holiday_date));
   let count = 0;
