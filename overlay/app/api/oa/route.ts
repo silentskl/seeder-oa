@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getViewer, isAdminTier } from "@/lib/auth-server";
+import { getViewer } from "@/lib/auth-server";
 import { all, audit, one, run, settings } from "@/lib/oa/db";
 import { getFxQuote } from "@/lib/oa/fx";
 import { getOaEnv } from "@/lib/oa/env";
@@ -205,8 +205,8 @@ async function withExpenseItems<T extends Record<string,unknown>>(claims:T[]):Pr
 export async function GET(request: NextRequest) {
   try {
     const viewer = await requireOaViewer();
-    await requireLegacyOaAccess(viewer.id, request.nextUrl.searchParams.get("entity_id"));
-    const admin = isAdminTier(viewer.role);
+    const access=await requireLegacyOaAccess(viewer.id, request.nextUrl.searchParams.get("entity_id"));
+    const admin = access.role==="admin";
     const resource = request.nextUrl.searchParams.get("resource") || "bootstrap";
     await ensureEmployee(viewer.id);
 
@@ -382,9 +382,9 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const viewer = await requireOaViewer();
-    const admin = isAdminTier(viewer.role);
     const body = await request.json() as Record<string, any>;
-    await requireLegacyOaAccess(viewer.id, body.entity_id ?? body.entityId);
+    const access=await requireLegacyOaAccess(viewer.id, body.entity_id ?? body.entityId);
+    const admin = access.role==="admin";
     const action = text(body.action, 80);
     await ensureEmployee(viewer.id);
 
