@@ -414,6 +414,9 @@ export async function POST(request: NextRequest) {
          SELECT id,?,?,? FROM user WHERE id <> 'vcs-bot'`,
         [Number(s?.default_annual_leave_days ?? 14), s?.base_currency ?? "SGD", s?.base_currency ?? "SGD"],
       );
+      await run(`INSERT OR IGNORE INTO oa_entity_member(entity_id,user_id,role)
+        SELECT ?,e.user_id,'employee' FROM oa_employee e
+        JOIN user u ON u.id=e.user_id`,[LEGACY_ENTITY_ID]);
       await audit(viewer.id, action, "employee", null);
       return ok({ synced: true });
     }
@@ -828,6 +831,7 @@ export async function POST(request: NextRequest) {
     return fail("Unknown action",404);
   } catch (error) {
     if (error instanceof Error && error.message === "UNAUTHORIZED") return fail("Unauthorized",401);
+    if (error instanceof EntityAccessError) return fail(error.message,error.status);
     if (error instanceof Error && error.message.includes("medical allowance:")) return fail("Medical Insurance annual allowance exceeded or invalid. Refresh your balance and retry.",409);
     console.error("OA POST failed",error);
     return fail(error instanceof Error ? error.message : "OA request failed",500);
