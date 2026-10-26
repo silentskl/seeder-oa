@@ -180,6 +180,14 @@ if ! printf '%s\n' "$EMPLOYEE_SCOPE_CHECK" | grep -Eq '(^|[[:space:]│])1([[:sp
   echo "ERROR: composite employee profile table missing; refusing deployment." >&2
   exit 1
 fi
+# Fail if any legacy employee is missing either its composite entity profile
+# or active company membership. This catches partial/corrupt migrations.
+LEGACY_EMPLOYEE_MISSING="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM oa_employee e LEFT JOIN oa_entity_employee p ON p.entity_id='legacy-primary' AND p.user_id=e.user_id LEFT JOIN oa_entity_member m ON m.entity_id='legacy-primary' AND m.user_id=e.user_id AND m.active=1 WHERE e.entity_id='legacy-primary' AND (p.user_id IS NULL OR m.user_id IS NULL);" 2>&1)" || { echo "$LEGACY_EMPLOYEE_MISSING" >&2; exit 1; }
+echo "$LEGACY_EMPLOYEE_MISSING"
+if ! printf '%s\\n' "$LEGACY_EMPLOYEE_MISSING" | grep -Eq '(^|[[:space:]│])0([[:space:]│]|$)'; then
+  echo "ERROR: legacy employee is missing entity membership or composite employee profile; refusing deployment." >&2
+  exit 1
+fi
 EMAIL_SCOPE_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM pragma_table_info('oa_email_log') WHERE name='company_entity_id';" 2>&1)" || { echo "$EMAIL_SCOPE_CHECK" >&2; exit 1; }
 echo "$EMAIL_SCOPE_CHECK"
 if ! printf '%s\n' "$EMAIL_SCOPE_CHECK" | grep -Eq '(^|[[:space:]│])1([[:space:]│]|$)'; then
