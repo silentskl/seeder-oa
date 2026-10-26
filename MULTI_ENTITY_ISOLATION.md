@@ -7,7 +7,7 @@ Status: design and security gate; NOT production-enabled.
 | Phase | Scope | Status | Release gate |
 | --- | --- | --- | --- |
 | 1 | Entity registry, membership schema, legacy backfill, server authorization primitives | **Code committed; not deployed** | Review existing employee counts, D1 backup, validate new tables |
-| 2 | Entity-scope existing employee records, HR settings, leave, medical, categories, approvals, claim items, payroll, attachments and audit | **Phase 2A code committed; Phase 2B incomplete** | All API/SQL paths enforce entity and tests fail closed |
+| 2 | Entity-scope employees, settings, leave, claims, approvals, payroll, attachments, email and medical allowances | **Phase 2B implementation committed; production and adversarial integration validation pending** | Two-company integration and regression tests must pass before enabling |
 | 3 | Entity management and membership assignment for platform administrator; per-user Entity selector and context | Not started | No endpoint leaks another Entity via guessed IDs |
 | 4 | Full adversarial integration tests, historical reports/backups, deployment cutover | Not started | Two-tenant isolation and rollback tests pass |
 
@@ -47,6 +47,36 @@ The current `oa_employee` profile is keyed by `user_id` and the current `oa_sett
 4. Verify unassigned authenticated users receive 403 for `/api/oa` and cannot download another user's attachment.
 5. Verify requests with `entity_id` not equal to `legacy-primary` receive 403.
 6. Do **not** deploy a tenant-selection UI or allow creating a second active Entity while Phase 2B remains incomplete.
+
+## Phase 2B implementation summary (code complete for staging, NOT yet production certified)
+
+The Phase 2B implementation now has entity-aware business API paths, using `resolveBusinessEntityAccess` as the server authorization entry point. The client-supplied `entity_id` selects an entity only **after** validation against current user membership and role; it is never treated as proof of authorization.
+
+| Domain | Implementation |
+| --- | --- |
+| Employee and manager | `oa_entity_employee` composite `(entity_id,user_id)` key; old `oa_employee` retained and trigger-mirrored for legacy records; manager lookup and admin roster are scoped |
+| Settings, categories, holidays and leave catalog | `oa_entity_settings`, `oa_entity_expense_category`, `oa_entity_holiday`, `oa_entity_leave_type`; settings and calendar APIs read entity-specific tables |
+| Expense and leave | Claims, claim items, leave requests, medical summaries, history and mutation targets use their owning Entity; receipt/document references verify company |
+| Approval | Workflow steps use `company_entity_id` (distinct from business record `entity_id`) and verify source ownership and active company before decisions |
+| Payslip | Payroll employee profile lookup, creation, publishing, voiding and listing apply company scope |
+| Attachment | Direct R2 download requires server-side membership plus file Entity lookup; uploaded object keys contain company ID |
+| Email/audit | Notification settings, email logs, audit logs and recipients are scoped to company context |
+| Medical allowance | `9016` restores SQLite-level annual allowance validation partitioned by `entity_id` and user |
+
+**Schema migrations:** `9012_entity_settings_categories.sql`, `9013_entity_employee_profiles.sql`, `9014_email_log_company.sql`, `9015_entity_leave_types.sql`, `9016_entity_medical_allowance.sql`.
+
+**Static gate:** `node scripts/check-phase2b-isolation.mjs overlay` checks critical paths in the reviewed overlay. `update-deploy.sh` now runs the same guard against the applied app before it contacts production D1 and runs backup/migrations. This guard checks implementation shape; it does not substitute for exercised request, authorization, payroll, R2 and migration tests.
+
+**Feature flag:** `OA_MULTI_ENTITY_BUSINESS_ENABLED` is false by default. It MUST remain unset in production while the two-company integration and rollback tests are pending. Existing legacy Entity remains the sole permitted business context.
+
+### Phase 2B remaining release gates
+
+1. Run the full Next.js build on the applied Seeder source, including unit/integration tests.
+2. Apply migrations to a **copy** of production D1 and validate row totals, employee profile values, active membership, approvals, reports, payslips, original R2 keys and nonempty settings.
+3. Create two test companies and memberships in the isolated copy. For every GET/POST/R2 route, verify forged record IDs or switched `entity_id` yield 403/404; verify same user with two memberships has independent balances and salary.
+4. Verify a company's administrator cannot view, approve, pay, void, export or download another company's records.
+5. Check race conditions for medical allowance and approval processing, and verify notification recipients and logs are entity-isolated.
+6. Audit snapshot and rollback before any production migration. Only after all gates pass consider enabling the flag and Phase 3 UI.
 
 ## Non-negotiable invariants
 1. Existing smarten-oa D1 data remains owned by one legacy entity; no destructive resets.
