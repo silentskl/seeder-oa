@@ -39,7 +39,7 @@ BEGIN
   SELECT RAISE(ABORT, 'medical allowance: annual limit exceeded')
   WHERE COALESCE((SELECT SUM(medical_insurance_amount_minor)
                   FROM oa_expense_claim
-                  WHERE id<>OLD.id AND user_id=NEW.user_id AND category='Medical Insurance'
+                  WHERE id<>OLD.id AND entity_id=NEW.entity_id AND user_id=NEW.user_id AND category='Medical Insurance'
                     AND status IN ('submitted','approved','paid')
                     AND substr(expense_date,1,4)=substr(NEW.expense_date,1,4)),0)
         + NEW.medical_insurance_amount_minor
