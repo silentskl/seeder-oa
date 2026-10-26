@@ -93,6 +93,8 @@ printf '[DEPLOY] Verified OA frontend source SHA256: '
 shasum -a 256 "$APP_CONSOLE" | awk '{print $1}'
 echo "[DEPLOY] Checking Phase 2B entity isolation source invariants..."
 node "$ROOT/scripts/check-phase2b-isolation.mjs" "$APP"
+echo "[DEPLOY] Checking Phase 3/4 company controls and direct-download isolation..."
+node "$ROOT/scripts/check-phase34-release.mjs" "$APP"
 echo "[DEPLOY] Validating Cloudflare account and production D1 access..."
 # Explicit account selection prevents Wrangler from using a stale or unrelated account.
 EXPECTED_ACCOUNT="171a0b87cb7aa3df044f301599d7d86e"
