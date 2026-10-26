@@ -269,7 +269,7 @@ export async function GET(request: NextRequest) {
           `SELECT e.*, f.original_name AS receipt_name FROM oa_expense_claim e
            LEFT JOIN oa_file f ON f.id=e.receipt_file_id
            WHERE e.entity_id=${companySql} AND e.user_id=? ORDER BY e.submitted_at DESC LIMIT 100`, [viewer.id],
-        )),
+        ),companyId),
         approvalSteps: await all(
           `SELECT s.*,du.name AS decided_by_name,au.name AS assigned_user_name
            FROM oa_approval_step s
@@ -313,10 +313,10 @@ export async function GET(request: NextRequest) {
            FROM oa_approval_step s
            JOIN oa_expense_claim x ON x.id=s.entity_id AND s.entity_type='expense'
            JOIN user u ON u.id=x.user_id
-           WHERE ${stepFilter} AND s.company_entity_id=${companySql} AND x.entity_id=${companySql} AND x.status='submitted' ORDER BY x.submitted_at`, params)),
+           WHERE ${stepFilter} AND s.company_entity_id=${companySql} AND x.entity_id=${companySql} AND x.status='submitted' ORDER BY x.submitted_at`, params),companyId),
         approvedExpenses: admin ? await withExpenseItems(await all(
           `SELECT x.*,u.name,u.email FROM oa_expense_claim x JOIN user u ON u.id=x.user_id
-           WHERE x.entity_id=${companySql} AND x.status='approved' ORDER BY x.decided_at,x.submitted_at`)) : [],
+           WHERE x.entity_id=${companySql} AND x.status='approved' ORDER BY x.decided_at,x.submitted_at`),companyId) : [],
         expenseCategories: await activeExpenseCategories(companyId),
         settings: await settings(companyId),
       });
