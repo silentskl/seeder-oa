@@ -11,7 +11,7 @@ const clean=(x:unknown,max=200)=>String(x??"").trim().slice(0,max);
 type Role="admin"|"manager"|"employee";
 const roles=new Set<Role>(["admin","manager","employee"]);
 
-async function managePermission(userId:string,role:string,entityId:string){
+async function managePermission(userId:string,role:Parameters<typeof isAdminTier>[0],entityId:string){
   if(isAdminTier(role))return;
   await requireEntityAccess(userId,entityId,["admin"]);
 }
