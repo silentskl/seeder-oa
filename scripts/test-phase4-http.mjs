@@ -28,6 +28,22 @@ async function assert(label,expected,fn){
     failures++;console.error("FAIL "+label+" (transport error: "+(e instanceof Error?e.message:"unknown")+")");
   }
 }
+// Verify both fixture accounts have the expected *exclusive* memberships and
+// the staging feature is actually enabled; otherwise 403-only checks are vacuous.
+for(const [label,cookie,own,other] of [
+  ["A",env.PHASE4_USER_A_COOKIE,a,b],
+  ["B",env.PHASE4_USER_B_COOKIE,b,a],
+]){
+  const response=await fetchAs(cookie,"/api/oa/entities");
+  if(response.status!==200){console.error("FAIL "+label+" Entity list HTTP "+response.status);process.exit(1)}
+  const payload=await response.json();
+  const entities=payload?.data?.entities||[];
+  if(payload?.data?.multiEntityEnabled!==true||!entities.some(x=>x.id===own)||entities.some(x=>x.id===other)){
+    console.error("FAIL "+label+" fixture membership not exclusive, or staging multi-Entity feature disabled");
+    process.exit(1);
+  }
+  console.log("PASS "+label+" fixture has exclusive Entity membership");
+}
 const resource=["bootstrap","leave","expenses","payslips","approvals","expenseHistory","employees","admin-payslips","settings","expenseCategories"];
 // An active A-only user MUST NOT be allowed to select B; vice versa.
 // Resource responses may be 200/403 for legitimate own-company calls depending on role,
