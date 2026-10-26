@@ -37,3 +37,16 @@ export async function listMyEntities(userId:string) {
     ORDER BY e.display_name,e.id
   `,[userId]);
 }
+
+/**
+ * Phase 2A deployment guard: existing OA continues on the primary Entity.
+ * Reject any attempt to request a different entity before every OA query is
+ * reworked with entity-scoped ownership. This is NOT a multi-entity release.
+ */
+export async function requireLegacyOaAccess(userId:string, requestedEntityId?:unknown):Promise<EntityAccess> {
+  if(requestedEntityId !== undefined && requestedEntityId !== null &&
+      String(requestedEntityId) !== "" && String(requestedEntityId) !== LEGACY_ENTITY_ID) {
+    throw new EntityAccessError(403, "Entity access denied");
+  }
+  return requireEntityAccess(userId, LEGACY_ENTITY_ID);
+}
