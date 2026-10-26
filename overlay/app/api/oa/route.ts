@@ -59,17 +59,17 @@ function expenseYear(value: string) {
   return year;
 }
 
-async async function companyAudit(companyId:string,actorUserId:string|null,action:string,type:string,id:string|null,details?:unknown){
+async function companyAudit(companyId:string,actorUserId:string|null,action:string,type:string,id:string|null,details?:unknown){
   return audit(actorUserId,action,type,id,details,companyId);
 }
 
-function requireOaViewer() {
+async function requireOaViewer() {
   const viewer = await getViewer();
   if (!viewer) throw new Error("UNAUTHORIZED");
   return viewer;
 }
 
-async async function ensureEmployee(userId: string,companyId = LEGACY_ENTITY_ID) {
+async function ensureEmployee(userId: string,companyId = LEGACY_ENTITY_ID) {
   const s=await settings(companyId);
   if(companyId===LEGACY_ENTITY_ID){
     // Preserve the existing medical allowance trigger and legacy audit linkage.
