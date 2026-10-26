@@ -39,6 +39,8 @@ echo "[MULTI-ENTITY] Checking Phase 3/4 UI, API and document downloads..."
 node "$ROOT/scripts/check-phase34-release.mjs" "$APP"
 echo "[MULTI-ENTITY] Running local SQLite migration fixtures..."
 node "$ROOT/tests/multi-entity-migrations.test.mjs"
+echo "[OA] Checking TypeScript/TSX parser diagnostics before Next.js build..."
+node "$ROOT/scripts/check-oa-syntax.mjs" "$APP"
 echo "[MULTI-ENTITY] Building production bundle..."
 (cd "$APP" && npm run build)
 if [[ "$MODE" == "check" ]]; then
