@@ -204,7 +204,7 @@ async function withExpenseItems<T extends Record<string,unknown>>(claims:T[], co
   const items=await all<any>(`SELECT i.*,d.file_id,f.original_name AS document_name
     FROM oa_expense_item i
     LEFT JOIN oa_expense_item_document d ON d.item_id=i.id
-    LEFT JOIN oa_file f ON f.id=d.file_id
+    LEFT JOIN oa_file f ON f.id=d.file_id AND f.entity_id=i.entity_id
     WHERE i.entity_id=${companySql} AND i.claim_id IN (${placeholders}) ORDER BY i.claim_id,i.sort_order,i.id`,ids);
   const grouped=new Map<string,any[]>();
   for(const row of items){
@@ -244,7 +244,7 @@ export async function GET(request: NextRequest) {
         requests: await all(
           `SELECT l.*, t.name AS leave_type_name, f.original_name AS attachment_name
            FROM oa_leave_request l JOIN oa_entity_leave_type t ON t.code=l.leave_type_code AND t.entity_id=l.entity_id
-           LEFT JOIN oa_file f ON f.id=l.attachment_file_id
+           LEFT JOIN oa_file f ON f.id=l.attachment_file_id AND f.entity_id=l.entity_id
            WHERE l.entity_id=${companySql} AND l.user_id=? ORDER BY l.submitted_at DESC LIMIT 100`, [viewer.id],
         ),
         approvalSteps: await all(
@@ -267,7 +267,7 @@ export async function GET(request: NextRequest) {
       return ok({
         claims: await withExpenseItems(await all(
           `SELECT e.*, f.original_name AS receipt_name FROM oa_expense_claim e
-           LEFT JOIN oa_file f ON f.id=e.receipt_file_id
+           LEFT JOIN oa_file f ON f.id=e.receipt_file_id AND f.entity_id=e.entity_id
            WHERE e.entity_id=${companySql} AND e.user_id=? ORDER BY e.submitted_at DESC LIMIT 100`, [viewer.id],
         ),companyId),
         approvalSteps: await all(
@@ -290,7 +290,7 @@ export async function GET(request: NextRequest) {
                 e.employee_no AS current_employee_no,e.join_date AS current_join_date
          FROM oa_payslip p JOIN user u ON u.id=p.user_id
          LEFT JOIN oa_employee e ON e.user_id=p.user_id
-         LEFT JOIN oa_file f ON f.id=p.attachment_file_id
+         LEFT JOIN oa_file f ON f.id=p.attachment_file_id AND f.entity_id=p.entity_id
          WHERE p.entity_id=${companySql} AND p.user_id=? AND p.status='published' ORDER BY p.pay_date DESC LIMIT 100`, [viewer.id],
       ));
     }
@@ -370,7 +370,7 @@ export async function GET(request: NextRequest) {
       if (!admin) return fail("Forbidden", 403);
       return ok(await all(
         `SELECT p.*,u.name,u.email,e.employee_no AS current_employee_no,e.join_date AS current_join_date,f.original_name AS attachment_name FROM oa_payslip p
-         JOIN user u ON u.id=p.user_id LEFT JOIN oa_entity_employee e ON e.user_id=p.user_id AND e.entity_id=p.entity_id LEFT JOIN oa_file f ON f.id=p.attachment_file_id
+         JOIN user u ON u.id=p.user_id LEFT JOIN oa_entity_employee e ON e.user_id=p.user_id AND e.entity_id=p.entity_id LEFT JOIN oa_file f ON f.id=p.attachment_file_id AND f.entity_id=p.entity_id
          WHERE p.entity_id=${companySql} ORDER BY p.pay_date DESC,p.created_at DESC LIMIT 200`,
       ));
     }
