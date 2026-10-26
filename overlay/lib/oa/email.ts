@@ -161,7 +161,7 @@ async function requestContext(entityType: ApprovalEntity, entityId: string, comp
   if (entityType === "leave") {
     const row = await one<any>(
       `SELECT l.id,l.user_id,l.start_date,l.end_date,l.business_days,l.reason,l.status,u.name,u.email,t.name AS type_name
-       FROM oa_leave_request l JOIN user u ON u.id=l.user_id JOIN oa_leave_type t ON t.code=l.leave_type_code WHERE l.id=? AND l.entity_id=?`,
+       FROM oa_leave_request l JOIN user u ON u.id=l.user_id JOIN oa_entity_leave_type t ON t.code=l.leave_type_code AND t.entity_id=l.entity_id WHERE l.id=? AND l.entity_id=?`,
       [entityId,companyId],
     );
     if (!row) throw new Error("Leave request not found for email notification");
