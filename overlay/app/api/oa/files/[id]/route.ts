@@ -34,7 +34,7 @@ export async function POST(request:NextRequest, context:{params:Promise<{id:stri
 
     const fileId=crypto.randomUUID();
     const name=safeName(file.name);
-    const r2Key=`oa/${ownerUserId}/${kind}/${fileId}-${name}`;
+    const r2Key=`oa/${LEGACY_ENTITY_ID}/${ownerUserId}/${kind}/${fileId}-${name}`;
     const {uploads}=getOaEnv();
     await uploads.put(r2Key,await file.arrayBuffer(),{httpMetadata:{contentType:type}});
     try {
