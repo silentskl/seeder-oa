@@ -31,10 +31,10 @@ export async function GET(request:NextRequest){
 
 export async function POST(request:NextRequest){
   const viewer=await getViewer();if(!viewer)return fail("Unauthorized",401);
-  if(!enabled())return fail("Multi-Entity management is disabled until isolation acceptance",403);
   let data:Record<string,unknown>;
   try{data=await request.json()}catch{return fail("Invalid JSON")}
   const action=clean(data.action,40),entityId=clean(data.entityId,100);
+  if(!enabled() && action!=="listMembers")return fail("Multi-Entity management is disabled until isolation acceptance",403);
   const platformAdmin=isAdminTier(viewer.role);
   try{
     if(action==="createEntity"){
