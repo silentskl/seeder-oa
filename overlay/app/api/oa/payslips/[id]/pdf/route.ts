@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getViewer, isAdminTier } from "@/lib/auth-server";
+import { getViewer } from "@/lib/auth-server";
+import { EntityAccessError, resolveBusinessEntityAccess } from "@/lib/oa/entity";
 import { one, settings } from "@/lib/oa/db";
 import { buildPayslipPdf } from "@/lib/oa/payslip-pdf";
 
@@ -22,22 +23,26 @@ function customFields(value:unknown){
   }catch{return [];}
 }
 
-export async function GET(_request:NextRequest,context:{params:Promise<{id:string}>}){
+export async function GET(request:NextRequest,context:{params:Promise<{id:string}>}){
   const viewer=await getViewer(); if(!viewer) return fail("Unauthorized",401);
+  let access;
+  try{access=await resolveBusinessEntityAccess(viewer.id,request.nextUrl.searchParams.get("entity_id"))}
+  catch(e){if(e instanceof EntityAccessError)return fail("Forbidden",e.status);throw e}
+  const companyId=access.entityId;
   const {id}=await context.params;
   const row=await one<any>(
     `SELECT p.*,u.name AS current_name,u.email,
             e.employee_no AS current_employee_no,e.join_date AS current_join_date,
             e.job_title AS current_job_title,e.department AS current_department,e.salary_period AS current_salary_period
      FROM oa_payslip p JOIN user u ON u.id=p.user_id
-     LEFT JOIN oa_employee e ON e.user_id=p.user_id
-     WHERE p.id=?`,[id],
+     LEFT JOIN oa_entity_employee e ON e.user_id=p.user_id AND e.entity_id=p.entity_id
+     WHERE p.id=? AND p.entity_id=?`,[id,companyId],
   );
   if(!row) return fail("Payslip not found",404);
-  const admin=isAdminTier(viewer.role);
+  const admin=access.role==="admin";
   if(row.user_id!==viewer.id&&!admin) return fail("Forbidden",403);
   if(!admin&&row.status!=="published") return fail("Payslip is not published",404);
-  const s=await settings();
+  const s=await settings(companyId);
   const employeeName=row.employee_name_snapshot||row.current_name||row.email;
   const employeeNo=row.employee_no_snapshot||row.current_employee_no||"";
   const period=String(row.period_start||"").slice(0,7);
