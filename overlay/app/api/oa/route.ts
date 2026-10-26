@@ -237,7 +237,7 @@ export async function GET(request: NextRequest) {
          LEFT JOIN user m ON m.id=e.manager_user_id WHERE e.user_id=? AND e.entity_id=?`, [viewer.id,companyId],
       );
       const s = await settings(companyId);
-      const managed = await one<{n:number}>(`SELECT COUNT(*) AS n FROM oa_employee WHERE manager_user_id=? AND entity_id=? AND active=1`, [viewer.id,companyId]);
+      const managed = await one<{n:number}>(`SELECT COUNT(*) AS n FROM oa_entity_employee WHERE manager_user_id=? AND entity_id=? AND active=1`, [viewer.id,companyId]);
       return ok({ viewer, admin, isManager: Number(managed?.n ?? 0) > 0, employee, leaveSummary: await leaveSummary(viewer.id,companyId), medicalInsuranceSummary: await medicalInsuranceSummary(viewer.id,undefined,companyId), settings: s, currencies: COMMON_CURRENCIES, expenseCategories: await activeExpenseCategories(companyId) });
     }
 
