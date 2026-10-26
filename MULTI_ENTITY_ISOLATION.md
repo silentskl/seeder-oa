@@ -137,6 +137,17 @@ The deployment script verifies the expected Cloudflare account/Worker/D1 binding
 
 **Production release is a code/schema upgrade only, not authorization to enable multiple operating entities.** Keep the multi-Entity business feature disabled until a separate staging environment passes the authenticated two-company tests (`scripts/test-phase4-http.mjs`), offline exported D1 checks (`scripts/verify-phase4-db.py`), historical OA smoke tests and rollback rehearsal. Always retain the D1 export and verify migration results before switching on the feature flag.
 
+## Employees: add existing users and invite new accounts (2026-10-26)
+
+The Employees tab now includes `Add existing user`, `Generate invitation link`, and `Send email invitation`. These operations are available only to administrators of the currently selected Entity (or platform owners with appropriate role) and require `OA_MULTI_ENTITY_BUSINESS_ENABLED=true`.
+
+- **Existing user:** look up a Seeder account by its exact email, add active `oa_entity_member` membership only in the selected Entity, then sync that employee's per-company HR profile. Other companies and salary data are not changed.
+- **New user:** create an invitation for the target email + role in `oa_entity_invitation` (migration `9018_entity_invitations.sql`). The server stores a SHA-256 digest of a random 256-bit token, not the raw token. Invitations expire in 7 days and are single-use.
+- **Invitation landing page:** `/oa-invite?token=...`. Invitees can create an account or sign into an existing account. Redemption requires an authenticated account matching the invited email. Membership assignment and one-time token consumption run together through Cloudflare D1 batch.
+- **Delivery:** admins can copy an invitation link or use the current Entity's configured Resend sender. If email delivery fails, the link remains available to copy manually; no sender secrets are returned.
+- **Audit and operations:** creation/acceptance/revocation are Entity-scoped and logged. Direct role assignments continue to be gated by company-admin permissions.
+- **Deployment:** migration 9018, `/api/oa/invitations`, invite landing page and the new UI component are required in the source parity/predeployment checks. A local TypeScript/build verification and multi-Entity staging acceptance are still mandatory before considering the overall system fully security-certified.
+
 ## Non-negotiable invariants
 1. Existing smarten-oa D1 data remains owned by one legacy entity; no destructive resets.
 2. Every business request resolves an authenticated entity membership on the server; client-provided entity_id is never authorization.
