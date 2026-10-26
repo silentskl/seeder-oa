@@ -85,16 +85,54 @@ if ! cmp -s "$OVERLAY_CONSOLE" "$APP_CONSOLE"; then
   echo "Run: bash \"$ROOT/apply-to-existing.sh\" \"$APP\" (or OA_SKIP_DEPLOY=1 first)." >&2
   exit 1
 fi
+# Detect stale high-risk source files, not just the OA console.
+# A partial overlay can leave old unsecured endpoints in production.
+CRITICAL_OA_FILES=(
+  "app/api/oa/route.ts"
+  "app/api/oa/entities/route.ts"
+  "app/api/oa/files/[id]/route.ts"
+  "app/api/oa/payslips/[id]/pdf/route.ts"
+  "components/oa/oa-console.tsx"
+  "lib/oa/entity.ts"
+  "lib/oa/approval.ts"
+  "lib/oa/db.ts"
+  "lib/oa/email.ts"
+  "lib/oa/leave.ts"
+  "lib/oa/env.ts"
+)
+for relative in "${CRITICAL_OA_FILES[@]}"; do
+  source="$ROOT/overlay/$relative"
+  target="$APP/$relative"
+  [[ -f "$source" && -f "$target" ]] || { echo "ERROR: missing reviewed OA code: $relative. Run apply-to-existing.sh." >&2; exit 1; }
+  cmp -s "$source" "$target" || { echo "ERROR: stale OA code: $relative. Run apply-to-existing.sh before deploying." >&2; exit 1; }
+done
+echo "[DEPLOY] Verified reviewed Phase 2B–4 OA source files."
+
 if ! grep -q 'Current claim · Expense items' "$APP_CONSOLE" || ! grep -q 'Claim history (' "$APP_CONSOLE"; then
   echo "ERROR: OA console does not contain the claim-workspace UI. Update the overlay checkout first." >&2
   exit 1
 fi
 printf '[DEPLOY] Verified OA frontend source SHA256: '
-shasum -a 256 "$APP_CONSOLE" | awk '{print $1}'
+sha256sum "$APP_CONSOLE" | awk '{print $1}'
 echo "[DEPLOY] Checking Phase 2B entity isolation source invariants..."
 node "$ROOT/scripts/check-phase2b-isolation.mjs" "$APP"
 echo "[DEPLOY] Checking Phase 3/4 company controls and direct-download isolation..."
 node "$ROOT/scripts/check-phase34-release.mjs" "$APP"
+# Do not enable unverified multi-company business access on production.
+# An existing Worker environment secret/variable must also be reviewed manually;
+# this check protects the tracked deployment config and current shell.
+if [[ "${OA_MULTI_ENTITY_BUSINESS_ENABLED:-}" == "true" ]]; then
+  echo "ERROR: multi-Entity activation is blocked until staging authorization and migration tests pass." >&2
+  exit 1
+fi
+node - <<'NODE'
+const fs=require('fs'),ts=require('typescript');
+const parsed=ts.parseConfigFileTextToJson('wrangler.jsonc',fs.readFileSync('wrangler.jsonc','utf8'));
+if(parsed.error)process.exit(1);
+const cfg=parsed.config;
+const enabled=String(cfg?.vars?.OA_MULTI_ENTITY_BUSINESS_ENABLED ?? '').toLowerCase()==='true';
+if(enabled){console.error('ERROR: production configuration attempts to enable unverified multi-Entity access');process.exit(1)}
+NODE
 echo "[DEPLOY] Validating Cloudflare account and production D1 access..."
 # Explicit account selection prevents Wrangler from using a stale or unrelated account.
 EXPECTED_ACCOUNT="171a0b87cb7aa3df044f301599d7d86e"
@@ -126,9 +164,9 @@ fi
 PENDING="$(npx wrangler d1 migrations list PM_DB --remote 2>&1)" || { echo "$PENDING" >&2; exit 1; }
 echo "$PENDING"
 # Whitelist only migrations reviewed for this production upgrade.
-MIGRATIONS="$(printf '%s\n' "$PENDING" | grep -Eo '[0-9]{4}_[[:alnum:]_-]+\\.sql' | sort -u || true)"
+MIGRATIONS="$(printf '%s\n' "$PENDING" | grep -Eo '[0-9]{4}_[[:alnum:]_-]+\.sql' | sort -u || true)"
 if [[ -n "$MIGRATIONS" ]]; then
-  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles|9014_email_log_company|9015_entity_leave_types|9016_entity_medical_allowance|9017_entity_database_guards)\\.sql$' || true)"
+  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles|9014_email_log_company|9015_entity_leave_types|9016_entity_medical_allowance|9017_entity_database_guards)\.sql$' || true)"
   if [[ -n "$UNKNOWN" ]]; then
     echo "ERROR: unexpected pending migrations: $UNKNOWN" >&2
     exit 1
@@ -148,7 +186,7 @@ if [[ -n "$MIGRATIONS" ]]; then
   echo "[DEPLOY] Re-checking remaining migrations..."
   AFTER="$(npx wrangler d1 migrations list PM_DB --remote 2>&1)" || { echo "$AFTER" >&2; exit 1; }
   echo "$AFTER"
-  if printf '%s\n' "$AFTER" | grep -Eq '[0-9]{4}_[[:alnum:]_-]+\\.sql'; then
+  if printf '%s\n' "$AFTER" | grep -Eq '[0-9]{4}_[[:alnum:]_-]+\.sql'; then
     echo "ERROR: unapplied migration remains; deployment aborted." >&2; exit 1
   fi
 else
