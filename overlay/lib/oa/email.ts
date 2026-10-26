@@ -77,8 +77,8 @@ export async function emailSettings(companyId = LEGACY_ENTITY_ID) {
   );
 }
 
-export async function publicEmailSettings() {
-  const s = await emailSettings();
+export async function publicEmailSettings(companyId = LEGACY_ENTITY_ID) {
+  const s = await emailSettings(companyId);
   return {
     email_enabled: Number(s?.email_enabled ?? 0),
     email_provider: s?.email_provider ?? "resend",
@@ -243,7 +243,7 @@ export async function notifySubmitted(entityType: ApprovalEntity, entityId: stri
       html: wrapHtml(s.company_name, `Approval required: ${ctx.label}`, `<p><strong>${escapeHtml(ctx.requester.name || ctx.requester.email)}</strong> submitted a request requiring your approval.</p><p>${ctx.summaryHtml}</p>`, appLink(entityType, true), "Review approval"),
       eventKey: `${eventBase}:approver`, entityType, entityId,
     });
-    await uniqueSend(inputs);
+    await uniqueSend(inputs.map(input=>({...input,companyId})));
   } catch (error) {
     console.error("OA submission notification failed", error);
   }
@@ -274,7 +274,7 @@ export async function notifyDecision(entityType: ApprovalEntity, entityId: strin
         eventKey: `${eventBase}:actor`, entityType, entityId,
       },
     ];
-    await uniqueSend(inputs);
+    await uniqueSend(inputs.map(input=>({...input,companyId})));
 
     if (decision === "approved" && !complete) {
       const next = await getPendingStep(entityType, entityId,companyId);
@@ -286,15 +286,15 @@ export async function notifyDecision(entityType: ApprovalEntity, entityId: strin
         html: wrapHtml(s.company_name, `Approval required: ${ctx.label}`, `<p><strong>${escapeHtml(ctx.requester.name || ctx.requester.email)}</strong>'s request is now waiting for your approval.</p><p>${ctx.summaryHtml}</p>`, appLink(entityType, true), "Review approval"),
         eventKey: `${eventBase}:next`, entityType, entityId,
       }));
-      await uniqueSend(nextInputs);
+      await uniqueSend(nextInputs.map(input=>({...input,companyId})));
     }
   } catch (error) {
     console.error("OA decision notification failed", error);
   }
 }
 
-export async function sendTestEmail(toEmail: string, actor: UserRef) {
-  const s = await emailSettings();
+export async function sendTestEmail(toEmail: string, actor: UserRef,companyId = LEGACY_ENTITY_ID) {
+  const s = await emailSettings(companyId);
   if (!s) throw new Error("OA settings not found");
   const to = { id: toEmail.trim().toLowerCase() === actor.email.trim().toLowerCase() ? actor.id : "", name: actor.name, email: toEmail };
   return sendOne({
@@ -303,6 +303,7 @@ export async function sendTestEmail(toEmail: string, actor: UserRef) {
     text: `This is a test email from ${s.company_name} OA. If you received it, the email configuration is working.`,
     html: wrapHtml(s.company_name, "OA email test", `<p>This is a test email from <strong>${escapeHtml(s.company_name)}</strong> OA.</p><p>If you received it, the email configuration is working.</p>`),
     eventKey: `test:${crypto.randomUUID()}`,
+    companyId,
     entityType: "test",
     entityId: null,
     strict: true,
