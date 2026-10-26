@@ -116,6 +116,27 @@ The Phase 2B implementation now has entity-aware business API paths, using `reso
 
 **Current state:** Phase 3 code implemented; Phase 4 audit found and fixed a PDF authorization gap, and automated test scripts/deploy checks exist. Real staging tests, CI build and production migration/deployment have **not** been executed or verified here. `OA_MULTI_ENTITY_BUSINESS_ENABLED` must stay unset/false in production.
 
+## Upgrade and deployment entrypoint (Phase 3/4)
+
+From the checked-out `silentskl/seeder-oa` overlay repository:
+
+```bash
+git pull origin main
+bash scripts/update-multi-entity.sh --check ./seeder-oa-app
+```
+
+This updates the local Seeder checkout using `apply-to-existing.sh` with `OA_SKIP_DEPLOY=1`, validates Phase 2B/3/4 source permissions, runs local SQLite migration fixtures and builds the actual Next.js app. **No Cloudflare database or Worker is changed in check mode.** Fix any failed checks before deployment.
+
+To publish the guarded upgrade **without activating second-company business access**:
+
+```bash
+bash scripts/update-multi-entity.sh --deploy ./seeder-oa-app
+```
+
+The deployment script verifies the expected Cloudflare account/Worker/D1 binding, synchronizes reviewed migrations 9007–9017, exports D1 before applying pending migrations, checks installed Entity schemas/triggers and employee mapping, then builds/publishes the Worker. It refuses an `OA_MULTI_ENTITY_BUSINESS_ENABLED=true` setting in the local production config or shell. Existing Cloudflare Worker variables/secrets must be reviewed separately because locally inspecting `wrangler.jsonc` cannot prove their remote values.
+
+**Production release is a code/schema upgrade only, not authorization to enable multiple operating entities.** Keep the multi-Entity business feature disabled until a separate staging environment passes the authenticated two-company tests (`scripts/test-phase4-http.mjs`), offline exported D1 checks (`scripts/verify-phase4-db.py`), historical OA smoke tests and rollback rehearsal. Always retain the D1 export and verify migration results before switching on the feature flag.
+
 ## Non-negotiable invariants
 1. Existing smarten-oa D1 data remains owned by one legacy entity; no destructive resets.
 2. Every business request resolves an authenticated entity membership on the server; client-provided entity_id is never authorization.
