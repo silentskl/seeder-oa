@@ -3,6 +3,7 @@ import { getOaEnv } from "./env";
 import type { ApprovalEntity, ApprovalStep } from "./approval";
 import { getPendingStep } from "./approval";
 import { formatMoney } from "./money";
+import { LEGACY_ENTITY_ID } from "./entity";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -27,6 +28,7 @@ type MailInput = {
   entityType?: ApprovalEntity | "test" | "password_reset";
   ignoreEnabled?: boolean;
   entityId?: string | null;
+  companyId?: string;
   strict?: boolean;
 };
 
@@ -67,10 +69,11 @@ export async function decryptEmailSecret(value: string | null | undefined) {
   return decoder.decode(plain);
 }
 
-export async function emailSettings() {
+export async function emailSettings(companyId = LEGACY_ENTITY_ID) {
   return one<EmailSettings>(
     `SELECT company_name,email_enabled,email_provider,email_from_name,email_from_address,email_reply_to,email_api_key_encrypted
-     FROM oa_settings WHERE id=1`,
+     FROM oa_entity_settings WHERE entity_id=?`,
+    [companyId],
   );
 }
 
@@ -98,14 +101,14 @@ function escapeHtml(value: unknown) {
 
 async function logEmail(input: MailInput, status: "sent" | "failed" | "skipped", provider: string, providerMessageId?: string | null, error?: string | null) {
   await run(
-    `INSERT INTO oa_email_log(id,event_key,entity_type,entity_id,recipient_email,recipient_user_id,subject,provider,provider_message_id,status,error)
-     VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-    [crypto.randomUUID(), input.eventKey, input.entityType ?? null, input.entityId ?? null, input.to.email, input.to.id || null, input.subject, provider, providerMessageId ?? null, status, error?.slice(0, 2000) ?? null],
+    `INSERT INTO oa_email_log(id,event_key,entity_type,entity_id,recipient_email,recipient_user_id,subject,provider,provider_message_id,status,error,company_entity_id)
+     VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [crypto.randomUUID(), input.eventKey, input.entityType ?? null, input.entityId ?? null, input.to.email, input.to.id || null, input.subject, provider, providerMessageId ?? null, status, error?.slice(0, 2000) ?? null,input.companyId||LEGACY_ENTITY_ID],
   );
 }
 
 async function sendOne(input: MailInput) {
-  const s = await emailSettings();
+  const s = await emailSettings(input.companyId||LEGACY_ENTITY_ID);
   if (!s) {
     const message = "OA email settings are not initialized";
     if (input.strict) throw new Error(message);
@@ -154,12 +157,12 @@ async function sendOne(input: MailInput) {
   }
 }
 
-async function requestContext(entityType: ApprovalEntity, entityId: string) {
+async function requestContext(entityType: ApprovalEntity, entityId: string, companyId = LEGACY_ENTITY_ID) {
   if (entityType === "leave") {
     const row = await one<any>(
       `SELECT l.id,l.user_id,l.start_date,l.end_date,l.business_days,l.reason,l.status,u.name,u.email,t.name AS type_name
-       FROM oa_leave_request l JOIN user u ON u.id=l.user_id JOIN oa_leave_type t ON t.code=l.leave_type_code WHERE l.id=?`,
-      [entityId],
+       FROM oa_leave_request l JOIN user u ON u.id=l.user_id JOIN oa_leave_type t ON t.code=l.leave_type_code WHERE l.id=? AND l.entity_id=?`,
+      [entityId,companyId],
     );
     if (!row) throw new Error("Leave request not found for email notification");
     return {
@@ -172,8 +175,8 @@ async function requestContext(entityType: ApprovalEntity, entityId: string) {
   }
   const row = await one<any>(
     `SELECT x.id,x.user_id,x.expense_date,x.description,x.original_amount_minor,x.original_currency,x.reimbursement_amount_minor,x.reimbursement_currency,x.status,u.name,u.email
-     FROM oa_expense_claim x JOIN user u ON u.id=x.user_id WHERE x.id=?`,
-    [entityId],
+     FROM oa_expense_claim x JOIN user u ON u.id=x.user_id WHERE x.id=? AND x.entity_id=?`,
+    [entityId,companyId],
   );
   if (!row) throw new Error("Expense claim not found for email notification");
   return {
@@ -185,7 +188,7 @@ async function requestContext(entityType: ApprovalEntity, entityId: string) {
   };
 }
 
-async function usersForStep(step: ApprovalStep | null): Promise<UserRef[]> {
+async function usersForStep(step: ApprovalStep | null, companyId = LEGACY_ENTITY_ID): Promise<UserRef[]> {
   if (!step) return [];
   if (step.approver_type === "manager" && step.assigned_user_id) {
     const user = await one<UserRef>(`SELECT id,name,email FROM user WHERE id=?`, [step.assigned_user_id]);
@@ -217,13 +220,13 @@ async function uniqueSend(inputs: MailInput[]) {
   }
 }
 
-export async function notifySubmitted(entityType: ApprovalEntity, entityId: string) {
+export async function notifySubmitted(entityType: ApprovalEntity, entityId: string, companyId = LEGACY_ENTITY_ID) {
   try {
-    const s = await emailSettings();
+    const s = await emailSettings(companyId);
     if (!s?.email_enabled) return;
-    const ctx = await requestContext(entityType, entityId);
-    const step = await getPendingStep(entityType, entityId);
-    const approvers = await usersForStep(step);
+    const ctx = await requestContext(entityType, entityId,companyId);
+    const step = await getPendingStep(entityType, entityId,companyId);
+    const approvers = await usersForStep(step,companyId);
     const eventBase = `${entityType}:${entityId}:submitted`;
     const inputs: MailInput[] = [{
       to: ctx.requester,
@@ -245,11 +248,11 @@ export async function notifySubmitted(entityType: ApprovalEntity, entityId: stri
   }
 }
 
-export async function notifyDecision(entityType: ApprovalEntity, entityId: string, actorUserId: string, decision: "approved" | "rejected", complete: boolean) {
+export async function notifyDecision(entityType: ApprovalEntity, entityId: string, actorUserId: string, decision: "approved" | "rejected", complete: boolean, companyId = LEGACY_ENTITY_ID) {
   try {
-    const s = await emailSettings();
+    const s = await emailSettings(companyId);
     if (!s?.email_enabled) return;
-    const ctx = await requestContext(entityType, entityId);
+    const ctx = await requestContext(entityType, entityId,companyId);
     const actor = await one<UserRef>(`SELECT id,name,email FROM user WHERE id=?`, [actorUserId]);
     if (!actor?.email) return;
     const state = decision === "rejected" ? "Rejected" : complete ? "Approved" : "Approval step completed";
@@ -273,8 +276,8 @@ export async function notifyDecision(entityType: ApprovalEntity, entityId: strin
     await uniqueSend(inputs);
 
     if (decision === "approved" && !complete) {
-      const next = await getPendingStep(entityType, entityId);
-      const nextApprovers = await usersForStep(next);
+      const next = await getPendingStep(entityType, entityId,companyId);
+      const nextApprovers = await usersForStep(next,companyId);
       const nextInputs = nextApprovers.map((to) => ({
         to,
         subject: `[${s.company_name}] Approval required: ${ctx.label}`,
