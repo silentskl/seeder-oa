@@ -128,7 +128,7 @@ echo "$PENDING"
 # Whitelist only migrations reviewed for this production upgrade.
 MIGRATIONS="$(printf '%s\n' "$PENDING" | grep -Eo '[0-9]{4}_[[:alnum:]_-]+\\.sql' | sort -u || true)"
 if [[ -n "$MIGRATIONS" ]]; then
-  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles|9014_email_log_company|9015_entity_leave_types|9016_entity_medical_allowance)\\.sql$' || true)"
+  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles|9014_email_log_company|9015_entity_leave_types|9016_entity_medical_allowance|9017_entity_database_guards)\\.sql$' || true)"
   if [[ -n "$UNKNOWN" ]]; then
     echo "ERROR: unexpected pending migrations: $UNKNOWN" >&2
     exit 1
@@ -206,6 +206,13 @@ MEDICAL_SCOPE_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT 
 echo "$MEDICAL_SCOPE_CHECK"
 if ! printf '%s\n' "$MEDICAL_SCOPE_CHECK" | grep -Eq '(^|[[:space:]│])2([[:space:]│]|$)'; then
   echo "ERROR: entity-scoped medical allowance triggers missing; refusing deployment." >&2
+  exit 1
+fi
+# Phase 4 DB triggers defend against forged cross-Entity record/file references.
+DB_GUARD_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM sqlite_master WHERE type='trigger' AND name IN ('oa_entity_keep_last_admin_update','oa_entity_keep_last_admin_delete','oa_claim_item_company_insert','oa_claim_item_company_update','oa_expense_document_company_insert','oa_expense_document_company_update','oa_leave_attachment_company_insert','oa_leave_attachment_company_update','oa_claim_receipt_company_insert','oa_claim_receipt_company_update','oa_payslip_attachment_company_insert','oa_payslip_attachment_company_update','oa_approval_company_insert','oa_approval_company_update');" 2>&1)" || { echo "$DB_GUARD_CHECK" >&2; exit 1; }
+echo "$DB_GUARD_CHECK"
+if ! printf '%s\n' "$DB_GUARD_CHECK" | grep -Eq '(^|[[:space:]│])14([[:space:]│]|$)'; then
+  echo "ERROR: entity database security guards are incomplete; refusing deployment." >&2
   exit 1
 fi
 # Verify the schema actually exists, even when Wrangler's migration ledger is out of sync.
