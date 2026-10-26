@@ -228,6 +228,7 @@ export async function GET(request: NextRequest) {
     const companyId=access.entityId,companySql=entitySqlLiteral(companyId);
     const admin = access.role==="admin";
     const resource = request.nextUrl.searchParams.get("resource") || "bootstrap";
+    if (companyId===LEGACY_ENTITY_ID && ["approvals","expenseHistory","admin-payslips","employees"].includes(resource)) return fail("Legacy records require ownership verification",423);
     await ensureEmployee(viewer.id,companyId);
 
     if (resource === "bootstrap") {
