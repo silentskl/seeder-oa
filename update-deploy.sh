@@ -160,39 +160,39 @@ fi
 # Check all eight Phase-2A tables, not just expense claims.
 OWNERSHIP_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT (SELECT COUNT(*) FROM pragma_table_info('oa_employee') WHERE name='entity_id')+(SELECT COUNT(*) FROM pragma_table_info('oa_leave_request') WHERE name='entity_id')+(SELECT COUNT(*) FROM pragma_table_info('oa_expense_claim') WHERE name='entity_id')+(SELECT COUNT(*) FROM pragma_table_info('oa_payslip') WHERE name='entity_id')+(SELECT COUNT(*) FROM pragma_table_info('oa_file') WHERE name='entity_id')+(SELECT COUNT(*) FROM pragma_table_info('oa_approval_step') WHERE name='company_entity_id')+(SELECT COUNT(*) FROM pragma_table_info('oa_audit_log') WHERE name='company_entity_id')+(SELECT COUNT(*) FROM pragma_table_info('oa_expense_item') WHERE name='entity_id') AS n;" 2>&1)" || { echo "$OWNERSHIP_CHECK" >&2; exit 1; }
 echo "$OWNERSHIP_CHECK"
-if ! printf '%s\\n' "$OWNERSHIP_CHECK" | grep -Eq '(^|[[:space:]│])8([[:space:]│]|$)'; then
+if ! printf '%s\n' "$OWNERSHIP_CHECK" | grep -Eq '(^|[[:space:]│])8([[:space:]│]|$)'; then
   echo "ERROR: Phase 2A ownership columns missing; refusing deployment." >&2
   exit 1
 fi
 # Phase 2B staging namespaces must exist before any related code is published.
 ENTITY_CONFIG_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='oa_entity_settings')+(SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='oa_entity_expense_category')+(SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='oa_entity_holiday') AS n;" 2>&1)" || { echo "$ENTITY_CONFIG_CHECK" >&2; exit 1; }
 echo "$ENTITY_CONFIG_CHECK"
-if ! printf '%s\\n' "$ENTITY_CONFIG_CHECK" | grep -Eq '(^|[[:space:]│])3([[:space:]│]|$)'; then
+if ! printf '%s\n' "$ENTITY_CONFIG_CHECK" | grep -Eq '(^|[[:space:]│])3([[:space:]│]|$)'; then
   echo "ERROR: Phase 2B settings/categories/holiday namespaces missing; refusing deployment." >&2
   exit 1
 fi
 # New per-company employee profile table has composite entity/user identity.
 EMPLOYEE_SCOPE_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='oa_entity_employee';" 2>&1)" || { echo "$EMPLOYEE_SCOPE_CHECK" >&2; exit 1; }
 echo "$EMPLOYEE_SCOPE_CHECK"
-if ! printf '%s\\n' "$EMPLOYEE_SCOPE_CHECK" | grep -Eq '(^|[[:space:]│])1([[:space:]│]|$)'; then
+if ! printf '%s\n' "$EMPLOYEE_SCOPE_CHECK" | grep -Eq '(^|[[:space:]│])1([[:space:]│]|$)'; then
   echo "ERROR: composite employee profile table missing; refusing deployment." >&2
   exit 1
 fi
 EMAIL_SCOPE_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM pragma_table_info('oa_email_log') WHERE name='company_entity_id';" 2>&1)" || { echo "$EMAIL_SCOPE_CHECK" >&2; exit 1; }
 echo "$EMAIL_SCOPE_CHECK"
-if ! printf '%s\\n' "$EMAIL_SCOPE_CHECK" | grep -Eq '(^|[[:space:]│])1([[:space:]│]|$)'; then
+if ! printf '%s\n' "$EMAIL_SCOPE_CHECK" | grep -Eq '(^|[[:space:]│])1([[:space:]│]|$)'; then
   echo "ERROR: email log company ownership missing; refusing deployment." >&2
   exit 1
 fi
 LEAVE_CATALOG_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='oa_entity_leave_type';" 2>&1)" || { echo "$LEAVE_CATALOG_CHECK" >&2; exit 1; }
 echo "$LEAVE_CATALOG_CHECK"
-if ! printf '%s\\n' "$LEAVE_CATALOG_CHECK" | grep -Eq '(^|[[:space:]│])1([[:space:]│]|$)'; then
+if ! printf '%s\n' "$LEAVE_CATALOG_CHECK" | grep -Eq '(^|[[:space:]│])1([[:space:]│]|$)'; then
   echo "ERROR: company leave type table missing; refusing deployment." >&2
   exit 1
 fi
 MEDICAL_SCOPE_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM sqlite_master WHERE type='trigger' AND name IN ('oa_medical_allowance_insert','oa_medical_allowance_update') AND sql LIKE '%entity_id%';" 2>&1)" || { echo "$MEDICAL_SCOPE_CHECK" >&2; exit 1; }
 echo "$MEDICAL_SCOPE_CHECK"
-if ! printf '%s\\n' "$MEDICAL_SCOPE_CHECK" | grep -Eq '(^|[[:space:]│])2([[:space:]│]|$)'; then
+if ! printf '%s\n' "$MEDICAL_SCOPE_CHECK" | grep -Eq '(^|[[:space:]│])2([[:space:]│]|$)'; then
   echo "ERROR: entity-scoped medical allowance triggers missing; refusing deployment." >&2
   exit 1
 fi
