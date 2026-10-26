@@ -425,6 +425,9 @@ export async function POST(request: NextRequest) {
       if (!admin) return fail("Forbidden", 403);
       const userId = text(body.userId, 200); if (!userId) return fail("userId is required");
       await ensureEmployee(userId);
+      // Explicit primary-entity enrollment for an administrator-added employee.
+      await run(`INSERT OR IGNORE INTO oa_entity_member(entity_id,user_id,role)
+                 SELECT ?,id,'employee' FROM user WHERE id=?`,[LEGACY_ENTITY_ID,userId]);
       const payrollCurrency = normalizeCurrency(body.payrollCurrency || "SGD");
       const reimbursementCurrency = normalizeCurrency(body.reimbursementCurrency || payrollCurrency);
       const leaveDays = Number(body.annualLeaveDays);
