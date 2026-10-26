@@ -458,8 +458,64 @@ function Approvals({busy,run}:{busy:boolean;run:any}){
 }
 
 function Employees({boot,busy,run}:{boot:Bootstrap;busy:boolean;run:any}){
-  const [rows,setRows]=useState<any[]>([]); const load=useCallback(()=>api("employees").then(setRows),[]); useEffect(()=>{load();},[load]);
-  return <div className="space-y-4"><div className="flex items-center justify-between"><div><h2 className="font-semibold">Employees</h2><p className="text-sm text-neutral-500">Admin-only HR master data: leave entitlement, annual Medical Insurance allowance, salary, employment and personal details. Employees can view their own data but cannot edit it.</p></div><button disabled={busy} className={secondary} onClick={()=>run(()=>act("syncEmployees"),"Users synced.").then(load).catch(()=>{})}>Sync Seeder users</button></div>{!rows.length?<Empty/>:<div className="space-y-3">{rows.map(r=><EmployeeEditor key={r.id} row={r} employees={rows} base={boot.settings?.base_currency||"SGD"} currencies={boot.currencies} busy={busy} save={(payload:any)=>run(()=>act("updateEmployee",payload),"Employee updated.").then(load)}/>)}</div>}</div>;
+  const [rows,setRows]=useState<any[]>([]);
+  const [inviteEmail,setInviteEmail]=useState("");
+  const [inviteRole,setInviteRole]=useState<"employee"|"manager"|"admin">("employee");
+  const [inviteLink,setInviteLink]=useState("");
+  const [inviteFeedback,setInviteFeedback]=useState("");
+  const [inviteError,setInviteError]=useState("");
+  const [inviteBusy,setInviteBusy]=useState(false);
+  const load=useCallback(()=>api("employees").then(setRows),[]);
+  useEffect(()=>{load().catch(e=>setInviteError(e.message));},[load]);
+  async function enrollExisting(){
+    setInviteBusy(true);setInviteError("");setInviteFeedback("");setInviteLink("");
+    try{
+      await entityRequest("setMember",{entityId:selectedOaEntityId,userEmail:inviteEmail.trim(),role:inviteRole,active:true});
+      await act("syncEmployees");
+      await load();
+      setInviteFeedback("Existing user enrolled in this company.");
+      setInviteEmail("");
+    }catch(e){setInviteError(e instanceof Error?e.message:String(e))}
+    finally{setInviteBusy(false)}
+  }
+  async function invite(sendEmail:boolean){
+    setInviteBusy(true);setInviteError("");setInviteFeedback("");setInviteLink("");
+    try{
+      const res=await fetch("/api/oa/invitations",{method:"POST",headers:{"content-type":"application/json"},
+        body:JSON.stringify({action:"create",entityId:selectedOaEntityId,email:inviteEmail.trim(),role:inviteRole,sendEmail})});
+      const data=await readOaResponse(res);
+      setInviteLink(data.url);
+      setInviteFeedback(data.emailSent?"Invitation sent to "+data.email:
+        data.emailError||"Invitation link created. Copy it and share securely.");
+      setInviteEmail("");
+    }catch(e){setInviteError(e instanceof Error?e.message:String(e))}
+    finally{setInviteBusy(false)}
+  }
+  return <div className="space-y-4">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div><h2 className="font-semibold">Employees</h2><p className="text-sm text-neutral-500">Company-scoped staff records, payroll and leave entitlements. Add an existing account or invite a new user.</p></div>
+      <button disabled={busy||inviteBusy} className={secondary} onClick={()=>run(()=>act("syncEmployees"),"Enrolled users synced.").then(load).catch(()=>{})}>Sync company employees</button>
+    </div>
+    <Card><h3 className="font-semibold">Add employee / Invite employee</h3>
+      <p className="mt-1 text-xs text-neutral-500">Only this company is affected. Existing users can be added directly; new users join using a single-use email invitation.</p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
+        <label className="grid gap-1 text-sm">Employee email<input type="email" className={field} placeholder="employee@company.com" value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} required/></label>
+        <label className="grid gap-1 text-sm">Company role<select className={field} value={inviteRole} onChange={e=>setInviteRole(e.target.value as "employee"|"manager"|"admin")}><option value="employee">Employee</option><option value="manager">Manager</option><option value="admin">Entity Admin</option></select></label>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button type="button" className={secondary} disabled={inviteBusy||busy||!inviteEmail.trim()} onClick={()=>void enrollExisting()}>Add existing user</button>
+        <button type="button" className={secondary} disabled={inviteBusy||busy||!inviteEmail.trim()} onClick={()=>void invite(false)}>Generate invitation link</button>
+        <button type="button" className={primary} disabled={inviteBusy||busy||!inviteEmail.trim()} onClick={()=>void invite(true)}>Send email invitation</button>
+      </div>
+      {inviteError&&<div className="mt-3"><ErrorBox message={inviteError}/></div>}
+      {inviteFeedback&&<p className="mt-3 text-sm text-emerald-700">{inviteFeedback}</p>}
+      {inviteLink&&<div className="mt-3 flex flex-wrap items-center gap-2">
+        <input className={field+" min-w-0 flex-1"} aria-label="Invitation URL" readOnly value={inviteLink}/>
+        <button className={secondary} onClick={()=>void navigator.clipboard.writeText(inviteLink)}>Copy link</button>
+      </div>}
+    </Card>
+    {!rows.length?<Empty/>:<div className="space-y-3">{rows.map(r=><EmployeeEditor key={r.id} row={r} employees={rows} base={boot.settings?.base_currency||"SGD"} currencies={boot.currencies} busy={busy} save={(payload:any)=>run(()=>act("updateEmployee",payload),"Employee updated.").then(load)}/>)}</div>}
+  </div>;
 }
 function EmployeeEditor({row,employees,base,currencies,busy,save}:{row:any;employees:any[];base:string;currencies:string[];busy:boolean;save:(p:any)=>Promise<any>}){
   const [open,setOpen]=useState(false);
