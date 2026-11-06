@@ -1,4 +1,4 @@
-# Seeder OA v0.1.14
+# Seeder OA v0.1.15
 
 ## Production deployment: automatic D1 backup and migrations
 
@@ -27,14 +27,6 @@ Lightweight English OA/HR overlay for Seeder v2.1.0 on Cloudflare Workers + D1 +
 Seeder OA includes self-service password recovery for email/password accounts. The sign-in form exposes **Forgot password?**, `/forgot-password` sends a reset link, and `/reset-password` accepts a new password. Reset tokens expire after 30 minutes, are one-time use, and a successful reset revokes the user’s existing sessions. Requests for unknown email addresses return the same generic response as valid accounts.
 
 Password-recovery mail reuses the existing Resend sender/API key stored under `Admin → Settings → Email delivery`. It remains available even if optional approval email notifications are switched off. A successful reset also sends a best-effort password-changed confirmation email.
-
-## Business travel applications
-
-Employee portal → **Travel** (also linked from Overview). Employee information appears above a unified budget table. An application includes destination, purpose, currency and up to 50 lines: flights with flight number, departure/arrival times and price; hotels with hotel name, check-in/out, computed nights and price; and other budget items with project name, description and amount. Additional lines can be added or removed, and the total budget is shown.
-
-Managers and Entity administrators review these applications on the Approvals page, including the entire budget table. Travel uses the expense approval flow (Manager / Admin / Manager → Admin, falling back to Admin if no active manager exists). Approved travel budgets are not reimbursement claims.
-
-Migration: 9019_business_travel.sql. The production upgrade must back up D1, apply migrations and verify the three travel tables before deployment.
 
 ## Main capabilities
 

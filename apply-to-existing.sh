@@ -28,7 +28,7 @@ python3 "$ROOT/patch-oa-entry.py" "$TARGET"
 python3 "$ROOT/patch-password-reset.py" "$TARGET"
 python3 "$ROOT/patch-oa-invite-auth.py" "$TARGET"
 echo ""
-echo "Seeder OA v0.1.14 overlay applied to: $TARGET"
+echo "Seeder OA v0.1.15 overlay applied to: $TARGET"
 echo "Run: npm run db:migrate:local && npm run dev"
 echo "For email settings on an existing deployment, run: $ROOT/configure-email-secret.sh $TARGET"
 # Run the publishing gate after a successful overlay installation.
