@@ -16,6 +16,7 @@ type Props = {
 const employeeNav = [
   ["/oa", "Overview"],
   ["/oa/leave", "Leave"],
+  ["/oa/travel", "Travel"],
   ["/oa/expenses", "Expenses"],
   ["/oa/payslips", "Payslips"],
 ] as const;
