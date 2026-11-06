@@ -28,6 +28,18 @@ Seeder OA includes self-service password recovery for email/password accounts. T
 
 Password-recovery mail reuses the existing Resend sender/API key stored under `Admin → Settings → Email delivery`. It remains available even if optional approval email notifications are switched off. A successful reset also sends a best-effort password-changed confirmation email.
 
+## Business travel applications
+
+In the employee OA, choose **Travel** or the **New travel application** shortcut on Overview. Employee identity, staff number, department/title and manager appear **above** the request form. Enter travel destination and business purpose, then add budget lines in **one table**:
+
+- Flights: flight number, departure/arrival local date and time, budgeted price.
+- Hotels: hotel name, check-in/out local date and time, number of nights (calculated from dates), budgeted price.
+- Other items: item/project name, description, budgeted amount; add or remove multiple rows.
+
+Choose a single budget currency for each application. The table totals the estimates. Staff can view past requests and cancel pending applications; the same itemized table is visible to approvers in **Approvals**. Travel approval uses the existing Expense approval flow (manager, admin or manager → admin with admin fallback). Approved travel budgets do not create expense claims or alter medical insurance limits.
+
+D1 schema migration: `9019_business_travel.sql` (travel applications, line items and approval steps). Deployments verify all three tables after the verified D1 backup/migration process and before publishing Worker `smarten-oa`.
+
 ## Main capabilities
 
 - Employee self-service: Leave, Expenses, Payslips.
