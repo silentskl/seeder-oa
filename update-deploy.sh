@@ -169,7 +169,7 @@ echo "$PENDING"
 # Whitelist only migrations reviewed for this production upgrade.
 MIGRATIONS="$(printf '%s\n' "$PENDING" | grep -Eo '[0-9]{4}_[[:alnum:]_-]+\.sql' | sort -u || true)"
 if [[ -n "$MIGRATIONS" ]]; then
-  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles|9014_email_log_company|9015_entity_leave_types|9016_entity_medical_allowance|9017_entity_database_guards|9018_entity_invitations)\.sql$' || true)"
+  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles|9014_email_log_company|9015_entity_leave_types|9016_entity_medical_allowance|9017_entity_database_guards|9018_entity_invitations|9019_business_travel)\.sql$' || true)"
   if [[ -n "$UNKNOWN" ]]; then
     echo "ERROR: unexpected pending migrations: $UNKNOWN" >&2
     exit 1
@@ -267,6 +267,13 @@ SCHEMA_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*
 echo "$SCHEMA_CHECK"
 if ! printf '%s\n' "$SCHEMA_CHECK" | grep -Eq '(^|[[:space:]│])1([[:space:]│]|$)'; then
   echo "ERROR: oa_expense_category is missing in production D1; refusing to deploy." >&2
+  exit 1
+fi
+# Migration 9019 is mandatory before this Worker's travel routes are deployed.
+TRAVEL_TABLES="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name IN ('oa_travel_application','oa_travel_budget_item','oa_travel_approval_step');" 2>&1)" || { echo "$TRAVEL_TABLES" >&2; exit 1; }
+echo "$TRAVEL_TABLES"
+if ! printf '%s\n' "$TRAVEL_TABLES" | grep -Eq '(^|[[:space:]│])3([[:space:]│]|$)'; then
+  echo "ERROR: travel migration 9019 is missing or incomplete; refusing deployment." >&2
   exit 1
 fi
 echo "[OA] Checking TypeScript/TSX parser diagnostics before Next.js build..."
