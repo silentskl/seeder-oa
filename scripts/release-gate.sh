@@ -11,9 +11,11 @@ command -v python3 >/dev/null || fail 'Python missing'
 node -e 'if(+process.versions.node.split(".")[0]<22)process.exit(1)' || fail 'Node.js 22+ required'
 python3 "$ROOT/scripts/test-medical-allowance.py" || fail "Medical allowance atomicity tests failed"
 python3 "$ROOT/tests/test_migrations.py" || fail 'SQLite migration tests failed'
+python3 "$ROOT/tests/test_business_travel_migration.py" || fail 'Business travel D1 migration tests failed'
 node "$ROOT/tests/check-ts-syntax.cjs" "$ROOT/overlay" || fail 'TypeScript syntax test failed'
 [[ -f "$APP/package.json" ]] || fail "Full Seeder source unavailable at $APP; full build NOT verified"
 [[ -f "$APP/wrangler.jsonc" ]] || fail 'wrangler.jsonc missing'
+[[ -f "$APP/migrations/9019_business_travel.sql" ]] || fail 'Business travel migration missing from applied overlay'
 [[ -f "$APP/migrations/9008_medical_allowance_atomic.sql" ]] || fail "Medical allowance guard migration missing"
 [[ -f "$APP/migrations/9007_expense_items.sql" ]] || fail 'Overlay not applied: migration missing'
 [[ -d "$APP/node_modules" ]] || { echo 'Installing locked dependencies'; (cd "$APP" && npm ci); }

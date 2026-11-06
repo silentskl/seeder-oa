@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.15
+
+- Employee business travel applications with one budget table for flights, hotels and unlimited additional items (maximum 50 lines per application).
+- Employee details above the form, automatic hotel night counts, selected budget currency and calculated total.
+- Independent D1 travel request, budget item and approval records; never counted as expense reimbursement.
+- Manager/Admin travel approvals and submitted application cancellation, scoped to an active Entity.
+- Reviewed 9019_business_travel.sql migration and deployment preflight for the new tables.
+
+
 ## v0.1.14
 
 - Added `Medical Insurance` Expense category.
