@@ -182,6 +182,7 @@ node "$ROOT/tests/multi-entity-migrations.test.mjs"
 python3 "$ROOT/tests/test_business_travel_migration.py"
 python3 "$ROOT/tests/test_finance_migration.py"
 python3 "$ROOT/tests/test_finance_mail_accounts_migration.py"
+python3 "$ROOT/tests/test_finance_edge_fetch.py"
 echo "[DEPLOY] Synchronizing migrations from reviewed overlay..."
 mkdir -p migrations
 for source in "$ROOT"/overlay/migrations/*.sql; do
