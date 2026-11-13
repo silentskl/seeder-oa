@@ -150,7 +150,20 @@ function alibabaClient(account:MailAccount,token:string):MailClient{
   },
   async download(message,attachment){
    const url=mb+"/messages/"+encodeURIComponent(message.id)+"/attachments/"+encodeURIComponent(attachment.id)+"/$value";
-   const response=await fetchOk(url,{headers:{"Authorization":"Bearer "+token}});
+   // Some Alibaba environments return a signed file-stream URL rather than bytes.
+   // Follow at most one HTTPS redirect to a known Alibaba-owned host, without
+   // forwarding the OAuth Bearer credential to the download host.
+   let response=await fetch(url,{headers:{"Authorization":"Bearer "+token},redirect:"manual",signal:AbortSignal.timeout(20000)});
+   if([301,302,303,307,308].includes(response.status)){
+    const location=response.headers.get("location");
+    if(!location)throw new Error("Alibaba attachment redirect without location");
+    const target=new URL(location,url);
+    const hostname=target.hostname.toLowerCase();
+    if(target.protocol!=="https:"||target.username||target.password||target.port||!(hostname==="aliyuncs.com"||hostname.endsWith(".aliyuncs.com")||hostname==="aliyun.com"||hostname.endsWith(".aliyun.com")))
+     throw new Error("Untrusted Alibaba attachment download host");
+    response=await fetchOk(target.toString(),{});
+   }
+   if(!response.ok)throw new Error("Alibaba attachment download HTTP "+response.status);
    const size=Number(response.headers.get("content-length")||0);
    if(size>FINANCE_MAX_FILE)throw new Error("Attachment larger than 12MB");
    const bytes=new Uint8Array(await response.arrayBuffer());
