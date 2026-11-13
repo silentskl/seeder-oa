@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS oa_finance_ai_call_log (
  duration_ms INTEGER,
  input_tokens INTEGER,
  output_tokens INTEGER,
+ reasoning_tokens INTEGER,
  output_chars INTEGER,
  request_id TEXT NOT NULL DEFAULT '',
  error_code TEXT NOT NULL DEFAULT '',
