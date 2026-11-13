@@ -41,7 +41,7 @@ export async function GET(request:NextRequest){
   const view=clean(request.nextUrl.searchParams.get("view"),30);
   if(view==="parties")return ok(await all<any>("SELECT * FROM oa_finance_party WHERE entity_id=? ORDER BY created_at DESC,id DESC LIMIT 300",[entity]));
   if(view==="invoices"){
-   const rows=await all<any>("SELECT i.*,p.company_name AS approved_party_name,p.bank_account AS approved_bank_account,d.original_name AS document_name,a.address AS source_mailbox,a.provider AS source_provider,l.outcome AS last_ai_outcome,l.http_status AS last_ai_http_status,l.response_status AS last_ai_response_status,l.finish_reason AS last_ai_finish_reason,l.output_tokens AS last_ai_output_tokens,l.output_types AS last_ai_output_types,l.request_id AS last_ai_request_id,l.created_at AS last_ai_at FROM oa_finance_invoice i LEFT JOIN oa_finance_party p ON p.entity_id=i.entity_id AND p.root_id=i.party_root_id AND p.status='approved' LEFT JOIN oa_finance_document d ON d.id=i.document_id AND d.entity_id=i.entity_id LEFT JOIN oa_finance_mail_account a ON a.id=i.source_mail_account_id AND a.entity_id=i.entity_id LEFT JOIN oa_finance_ai_call_log l ON l.id=(SELECT d.id FROM oa_finance_ai_call_log d WHERE d.entity_id=i.entity_id AND d.invoice_id=i.id ORDER BY d.created_at DESC,d.id DESC LIMIT 1) WHERE i.entity_id=? ORDER BY i.created_at DESC,i.id DESC LIMIT 300",[entity]);
+   const rows=await all<any>("SELECT i.*,p.company_name AS approved_party_name,p.bank_account AS approved_bank_account,d.original_name AS document_name,a.address AS source_mailbox,a.provider AS source_provider,l.outcome AS last_ai_outcome,l.http_status AS last_ai_http_status,l.response_status AS last_ai_response_status,l.finish_reason AS last_ai_finish_reason,l.output_tokens AS last_ai_output_tokens,l.reasoning_tokens AS last_ai_reasoning_tokens,l.output_types AS last_ai_output_types,l.request_id AS last_ai_request_id,l.created_at AS last_ai_at FROM oa_finance_invoice i LEFT JOIN oa_finance_party p ON p.entity_id=i.entity_id AND p.root_id=i.party_root_id AND p.status='approved' LEFT JOIN oa_finance_document d ON d.id=i.document_id AND d.entity_id=i.entity_id LEFT JOIN oa_finance_mail_account a ON a.id=i.source_mail_account_id AND a.entity_id=i.entity_id LEFT JOIN oa_finance_ai_call_log l ON l.id=(SELECT d.id FROM oa_finance_ai_call_log d WHERE d.entity_id=i.entity_id AND d.invoice_id=i.id ORDER BY d.created_at DESC,d.id DESC LIMIT 1) WHERE i.entity_id=? ORDER BY i.created_at DESC,i.id DESC LIMIT 300",[entity]);
    return ok(rows.map(i=>{const expected=normalizedBank(i.approved_bank_account),received=normalizedBank(i.invoice_bank_account);return {...i,bank_check:!i.approved_bank_account?"unverified":!expected||!received?"missing":expected===received?"match":"mismatch",approved_bank_account:undefined};}));
   }
   if(view==="settlements")return ok(await all<any>("SELECT s.*,i.invoice_number,i.direction,i.currency,i.amount_minor,i.counterparty_name,d.original_name AS proof_name FROM oa_finance_settlement s JOIN oa_finance_invoice i ON i.id=s.invoice_id AND i.entity_id=s.entity_id JOIN oa_finance_document d ON d.id=s.document_id AND d.entity_id=s.entity_id WHERE s.entity_id=? ORDER BY s.submitted_at DESC,s.id DESC LIMIT 300",[entity]));
@@ -125,7 +125,7 @@ export async function POST(request:NextRequest){
   }
   if(action==="invoice_reextract"){
    const id=clean(body.id,80);
-   if(!await runtimeFinanceAiSettings(entity))throw new Error("Enable and configure company invoice AI before re-extraction");
+
    const invoice=await one<any>(
     "SELECT i.id,i.sender_email,d.r2_key,d.original_name,d.content_type FROM oa_finance_invoice i JOIN oa_finance_document d ON d.id=i.document_id AND d.entity_id=i.entity_id WHERE i.id=? AND i.entity_id=? AND i.status='needs_review'",
     [id,entity]);
@@ -133,6 +133,7 @@ export async function POST(request:NextRequest){
    const object=await getOaEnv().uploads.get(invoice.r2_key);
    if(!object)throw new Error("Invoice document not found in private storage");
    try{
+    if(!await runtimeFinanceAiSettings(entity))throw new Error("Enable and configure company invoice AI before re-extraction");
     const parsed=await extractInvoice({entityId:entity,bytes:new Uint8Array(await object.arrayBuffer()),
      type:invoice.content_type,name:invoice.original_name,subject:"",body:"",sender:invoice.sender_email,
      invoiceId:id,throwOnAiFailure:true});
