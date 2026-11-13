@@ -105,6 +105,7 @@ CRITICAL_OA_FILES=(
   "lib/oa/finance.ts"
   "components/oa/finance-console.tsx"
   "components/oa/oa-shell.tsx"
+  "app/(oa)/layout.tsx"
   "app/api/oa/finance/route.ts"
   "app/api/oa/finance/mail-accounts/route.ts"
   "app/api/oa/finance/sync-job/route.ts"
