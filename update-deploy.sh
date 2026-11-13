@@ -314,9 +314,9 @@ if ! printf '%s\n' "$MAIL_TABLES" | grep -Eq '(^|[[:space:]│])2([[:space:]│]
   echo "ERROR: migration 9021 finance mailbox tables missing; refusing deployment." >&2
   exit 1
 fi
-MAIL_SCOPE="$(npx wrangler d1 execute PM_DB --remote --command="SELECT (SELECT COUNT(*) FROM pragma_table_info('oa_finance_invoice') WHERE name='source_mail_account_id')+(SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN ('oa_finance_mail_sync_log_company_insert','oa_finance_invoice_mail_company_insert','oa_finance_invoice_mail_company_update')) AS n;" 2>&1)" || { echo "$MAIL_SCOPE" >&2; exit 1; }
+MAIL_SCOPE="$(npx wrangler d1 execute PM_DB --remote --command="SELECT (SELECT COUNT(*) FROM pragma_table_info('oa_finance_invoice') WHERE name='source_mail_account_id')+(SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN ('oa_finance_mail_sync_log_company_insert','oa_finance_mail_sync_log_company_update','oa_finance_mail_account_ownership_update','oa_finance_invoice_mail_company_insert','oa_finance_invoice_mail_company_update')) AS n;" 2>&1)" || { echo "$MAIL_SCOPE" >&2; exit 1; }
 echo "$MAIL_SCOPE"
-if ! printf '%s\n' "$MAIL_SCOPE" | grep -Eq '(^|[[:space:]│])4([[:space:]│]|$)'; then
+if ! printf '%s\n' "$MAIL_SCOPE" | grep -Eq '(^|[[:space:]│])6([[:space:]│]|$)'; then
   echo "ERROR: finance mailbox provenance or tenant guards missing; refusing deployment." >&2
   exit 1
 fi
