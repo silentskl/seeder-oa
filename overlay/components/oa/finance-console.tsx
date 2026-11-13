@@ -1,5 +1,6 @@
 "use client";
 import {FormEvent,useCallback,useEffect,useState} from "react";
+import {MailAccountsPanel} from "./finance-mail-accounts";
 
 type Row=Record<string,any>;
 type Section="parties"|"ledger";
@@ -142,8 +143,10 @@ export function FinanceConsole({section}:{section:Section}){
      </tr>)}</tbody></table></div>
    </section>
   </>:<>
-   <section className={card}>
-    <h2 className="font-semibold">Invoice mailbox & automatic extraction</h2>
+   <MailAccountsPanel entityId={entity}/>
+   <details className={card}><summary className="cursor-pointer font-semibold">Legacy Resend forwarding (optional)</summary>
+   <section className="mt-3">
+    <h2 className="text-sm font-semibold">Resend mailbox configuration</h2>
     <p className="mb-3 mt-1 text-xs text-neutral-500">Route payable@your-domain to Resend Inbound, or forward it to a Resend-provided receiving address. Configure that actual destination below and subscribe to email.received. The webhook must point to /api/oa/finance/inbound. Email attachment imports always require financial review.</p>
     <form className="flex flex-wrap items-end gap-2" onSubmit={e=>{e.preventDefault();void run(()=>request(entity,"set_mailbox",{address:mailbox,receive_address:receiveAddress}),"Finance mailbox saved.");}}>
      <div className="min-w-64 flex-1"><Field label="Incoming invoice mailbox" name="mailbox" value={mailbox} type="email" required onChange={setMailbox}/></div>
@@ -151,7 +154,7 @@ export function FinanceConsole({section}:{section:Section}){
      <button className={btn} disabled={busy}>Save mailbox</button>
     </form>
     <p className="mt-3 text-xs text-neutral-500">Resend inbound: {config.resendConfigured?"configured":"not configured"} · AI PDF/image extraction: {config.aiConfigured?"configured":"not configured (manual review)"}</p>
-   </section>
+   </section></details>
    <section className={card}><h2 className="mb-3 font-semibold">Import an invoice manually</h2>
     <form className="flex flex-wrap items-center gap-2" onSubmit={e=>{e.preventDefault();const fd=new FormData(e.currentTarget),file=fd.get("file");
      if(!(file instanceof File)||!file.size)return;
