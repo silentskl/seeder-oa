@@ -58,6 +58,7 @@ export function FinanceConsole({section}:{section:Section}){
  const [party,setParty]=useState<Row>({...emptyParty}),[review,setReview]=useState<Row>({...emptyReview});
  const [mailbox,setMailbox]=useState(""),[receiveAddress,setReceiveAddress]=useState(""),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true);
  const [error,setError]=useState(""),[notice,setNotice]=useState("");
+ const [directionFilter,setDirectionFilter]=useState("all");
  const load=useCallback(async(id:string)=>{
   const [p,i,s,c]=await Promise.all([fetchView(id,"parties"),fetchView(id,"invoices"),fetchView(id,"settlements"),fetchView(id,"config")]);
   setParties(p);setInvoices(i);setSettlements(s);setConfig(c);setMailbox(c.mailbox||"");setReceiveAddress(c.receiveAddress||c.mailbox||"");
@@ -160,9 +161,9 @@ export function FinanceConsole({section}:{section:Section}){
      <button className={btn} disabled={busy}>Upload & extract</button>
     </form>
    </section>
-   <section className={card}><h2 className="mb-3 font-semibold">AR / AP invoices ({invoices.length})</h2>
+   <section className={card}><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h2 className="font-semibold">AR / AP invoices ({invoices.length})</h2><div className="flex gap-2">{[["all","All"],["ar","AR / Receivables"],["ap","AP / Payables"],["unknown","Unclassified"]].map(([v,label])=><button key={v} className={btn+(directionFilter===v?" font-bold underline":"")} onClick={()=>setDirectionFilter(v)}>{label}</button>)}</div></div>
     <div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead><tr className="text-xs text-neutral-500">{["Invoice","Counterparty / Type","Amount / Due","Bank check","Status","Actions"].map(t=><th key={t} className="p-2">{t}</th>)}</tr></thead><tbody>
-     {invoices.map(i=><tr key={i.id} className="border-t align-top dark:border-neutral-800">
+     {invoices.filter(i=>directionFilter==="all"||i.direction===directionFilter).map(i=><tr key={i.id} className="border-t align-top dark:border-neutral-800">
       <td className="p-2"><div className="font-medium">{i.invoice_number||"Unrecognized"}</div><div className="text-xs">{i.invoice_date||"—"}</div><a className="text-xs underline" href={fileUrl(entity,i.document_id)}>Original invoice</a></td>
       <td className="p-2">{i.approved_party_name||i.counterparty_name||"Unmatched"}<div className="text-xs">{String(i.direction).toUpperCase()} · {i.source}</div></td>
       <td className="p-2">{i.amount_minor!=null?amount(i.amount_minor,i.currency):"—"}<div className="text-xs">Due {i.due_date||"—"}</div></td>
