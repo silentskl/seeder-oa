@@ -29,7 +29,7 @@ function validateMailSettings(b:any,previous?:MailAccount){
  if(!Number.isInteger(lookback)||lookback<1||lookback>30)throw new Error("Invalid initial lookback (1 to 30 days)");
  return {address,provider,clientId,tenantId,base,folder,interval,lookback,label:clean(b.display_name??previous?.display_name,100),active:b.active===undefined?Number(previous?.active||0):b.active===true?1:0};
 }
-async function getAuthorized(req:NextRequest,entity:unknown){
+async function getAuthorized(req:NextRequest,entity:unknown):Promise<{error?:NextResponse;viewer?:NonNullable<Awaited<ReturnType<typeof getViewer>>>;entity?:string}>{
  const viewer=await getViewer();
  if(!viewer)return {error:fail("Unauthorized",401)};
  const access=await resolveBusinessEntityAccess(viewer.id,entity);
