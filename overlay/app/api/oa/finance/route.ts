@@ -1,7 +1,8 @@
+import {resolveFinanceEntityAccess} from "@/lib/oa/finance-entity";
 import {NextRequest,NextResponse} from "next/server";
 import {getViewer} from "@/lib/auth-server";
 import {all,audit,one,run} from "@/lib/oa/db";
-import {resolveBusinessEntityAccess,EntityAccessError} from "@/lib/oa/entity";
+import {EntityAccessError} from "@/lib/oa/entity";
 import {bankCheck,clean,createInvoice,extractInvoice,mailAddress,normalizedBank,normalizedName} from "@/lib/oa/finance";
 import {getOaEnv} from "@/lib/oa/env";
 import {majorToMinor,normalizeCurrency} from "@/lib/oa/money";
@@ -26,7 +27,7 @@ function withAccess(e:unknown){
 }
 async function accessFor(req:NextRequest,entity:unknown){
  const viewer=await getViewer();if(!viewer)throw new Error("UNAUTHORIZED");
- const access=await resolveBusinessEntityAccess(viewer.id,entity);
+ const access=await resolveFinanceEntityAccess(viewer.id,entity);
  return {viewer,access,entity:access.entityId};
 }
 export async function GET(request:NextRequest){
