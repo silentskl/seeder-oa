@@ -7,7 +7,7 @@ type AiSettings={
  enabled:boolean;api_key_configured:boolean;legacy_environment_configured:boolean;
  settings_master_key_configured:boolean;updated_at:string|null;
 };
-type AiCall={id:string;operation:string;model:string;protocol:string;outcome:string;http_status:number|null;response_status:string;finish_reason:string;output_types:string;duration_ms:number;input_tokens:number|null;output_tokens:number|null;output_chars:number;request_id:string;error_code:string;created_at:string};
+type AiCall={id:string;operation:string;model:string;protocol:string;outcome:string;http_status:number|null;response_status:string;finish_reason:string;output_types:string;duration_ms:number;input_tokens:number|null;output_tokens:number|null;reasoning_tokens:number|null;output_chars:number;request_id:string;error_code:string;created_at:string};
 const fields="w-full rounded-md border border-neutral-300 bg-white p-2 text-sm dark:border-neutral-700 dark:bg-neutral-950";
 const button="rounded-lg border border-neutral-300 px-3 py-2 text-sm font-medium disabled:opacity-40 dark:border-neutral-700";
 const empty:AiSettings={base_url:"",model_name:"",protocol:"responses",enabled:false,api_key_configured:false,legacy_environment_configured:false,settings_master_key_configured:false,updated_at:null};
@@ -43,7 +43,7 @@ export function FinanceAiPanel({entityId}:{entityId:string}){
   const result=await r.json().catch(()=>null);
   if(!r.ok||!result?.ok){
    const d=result?.diagnostic;
-   throw new Error((result?.error||"Invoice AI request failed")+(d?" · HTTP "+(d.http_status??"—")+" · status "+(d.response_status||d.outcome)+" · output tokens "+(d.output_tokens??"—")+" · "+(d.finish_reason||d.error_code||"")+" · request "+(d.request_id||"—"):""));
+   throw new Error((result?.error||"Invoice AI request failed")+(d?" · HTTP "+(d.http_status??"—")+" · status "+(d.response_status||d.outcome)+" · output tokens "+(d.output_tokens??"—")+" · reasoning "+(d.reasoning_tokens??"—")+" · "+(d.finish_reason||d.error_code||"")+" · request "+(d.request_id||"—"):""));
   }
   return result.data;
  }
@@ -104,7 +104,7 @@ export function FinanceAiPanel({entityId}:{entityId:string}){
      onClick={()=>void perform("testing",async()=>{
       const result=await post("test");
       const d=result.diagnostic;
-      setNotice(result.connected?"Connection OK · "+result.model+" · HTTP "+(d?.http_status??"—")+" · "+(d?.duration_ms??"—")+"ms · output tokens "+(d?.output_tokens??"—"):"Connection test returned no answer");
+      setNotice(result.connected?"Connection OK · "+result.model+" · HTTP "+(d?.http_status??"—")+" · "+(d?.duration_ms??"—")+"ms · output tokens "+(d?.output_tokens??"—")+" (reasoning "+(d?.reasoning_tokens??"—")+")":"Connection test returned no answer");
       const r=await fetch("/api/oa/finance/ai-settings?entity_id="+encodeURIComponent(entityId),{cache:"no-store"});
       const latest=await r.json().catch(()=>null);
       if(r.ok&&latest?.ok)setCalls(latest.data.calls||[]);
@@ -127,7 +127,7 @@ export function FinanceAiPanel({entityId}:{entityId:string}){
      <td className="p-2">{d.operation} · {d.model}<div className="text-neutral-500">{d.protocol} · {d.output_types||"unknown output"}</div></td>
      <td className="p-2">{d.outcome}</td>
      <td className="p-2">{d.http_status??"—"} · {d.response_status||"—"}<div>{d.finish_reason||d.error_code||"—"}</div></td>
-     <td className="p-2">{d.input_tokens??"—"} / {d.output_tokens??"—"}</td>
+     <td className="p-2">{d.input_tokens??"—"} / {d.output_tokens??"—"}<div className="text-neutral-500">Reasoning: {d.reasoning_tokens??"—"}</div></td>
      <td className="p-2">{d.duration_ms} ms</td>
      <td className="p-2">{d.request_id||"—"}</td>
     </tr>)}</tbody>
