@@ -45,6 +45,12 @@ class MailboxMigrationTests(unittest.TestCase):
   with self.assertRaisesRegex(sqlite3.IntegrityError,"company mismatch"):
    self.db.execute("""INSERT INTO oa_finance_invoice(id,entity_id,source,document_id,source_mail_account_id)
     VALUES('inv','company2','email','d2','m1')""")
+ def test_immutable_entity_ownership(self):
+  self.add("m1","company1","payable@one.example","microsoft365")
+  with self.assertRaisesRegex(sqlite3.IntegrityError,"ownership immutable"):
+   self.db.execute("UPDATE oa_finance_mail_account SET entity_id='company2' WHERE id='m1'")
+  with self.assertRaisesRegex(sqlite3.IntegrityError,"ownership immutable"):
+   self.db.execute("UPDATE oa_finance_mail_account SET address='other@one.example' WHERE id='m1'")
  def test_mailbox_validations(self):
   with self.assertRaises(sqlite3.IntegrityError):
    self.add("bad","company1","bad@example.com","other")
