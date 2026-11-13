@@ -6,7 +6,7 @@ export const clean=(v:unknown,max=300)=>String(v??"").trim().slice(0,max);
 export const normalizedName=(v:unknown)=>clean(v,300).normalize("NFKC").toLowerCase().replace(/[^a-z0-9\u00c0-\u024f\u3400-\u9fff]+/g,"");
 export const normalizedBank=(v:unknown)=>clean(v,150).toUpperCase().replace(/[^A-Z0-9]/g,"");
 export const validDate=(v:unknown)=>{const s=clean(v,10);return /^\d{4}-\d{2}-\d{2}$/.test(s)&&!Number.isNaN(Date.parse(s+"T00:00:00Z"))?s:null;};
-export const mailAddress=(v:unknown)=>{const s=clean(v,320).toLowerCase();return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)?s:"";};
+export const mailAddress=(v:unknown)=>{const raw=clean(v,400);const s=(raw.match(/<([^<>]+)>\s*$/)?.[1]||raw).trim().toLowerCase();return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)?s:"";};
 export const safeFileName=(v:string)=>v.replace(/[\r\n"\\/]/g,"_").slice(0,150)||"invoice";
 export const FINANCE_MAX_FILE=12*1024*1024;
 export const FINANCE_TYPES=new Set(["application/pdf","image/png","image/jpeg","image/webp"]);
