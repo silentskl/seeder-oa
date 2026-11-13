@@ -101,9 +101,9 @@ export async function extractInvoice(input:{entityId:string;bytes:Uint8Array;typ
    bankCheck:check,extractionStatus:data?"extracted":"needs_manual_review",
    extractionNote:(reason||(!party?"Counterparty not uniquely matched to an approved record.":"")).slice(0,400)};
 }
-export async function createInvoice(input:{entityId:string;documentId:string;source:"email"|"manual";sourceEmailId?:string|null;sourceAttachmentId?:string|null;sender:string;parsed:ParsedInvoice}){
+export async function createInvoice(input:{entityId:string;documentId:string;source:"email"|"manual";sourceEmailId?:string|null;sourceAttachmentId?:string|null;sourceMailAccountId?:string|null;sender:string;parsed:ParsedInvoice}){
  const id=crypto.randomUUID(),p=input.parsed;
- await run("INSERT INTO oa_finance_invoice(id,entity_id,direction,party_root_id,counterparty_name,invoice_number,invoice_date,due_date,currency,amount_minor,invoice_bank_account,invoice_bank_name,sender_email,source,source_email_id,source_attachment_id,document_id,bank_check,extraction_status,extraction_note) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-   [id,input.entityId,p.direction,p.partyRootId,p.counterpartyName,p.invoiceNumber,p.invoiceDate,p.dueDate,p.currency,p.amountMinor,p.bankAccount,p.bankName,mailAddress(input.sender),input.source,input.sourceEmailId||null,input.sourceAttachmentId||null,input.documentId,p.bankCheck,p.extractionStatus,p.extractionNote]);
+ await run("INSERT INTO oa_finance_invoice(id,entity_id,direction,party_root_id,counterparty_name,invoice_number,invoice_date,due_date,currency,amount_minor,invoice_bank_account,invoice_bank_name,sender_email,source,source_email_id,source_attachment_id,document_id,bank_check,extraction_status,extraction_note,source_mail_account_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+   [id,input.entityId,p.direction,p.partyRootId,p.counterpartyName,p.invoiceNumber,p.invoiceDate,p.dueDate,p.currency,p.amountMinor,p.bankAccount,p.bankName,mailAddress(input.sender),input.source,input.sourceEmailId||null,input.sourceAttachmentId||null,input.documentId,p.bankCheck,p.extractionStatus,p.extractionNote,input.sourceMailAccountId||null]);
  return id;
 }
