@@ -152,7 +152,7 @@ export function FinanceConsole({section}:{section:Section}){
      </tr>)}</tbody></table></div>
    </section>
   </>:<>
-   <FinanceAiPanel entityId={entity}/>
+   <FinanceAiPanel key={entity} entityId={entity}/>
    <MailAccountsPanel entityId={entity}/>
    <details className={card}><summary className="cursor-pointer font-semibold">Legacy Resend forwarding (optional)</summary>
    <section className="mt-3">
