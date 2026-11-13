@@ -116,6 +116,7 @@ export function FinanceConsole({section}:{section:Section}){
   {loading?<p className="text-sm text-neutral-500">Loading finance records…</p>:section==="parties"?<>
    <section className={card}>
     <h2 className="mb-3 font-semibold">{party.root_id?"Propose a change to approved company":"Add supplier or customer"}</h2>
+     <p className="text-xs text-neutral-500">An active company administrator can approve or reject their own supplier/customer proposal. Payment/receipt proof approvals still require a different administrator.</p>
     <p className="mb-3 text-xs text-neutral-500">New and changed bank details remain pending until a different administrator approves.</p>
     <form className="space-y-3" onSubmit={e=>{e.preventDefault();void run(async()=>{await request(entity,"party_propose",party);setParty({...emptyParty});},"Company proposal submitted.");}}>
      <div className="grid gap-3 md:grid-cols-3">
