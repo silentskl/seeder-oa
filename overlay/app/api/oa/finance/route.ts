@@ -14,9 +14,12 @@ const errorText=(e:unknown)=>e instanceof Error?e.message:String(e);
 function checkEmail(v:unknown){const s=clean(v,320);if(s&&!mailAddress(s))throw new Error("Invalid email address");return s.toLowerCase();}
 function validDate(v:unknown){const s=clean(v,10);if(s&&!/^\d{4}-\d{2}-\d{2}$/.test(s))throw new Error("Invalid YYYY-MM-DD date");return s||null;}
 function partyType(v:unknown){const s=clean(v,12);if(!["supplier","customer","both"].includes(s))throw new Error("Invalid supplier/customer type");return s;}
-async function adminAssignee(entity:string,userId:string,proposer:string){
+async function adminAssignee(entity:string,userId:string,proposer:string,allowPartySelfAssignment=false){
  const member=await one<{user_id:string}>("SELECT user_id FROM oa_entity_member WHERE entity_id=? AND user_id=? AND role='admin' AND active=1",[entity,userId]);
- if(!member||userId===proposer)throw new Error("Assignee must be an active different Entity admin");
+ // A company administrator may approve their OWN supplier/customer proposal.
+ // Payment/receipt proof submissions retain the independent-admin requirement.
+ if(!member||(userId===proposer&&!allowPartySelfAssignment))
+  throw new Error(allowPartySelfAssignment?"Assignee must be an active Entity admin":"Assignee must be an active different Entity admin");
  return userId;
 }
 function withAccess(e:unknown){
@@ -65,7 +68,7 @@ export async function POST(request:NextRequest){
    }else root=crypto.randomUUID();
    if(await one("SELECT id FROM oa_finance_party WHERE root_id=? AND entity_id=? AND status='pending'",[root,entity]))throw new Error("Party already has a pending change");
    const id=crypto.randomUUID(),assignee=clean(body.assigned_approver_user_id,80);
-   if(assignee)await adminAssignee(entity,assignee,viewer.id);
+   if(assignee)await adminAssignee(entity,assignee,viewer.id,true);
    await run("INSERT INTO oa_finance_party(id,entity_id,root_id,party_type,company_name,address,contact_name,email,phone,bank_name,bank_account,bank_swift,status,created_by,assigned_approver_user_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
     [id,entity,root,type,name,clean(body.address,1500),clean(body.contact_name,150),email,clean(body.phone,90),clean(body.bank_name,160),clean(body.bank_account,150),clean(body.bank_swift,80),"pending",viewer.id,assignee||null]);
    await audit(viewer.id,"finance.party.propose","finance_party",id,{root,type,change:!!current,assignee:assignee||null},entity);
@@ -86,7 +89,7 @@ export async function POST(request:NextRequest){
   if(action==="party_assign"){
    const id=clean(body.id,80),row=await one<any>("SELECT created_by,status FROM oa_finance_party WHERE id=? AND entity_id=?",[id,entity]);
    if(!row||row.status!=="pending")throw new Error("Party proposal is not pending");
-   const assignee=await adminAssignee(entity,clean(body.approver_id,80),row.created_by);
+   const assignee=await adminAssignee(entity,clean(body.approver_id,80),row.created_by,true);
    await run("UPDATE oa_finance_party SET assigned_approver_user_id=? WHERE entity_id=? AND id=? AND status='pending'",[assignee,entity,id]);
    await audit(viewer.id,"finance.party.assign","finance_party",id,{assignee},entity);
    return ok({status:"pending",assignee});
@@ -94,7 +97,8 @@ export async function POST(request:NextRequest){
   if(action==="party_approve"||action==="party_reject"){
    const id=clean(body.id,80),row=await one<any>("SELECT * FROM oa_finance_party WHERE id=? AND entity_id=? AND status='pending'",[id,entity]);
    if(!row)throw new Error("Party proposal is no longer pending");
-   if(row.created_by===viewer.id)throw new Error("Cannot approve or reject your own party proposal");
+   // This route already requires an active Entity administrator for party decisions.
+   // Allow admin-created party proposals to be approved/rejected by the creator.
    if(row.assigned_approver_user_id&&row.assigned_approver_user_id!==viewer.id)return fail("Assigned administrator only",403);
    const note=clean(body.note,1000);
    const db=getOaEnv().db;
@@ -103,7 +107,7 @@ export async function POST(request:NextRequest){
    updates.push(db.prepare("UPDATE oa_finance_party SET status=?,approved_by=?,approved_at=CURRENT_TIMESTAMP,decision_note=? WHERE id=? AND entity_id=? AND status='pending'").bind(action==="party_approve"?"approved":"rejected",viewer.id,note||null,id,entity));
    const result=await db.batch(updates);
    if(result[result.length-1].meta?.changes!==1)throw new Error("Party proposal was already processed");
-   await audit(viewer.id,action==="party_approve"?"finance.party.approve":"finance.party.reject","finance_party",id,{root:row.root_id,note},entity);
+   await audit(viewer.id,action==="party_approve"?"finance.party.approve":"finance.party.reject","finance_party",id,{root:row.root_id,note,selfApproved:row.created_by===viewer.id},entity);
    return ok({status:action==="party_approve"?"approved":"rejected"});
   }
   if(action==="invoice_import"){
