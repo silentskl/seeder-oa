@@ -74,7 +74,7 @@ Ambiguous invoice direction or counterparty matching remains needs_review. AI pa
 - Party: pending → approved/rejected; approved record becomes superseded only upon approval of a new version.
 - Invoice: needs_review → open/rejected; open → settlement_pending → settled (proof approved) or open (proof rejected).
 - Proof: pending → approved/rejected.
-- Pending party changes and settlement proofs may be assigned to a specific active Entity administrator. Self-approval is prohibited. All actions are audited.
+- Pending party changes and settlement proofs may be assigned to a specific active Entity administrator. Active Entity administrators may approve or reject their own supplier/customer proposals, including assigning themselves; other users cannot approve their own proposals. Settlement payment/receipt proof approvals remain strictly independent: the submitting user cannot decide their own proof. All actions are audited, including party self-approval.
 
 No bank-transfer initiation, bank ownership verification or bank-statement reconciliation is implied.
 
