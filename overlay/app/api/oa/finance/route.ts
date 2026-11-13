@@ -35,7 +35,10 @@ export async function GET(request:NextRequest){
   if(access.role!=="admin")return fail("Forbidden",403);
   const view=clean(request.nextUrl.searchParams.get("view"),30);
   if(view==="parties")return ok(await all<any>("SELECT * FROM oa_finance_party WHERE entity_id=? ORDER BY created_at DESC,id DESC LIMIT 300",[entity]));
-  if(view==="invoices")return ok(await all<any>("SELECT i.*,p.company_name AS approved_party_name,d.original_name AS document_name FROM oa_finance_invoice i LEFT JOIN oa_finance_party p ON p.entity_id=i.entity_id AND p.root_id=i.party_root_id AND p.status='approved' LEFT JOIN oa_finance_document d ON d.id=i.document_id AND d.entity_id=i.entity_id WHERE i.entity_id=? ORDER BY i.created_at DESC,i.id DESC LIMIT 300",[entity]));
+  if(view==="invoices"){
+   const rows=await all<any>("SELECT i.*,p.company_name AS approved_party_name,p.bank_account AS approved_bank_account,d.original_name AS document_name FROM oa_finance_invoice i LEFT JOIN oa_finance_party p ON p.entity_id=i.entity_id AND p.root_id=i.party_root_id AND p.status='approved' LEFT JOIN oa_finance_document d ON d.id=i.document_id AND d.entity_id=i.entity_id WHERE i.entity_id=? ORDER BY i.created_at DESC,i.id DESC LIMIT 300",[entity]);
+   return ok(rows.map(i=>{const expected=normalizedBank(i.approved_bank_account),received=normalizedBank(i.invoice_bank_account);return {...i,bank_check:!i.approved_bank_account?"unverified":!expected||!received?"missing":expected===received?"match":"mismatch",approved_bank_account:undefined};}));
+  }
   if(view==="settlements")return ok(await all<any>("SELECT s.*,i.invoice_number,i.direction,i.currency,i.amount_minor,i.counterparty_name,d.original_name AS proof_name FROM oa_finance_settlement s JOIN oa_finance_invoice i ON i.id=s.invoice_id AND i.entity_id=s.entity_id JOIN oa_finance_document d ON d.id=s.document_id AND d.entity_id=s.entity_id WHERE s.entity_id=? ORDER BY s.submitted_at DESC,s.id DESC LIMIT 300",[entity]));
   if(view==="config"){
    const mailbox=await one<{address:string;receive_address:string}>("SELECT address,receive_address FROM oa_finance_mailbox WHERE entity_id=?",[entity]);
