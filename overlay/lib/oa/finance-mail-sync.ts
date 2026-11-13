@@ -1,5 +1,4 @@
 import {all,audit,one,run} from "./db";
-import {getOaEnv} from "./env";
 import {financeMultiEntityActive} from "./finance-entity";
 import {decryptEmailSecret} from "./email";
 import {clean,createInvoice,extractInvoice,FINANCE_MAX_FILE,FINANCE_TYPES,mailAddress,storeFinanceDocument} from "./finance";
@@ -181,7 +180,7 @@ export async function testMailAccount(account:MailAccount){
 export async function syncMailAccount(account:MailAccount){
  if(!account.active)throw new Error("Mailbox is disabled");
  // SQLite atomic lock: no concurrent invocation can process the same mailbox in parallel.
- const lock=await run("UPDATE oa_finance_mail_account SET sync_lock_until=datetime('now','+3 minutes'),last_attempt_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND active=1 AND (sync_lock_until IS NULL OR datetime(sync_lock_until) <= CURRENT_TIMESTAMP)",
+ const lock=await run("UPDATE oa_finance_mail_account SET sync_lock_until=datetime('now','+10 minutes'),last_attempt_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND active=1 AND (sync_lock_until IS NULL OR datetime(sync_lock_until) <= CURRENT_TIMESTAMP)",
   [account.id,account.entity_id]);
  if(lock.meta?.changes!==1)throw new Error("Mailbox sync already in progress or disabled");
  const syncId=crypto.randomUUID(),start=new Date(),startedAt=start.toISOString();
