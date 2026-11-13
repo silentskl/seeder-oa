@@ -77,7 +77,7 @@ export type FinanceAiDiagnostic={
  id:string;operation:"test"|"invoice";model:string;protocol:FinanceAiProtocol;
  outcome:"success"|"failed"|"incomplete"|"invalid_json"|"empty_output";
  http_status:number|null;response_status:string;finish_reason:string;output_types:string;
- duration_ms:number;input_tokens:number|null;output_tokens:number|null;
+ duration_ms:number;input_tokens:number|null;output_tokens:number|null;reasoning_tokens:number|null;
  output_chars:number;request_id:string;error_code:string;created_at?:string;
 };
 export class FinanceAiError extends Error{
@@ -124,7 +124,7 @@ function publicDiagnostic(d:FinanceAiDiagnostic){
 }
 export async function recentFinanceAiCalls(entityId:string,invoiceId:string|null=null,limit=10){
  const {all}=await import("./db");
- const columns="id,operation,model_name AS model,protocol,outcome,http_status,response_status,finish_reason,output_types,duration_ms,input_tokens,output_tokens,output_chars,request_id,error_code,created_at";
+ const columns="id,operation,model_name AS model,protocol,outcome,http_status,response_status,finish_reason,output_types,duration_ms,input_tokens,output_tokens,reasoning_tokens,output_chars,request_id,error_code,created_at";
  const sql=invoiceId?
   "SELECT "+columns+" FROM oa_finance_ai_call_log WHERE entity_id=? AND invoice_id=? ORDER BY created_at DESC,id DESC LIMIT ?":
   "SELECT "+columns+" FROM oa_finance_ai_call_log WHERE entity_id=? ORDER BY created_at DESC,id DESC LIMIT ?";
@@ -134,9 +134,9 @@ async function recordDiagnostic(entityId:string,invoiceId:string|undefined,d:Fin
  try{
   const {run}=await import("./db");
   await run(
-   "INSERT INTO oa_finance_ai_call_log(id,entity_id,invoice_id,model_name,protocol,operation,outcome,http_status,response_status,finish_reason,output_types,duration_ms,input_tokens,output_tokens,output_chars,request_id,error_code) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+   "INSERT INTO oa_finance_ai_call_log(id,entity_id,invoice_id,model_name,protocol,operation,outcome,http_status,response_status,finish_reason,output_types,duration_ms,input_tokens,output_tokens,reasoning_tokens,output_chars,request_id,error_code) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
    [d.id,entityId,invoiceId||null,d.model,d.protocol,d.operation,d.outcome,d.http_status,d.response_status,d.finish_reason,d.output_types,
-    d.duration_ms,d.input_tokens,d.output_tokens,d.output_chars,d.request_id,d.error_code]
+    d.duration_ms,d.input_tokens,d.output_tokens,d.reasoning_tokens,d.output_chars,d.request_id,d.error_code]
   );
  }catch(error){
   // Never log upstream prompts, response bodies, invoice text or API credentials.
@@ -151,7 +151,7 @@ async function invokeModel(
  const d:FinanceAiDiagnostic={
   id:crypto.randomUUID(),operation,model:cfg.model,protocol:cfg.protocol,
   outcome:"failed",http_status:null,response_status:"",finish_reason:"",output_types:"",
-  duration_ms:0,input_tokens:null,output_tokens:null,output_chars:0,request_id:"",error_code:""
+  duration_ms:0,input_tokens:null,output_tokens:null,reasoning_tokens:null,output_chars:0,request_id:"",error_code:""
  };
  let failure="";
  try{
@@ -193,6 +193,7 @@ async function invokeModel(
   const usage=result?.usage||{};
   d.input_tokens=tokenNumber(usage.input_tokens??usage.prompt_tokens);
   d.output_tokens=tokenNumber(usage.output_tokens??usage.completion_tokens);
+  d.reasoning_tokens=tokenNumber(usage.output_tokens_details?.reasoning_tokens??usage.completion_tokens_details?.reasoning_tokens);
   d.output_types=(Array.isArray(result?.output)?
    result.output.map((o:any)=>safeCode(o?.type,30)+(Array.isArray(o?.content)?"("+o.content.map((t:any)=>safeCode(t?.type,30)).join(",")+")":"")).join(","):
    result?.choices?.[0]?.message?"chat_message":"unknown").slice(0,200);
