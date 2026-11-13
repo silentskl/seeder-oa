@@ -51,3 +51,12 @@ CREATE TRIGGER IF NOT EXISTS oa_finance_invoice_mail_company_update BEFORE UPDAT
  WHEN NEW.source_mail_account_id IS NOT NULL AND NOT EXISTS(
   SELECT 1 FROM oa_finance_mail_account a WHERE a.id=NEW.source_mail_account_id AND a.entity_id=NEW.entity_id)
  BEGIN SELECT RAISE(ABORT,'finance invoice mail account company mismatch'); END;
+
+-- Mailbox ownership never changes after registration. Disable the old connection
+-- and add a new one rather than silently changing the company of stored invoices.
+CREATE TRIGGER IF NOT EXISTS oa_finance_mail_account_ownership_update BEFORE UPDATE OF entity_id,address,provider ON oa_finance_mail_account
+ WHEN NEW.entity_id<>OLD.entity_id OR NEW.address<>OLD.address OR NEW.provider<>OLD.provider
+ BEGIN SELECT RAISE(ABORT,'finance email account ownership immutable'); END;
+CREATE TRIGGER IF NOT EXISTS oa_finance_mail_sync_log_company_update BEFORE UPDATE OF entity_id,account_id ON oa_finance_mail_sync_log
+ WHEN NOT EXISTS(SELECT 1 FROM oa_finance_mail_account a WHERE a.id=NEW.account_id AND a.entity_id=NEW.entity_id)
+ BEGIN SELECT RAISE(ABORT,'finance email sync company mismatch'); END;
