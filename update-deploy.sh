@@ -110,6 +110,8 @@ CRITICAL_OA_FILES=(
   "app/api/oa/finance/sync-job/route.ts"
   "components/oa/finance-mail-accounts.tsx"
   "lib/oa/finance-mail-sync.ts"
+  "lib/oa/finance-entity.ts"
+  "app/api/oa/finance/entities/route.ts"
   "app/api/oa/finance/documents/route.ts"
   "app/api/oa/finance/documents/[id]/route.ts"
   "app/api/oa/finance/inbound/route.ts"
