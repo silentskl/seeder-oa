@@ -2,7 +2,7 @@
 
 ## Finance: suppliers/customers, AR/AP invoices, proof approvals
 
-See [FINANCE.md](FINANCE.md) for the D1 9020 migration, Resend inbound finance mailbox, optional AI invoice extraction, bank verification, and independent administrator approval workflow. This feature requires a reviewed D1 backup, full build and two-admin acceptance tests before production deployment.
+See [FINANCE.md](FINANCE.md) for the D1 migrations 9020/9021, per-company Microsoft 365 / Alibaba enterprise mailbox connectors (optional legacy Resend), secure 5-minute synchronization, optional AI invoice extraction, bank verification, and independent administrator approval workflow. This feature requires a reviewed D1 backup, full build and two-admin acceptance tests before production deployment.
 
 
 ## Production deployment: automatic D1 backup and migrations
