@@ -96,11 +96,19 @@ function responseText(body:any,protocol:FinanceAiProtocol):string{
   if(Array.isArray(content))return content.map((c:any)=>typeof c?.text==="string"?c.text:"").join("");
   return "";
  }
- if(typeof body?.output_text==="string")return body.output_text;
- return (Array.isArray(body?.output)?body.output:[])
+ if(typeof body?.output_text==="string"&&body.output_text.trim())return body.output_text;
+ const output=(Array.isArray(body?.output)?body.output:[])
   .flatMap((item:any)=>Array.isArray(item?.content)?item.content:[])
-  .filter((item:any)=>item?.type==="output_text")
+  .filter((item:any)=>item?.type==="output_text"||item?.type==="text")
   .map((item:any)=>String(item.text||"")).join("");
+ if(output.trim())return output;
+ // Some OpenAI-compatible gateways return a Chat Completions envelope even
+ // when the caller uses /v1/responses; accept the already-generated text
+ // without issuing a second (billable) upstream request.
+ const chatContent=body?.choices?.[0]?.message?.content;
+ if(typeof chatContent==="string")return chatContent;
+ if(Array.isArray(chatContent))return chatContent.map((v:any)=>typeof v?.text==="string"?v.text:"").join("");
+ return "";
 }
 const invoiceFields=["seller_name","buyer_name","invoice_number","invoice_date","due_date","currency","total_amount","bank_name","bank_account","notes"] as const;
 function parseInvoiceJson(raw:string):FinanceAiExtracted{
