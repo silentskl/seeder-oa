@@ -1,6 +1,7 @@
+import {resolveFinanceEntityAccess} from "@/lib/oa/finance-entity";
 import {NextRequest,NextResponse} from "next/server";
 import {getViewer} from "@/lib/auth-server";
-import {resolveBusinessEntityAccess,EntityAccessError} from "@/lib/oa/entity";
+import {EntityAccessError} from "@/lib/oa/entity";
 import {audit} from "@/lib/oa/db";
 import {FINANCE_MAX_FILE,FINANCE_TYPES,storeFinanceDocument} from "@/lib/oa/finance";
 export const runtime="nodejs";
@@ -8,7 +9,7 @@ const fail=(error:string,status=400)=>NextResponse.json({ok:false,error},{status
 export async function POST(request:NextRequest){
  const viewer=await getViewer();if(!viewer)return fail("Unauthorized",401);
  try{
-  const form=await request.formData(),access=await resolveBusinessEntityAccess(viewer.id,form.get("entity_id"));
+  const form=await request.formData(),access=await resolveFinanceEntityAccess(viewer.id,form.get("entity_id"));
   if(access.role!=="admin")return fail("Forbidden",403);
   const purpose=String(form.get("purpose")||"");
   if(purpose!=="invoice"&&purpose!=="settlement")return fail("Invalid purpose",400);
