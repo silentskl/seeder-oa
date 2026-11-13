@@ -56,11 +56,11 @@ export function FinanceConsole({section}:{section:Section}){
  const [parties,setParties]=useState<Row[]>([]),[invoices,setInvoices]=useState<Row[]>([]),[settlements,setSettlements]=useState<Row[]>([]);
  const [config,setConfig]=useState<Row>({mailbox:"",approvers:[],aiConfigured:false,resendConfigured:false});
  const [party,setParty]=useState<Row>({...emptyParty}),[review,setReview]=useState<Row>({...emptyReview});
- const [mailbox,setMailbox]=useState(""),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true);
+ const [mailbox,setMailbox]=useState(""),[receiveAddress,setReceiveAddress]=useState(""),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true);
  const [error,setError]=useState(""),[notice,setNotice]=useState("");
  const load=useCallback(async(id:string)=>{
   const [p,i,s,c]=await Promise.all([fetchView(id,"parties"),fetchView(id,"invoices"),fetchView(id,"settlements"),fetchView(id,"config")]);
-  setParties(p);setInvoices(i);setSettlements(s);setConfig(c);setMailbox(c.mailbox||"");
+  setParties(p);setInvoices(i);setSettlements(s);setConfig(c);setMailbox(c.mailbox||"");setReceiveAddress(c.receiveAddress||c.mailbox||"");
  },[]);
  useEffect(()=>{
   let active=true;
@@ -143,9 +143,10 @@ export function FinanceConsole({section}:{section:Section}){
   </>:<>
    <section className={card}>
     <h2 className="font-semibold">Invoice mailbox & automatic extraction</h2>
-    <p className="mb-3 mt-1 text-xs text-neutral-500">Configure the recipient address in Resend Inbound and subscribe to email.received. The webhook must point to /api/oa/finance/inbound. Email attachment imports always require financial review.</p>
-    <form className="flex flex-wrap items-end gap-2" onSubmit={e=>{e.preventDefault();void run(()=>request(entity,"set_mailbox",{address:mailbox}),"Finance mailbox saved.");}}>
+    <p className="mb-3 mt-1 text-xs text-neutral-500">Route payable@your-domain to Resend Inbound, or forward it to a Resend-provided receiving address. Configure that actual destination below and subscribe to email.received. The webhook must point to /api/oa/finance/inbound. Email attachment imports always require financial review.</p>
+    <form className="flex flex-wrap items-end gap-2" onSubmit={e=>{e.preventDefault();void run(()=>request(entity,"set_mailbox",{address:mailbox,receive_address:receiveAddress}),"Finance mailbox saved.");}}>
      <div className="min-w-64 flex-1"><Field label="Incoming invoice mailbox" name="mailbox" value={mailbox} type="email" required onChange={setMailbox}/></div>
+     <div className="min-w-64 flex-1"><Field label="Actual Resend receiving address (if forwarded)" name="receive_address" value={receiveAddress} type="email" onChange={setReceiveAddress}/></div>
      <button className={btn} disabled={busy}>Save mailbox</button>
     </form>
     <p className="mt-3 text-xs text-neutral-500">Resend inbound: {config.resendConfigured?"configured":"not configured"} · AI PDF/image extraction: {config.aiConfigured?"configured":"not configured (manual review)"}</p>
