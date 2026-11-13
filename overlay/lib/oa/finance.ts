@@ -58,10 +58,10 @@ export async function findParty(entityId:string,name:string,partyType:"supplier"
  if(matched.length!==1&&email)matched=parties.filter(p=>mailAddress(p.email)===mailAddress(email)&&mailAddress(email)!=="");
  return matched.length===1?matched[0]:null;
 }
-export async function extractInvoice(input:{entityId:string;bytes:Uint8Array;type:string;name:string;subject:string;body:string;sender:string}):Promise<ParsedInvoice>{
+export async function extractInvoice(input:{entityId:string;bytes:Uint8Array;type:string;name:string;subject:string;body:string;sender:string;invoiceId?:string;throwOnAiFailure?:boolean}):Promise<ParsedInvoice>{
  let data:Extracted|null=null,reason="";
- try{data=await extractWithFinanceAi(input.entityId,{bytes:input.bytes,type:input.type,name:input.name},input.subject,input.body);}
- catch(e){reason="AI extraction unavailable: "+(e instanceof Error?e.message:String(e)).slice(0,200);}
+ try{data=await extractWithFinanceAi(input.entityId,{bytes:input.bytes,type:input.type,name:input.name},input.subject,input.body,input.invoiceId);}
+ catch(e){if(input.throwOnAiFailure)throw e;reason="AI extraction unavailable: "+(e instanceof Error?e.message:String(e)).slice(0,350);}
  const entity=await one<{legal_name:string;display_name:string}>("SELECT legal_name,display_name FROM oa_entity WHERE id=?",[input.entityId]);
  if(!data)reason=reason||"Invoice AI not configured or disabled; manual review required";
  const self=[normalizedName(entity?.legal_name),normalizedName(entity?.display_name)].filter(Boolean);
