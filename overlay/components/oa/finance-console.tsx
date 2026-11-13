@@ -1,5 +1,5 @@
 "use client";
-import {FormEvent,useCallback,useEffect,useState} from "react";
+import {FormEvent,useCallback,useEffect,useRef,useState} from "react";
 import {MailAccountsPanel} from "./finance-mail-accounts";
 
 type Row=Record<string,any>;
@@ -53,6 +53,8 @@ function ProofForm({entity,invoice,busy,run}:{entity:string;invoice:Row;busy:boo
  </form>;
 }
 export function FinanceConsole({section}:{section:Section}){
+ const selectedEntity=useRef("legacy-primary");
+ const requestVersion=useRef(0);
  const [entity,setEntity]=useState("legacy-primary"),[entities,setEntities]=useState<Row[]>([]);
  const [parties,setParties]=useState<Row[]>([]),[invoices,setInvoices]=useState<Row[]>([]),[settlements,setSettlements]=useState<Row[]>([]);
  const [config,setConfig]=useState<Row>({mailbox:"",approvers:[],aiConfigured:false,resendConfigured:false});
@@ -61,7 +63,10 @@ export function FinanceConsole({section}:{section:Section}){
  const [error,setError]=useState(""),[notice,setNotice]=useState("");
  const [directionFilter,setDirectionFilter]=useState("all");
  const load=useCallback(async(id:string)=>{
+  if(id!==selectedEntity.current)return;
+  const seq=++requestVersion.current;
   const [p,i,s,c]=await Promise.all([fetchView(id,"parties"),fetchView(id,"invoices"),fetchView(id,"settlements"),fetchView(id,"config")]);
+  if(seq!==requestVersion.current||id!==selectedEntity.current)return;
   setParties(p);setInvoices(i);setSettlements(s);setConfig(c);setMailbox(c.mailbox||"");setReceiveAddress(c.receiveAddress||c.mailbox||"");
  },[]);
  useEffect(()=>{
@@ -75,6 +80,7 @@ export function FinanceConsole({section}:{section:Section}){
    setEntities(shown);
    const saved=window.sessionStorage.getItem("oa.selectedEntity");
    const id=shown.some(x=>x.id===saved)?saved||"legacy-primary":shown[0]?.id||"legacy-primary";
+   selectedEntity.current=id;
    setEntity(id);
    await load(id);
   })().catch(e=>{if(active)setError(e instanceof Error?e.message:String(e));}).finally(()=>{if(active)setLoading(false);});
@@ -87,6 +93,7 @@ export function FinanceConsole({section}:{section:Section}){
   finally{setBusy(false);}
  }
  function selectEntity(id:string){
+  selectedEntity.current=id;requestVersion.current++;
   setEntity(id);setLoading(true);setError("");setParty({...emptyParty});setReview({...emptyReview});
   window.sessionStorage.setItem("oa.selectedEntity",id);
   void load(id).catch(e=>setError(String(e))).finally(()=>setLoading(false));
