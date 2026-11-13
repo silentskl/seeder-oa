@@ -41,7 +41,7 @@ export async function POST(request:NextRequest){
   const emailId=clean(event.data?.email_id,100);
   if(!/^[a-f0-9-]{32,50}$/i.test(emailId))return fail("Invalid inbound email ID",400);
   const recipients=Array.isArray(event.data?.to)?event.data.to.map(mailAddress):[];
-  const matches=await Promise.all(recipients.map(address=>one<{entity_id:string}>("SELECT entity_id FROM oa_finance_mailbox WHERE address=?",[address])));
+  const matches=await Promise.all(recipients.map(address=>one<{entity_id:string}>("SELECT entity_id FROM oa_finance_mailbox WHERE receive_address=?",[address])));
   const entityIds=Array.from(new Set(matches.filter(Boolean).map(m=>m!.entity_id)));
   if(entityIds.length!==1)return fail("No unique configured finance mailbox for recipient",422);
   const entity=entityIds[0];
