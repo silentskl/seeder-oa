@@ -1,5 +1,9 @@
 # Seeder OA v0.1.15
 
+## Finance: ModelBridge invoice AI (configurable per company)
+
+Under Admin → Finance · AR/AP → Invoice AI / ModelBridge 设置, company administrators can set the ModelBridge HTTPS Base URL (/v1), API Key, model name, Responses or Chat Completions protocol and Enabled state. The key is encrypted in D1 with OA_SETTINGS_MASTER_KEY and is not returned to the browser. A connection test and **Re-extract AI** action for existing pending invoices are included; PDF uses the Responses protocol. Migration 9022_finance_ai_settings.sql and the migration/build deployment gates are required. See FINANCE.md for security and setup.
+
 ## Finance: suppliers/customers, AR/AP invoices, proof approvals
 
 See [FINANCE.md](FINANCE.md) for the D1 migrations 9020/9021, per-company Microsoft 365 / Alibaba enterprise mailbox connectors (optional legacy Resend), secure 5-minute synchronization, optional AI invoice extraction, bank verification, and independent administrator approval workflow. This feature requires a reviewed D1 backup, full build and two-admin acceptance tests before production deployment.
