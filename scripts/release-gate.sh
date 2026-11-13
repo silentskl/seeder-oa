@@ -14,6 +14,7 @@ python3 "$ROOT/tests/test_migrations.py" || fail 'SQLite migration tests failed'
 python3 "$ROOT/tests/test_business_travel_migration.py" || fail 'Business travel D1 migration tests failed'
 python3 "$ROOT/tests/test_finance_migration.py" || fail 'Finance D1 migration tests failed'
 python3 "$ROOT/tests/test_finance_mail_accounts_migration.py" || fail 'Finance mailbox D1 migration tests failed'
+python3 "$ROOT/tests/test_finance_edge_fetch.py" || fail 'Finance Cloudflare Edge fetch compatibility regression failed'
 node "$ROOT/tests/check-ts-syntax.cjs" "$ROOT/overlay" || fail 'TypeScript syntax test failed'
 [[ -f "$APP/package.json" ]] || fail "Full Seeder source unavailable at $APP; full build NOT verified"
 [[ -f "$APP/wrangler.jsonc" ]] || fail 'wrangler.jsonc missing'
