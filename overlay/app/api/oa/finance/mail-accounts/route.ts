@@ -1,7 +1,8 @@
+import {resolveFinanceEntityAccess} from "@/lib/oa/finance-entity";
 import {NextRequest,NextResponse} from "next/server";
 import {getViewer} from "@/lib/auth-server";
 import {all,audit,one,run} from "@/lib/oa/db";
-import {resolveBusinessEntityAccess,EntityAccessError} from "@/lib/oa/entity";
+import {EntityAccessError} from "@/lib/oa/entity";
 import {encryptEmailSecret} from "@/lib/oa/email";
 import {getOaEnv} from "@/lib/oa/env";
 import {clean,mailAddress} from "@/lib/oa/finance";
@@ -32,7 +33,7 @@ function validateMailSettings(b:any,previous?:MailAccount){
 async function getAuthorized(req:NextRequest,entity:unknown):Promise<{error?:NextResponse;viewer?:NonNullable<Awaited<ReturnType<typeof getViewer>>>;entity?:string}>{
  const viewer=await getViewer();
  if(!viewer)return {error:fail("Unauthorized",401)};
- const access=await resolveBusinessEntityAccess(viewer.id,entity);
+ const access=await resolveFinanceEntityAccess(viewer.id,entity);
  if(access.role!=="admin")return {error:fail("Entity administrator required",403)};
  return {viewer,entity:access.entityId};
 }
