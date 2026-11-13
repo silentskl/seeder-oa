@@ -64,7 +64,10 @@ export async function POST(request:NextRequest){
    const parsedUrl=new URL(url);
    if(parsedUrl.protocol!=="https:"||parsedUrl.username||parsedUrl.password||parsedUrl.port)throw new Error("Invalid signed download URL");
    if(Number(details.size||attachment.size)>FINANCE_MAX_FILE)throw new Error("Invoice attachment exceeds 12MB");
-   const response=await fetch(url,{redirect:"error"});
+   // Cloudflare Workers supports manual redirects but not redirect:"error".
+   // Never automatically follow a signed attachment URL to an untrusted host.
+   const response=await fetch(url,{redirect:"manual"});
+   if(response.status>=300&&response.status<400)throw new Error("Unexpected inbound attachment redirect");
    if(!response.ok)throw new Error("Invoice attachment download failed "+response.status);
    const length=Number(response.headers.get("content-length")||"0");
    if(length>FINANCE_MAX_FILE)throw new Error("Invoice attachment exceeds 12MB");
