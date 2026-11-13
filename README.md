@@ -1,5 +1,10 @@
 # Seeder OA v0.1.15
 
+## Finance: suppliers/customers, AR/AP invoices, proof approvals
+
+See [FINANCE.md](FINANCE.md) for the D1 9020 migration, Resend inbound finance mailbox, optional AI invoice extraction, bank verification, and independent administrator approval workflow. This feature requires a reviewed D1 backup, full build and two-admin acceptance tests before production deployment.
+
+
 ## Production deployment: automatic D1 backup and migrations
 
 Use `bash apply-to-existing.sh /absolute/path/to/seeder-oa-app` for a normal update. It calls `update-deploy.sh`, which targets only Worker `smarten-oa` and production D1 `PM_DB` (`a2113d04-54d8-4a16-b4e6-d0a1300ea341`).
