@@ -102,6 +102,22 @@ CRITICAL_OA_FILES=(
   "lib/oa/email.ts"
   "lib/oa/leave.ts"
   "lib/oa/env.ts"
+  "lib/oa/finance.ts"
+  "components/oa/finance-console.tsx"
+  "components/oa/oa-shell.tsx"
+  "app/(oa)/layout.tsx"
+  "app/api/oa/finance/route.ts"
+  "app/api/oa/finance/mail-accounts/route.ts"
+  "app/api/oa/finance/sync-job/route.ts"
+  "components/oa/finance-mail-accounts.tsx"
+  "lib/oa/finance-mail-sync.ts"
+  "lib/oa/finance-entity.ts"
+  "app/api/oa/finance/entities/route.ts"
+  "app/api/oa/finance/documents/route.ts"
+  "app/api/oa/finance/documents/[id]/route.ts"
+  "app/api/oa/finance/inbound/route.ts"
+  "app/(oa)/admin/oa/parties/page.tsx"
+  "app/(oa)/admin/oa/finance/page.tsx"
 )
 for relative in "${CRITICAL_OA_FILES[@]}"; do
   source="$ROOT/overlay/$relative"
@@ -149,6 +165,8 @@ npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS employees F
 echo "[DEPLOY] Validating reviewed multi-entity migrations with local SQLite..."
 node "$ROOT/tests/multi-entity-migrations.test.mjs"
 python3 "$ROOT/tests/test_business_travel_migration.py"
+python3 "$ROOT/tests/test_finance_migration.py"
+python3 "$ROOT/tests/test_finance_mail_accounts_migration.py"
 echo "[DEPLOY] Synchronizing migrations from reviewed overlay..."
 mkdir -p migrations
 for source in "$ROOT"/overlay/migrations/*.sql; do
@@ -170,7 +188,7 @@ echo "$PENDING"
 # Whitelist only migrations reviewed for this production upgrade.
 MIGRATIONS="$(printf '%s\n' "$PENDING" | grep -Eo '[0-9]{4}_[[:alnum:]_-]+\.sql' | sort -u || true)"
 if [[ -n "$MIGRATIONS" ]]; then
-  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles|9014_email_log_company|9015_entity_leave_types|9016_entity_medical_allowance|9017_entity_database_guards|9018_entity_invitations|9019_business_travel)\.sql$' || true)"
+  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles|9014_email_log_company|9015_entity_leave_types|9016_entity_medical_allowance|9017_entity_database_guards|9018_entity_invitations|9019_business_travel|9020_finance|9021_finance_mail_accounts)\.sql$' || true)"
   if [[ -n "$UNKNOWN" ]]; then
     echo "ERROR: unexpected pending migrations: $UNKNOWN" >&2
     exit 1
@@ -275,6 +293,32 @@ TRAVEL_TABLES="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(
 echo "$TRAVEL_TABLES"
 if ! printf '%s\n' "$TRAVEL_TABLES" | grep -Eq '(^|[[:space:]│])3([[:space:]│]|$)'; then
   echo "ERROR: migration 9019 travel tables missing; refusing deployment." >&2
+  exit 1
+fi
+# Finance schema must exist before its APIs are published.
+FINANCE_TABLES="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name IN ('oa_finance_party','oa_finance_mailbox','oa_finance_document','oa_finance_invoice','oa_finance_settlement');" 2>&1)" || { echo "$FINANCE_TABLES" >&2; exit 1; }
+echo "$FINANCE_TABLES"
+if ! printf '%s\n' "$FINANCE_TABLES" | grep -Eq '(^|[[:space:]│])5([[:space:]│]|$)'; then
+  echo "ERROR: migration 9020 finance tables missing; refusing deployment." >&2
+  exit 1
+fi
+FINANCE_GUARDS="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM sqlite_master WHERE type='trigger' AND name IN ('oa_finance_invoice_document_insert','oa_finance_invoice_document_update','oa_finance_settlement_reference_insert','oa_finance_settlement_reference_update');" 2>&1)" || { echo "$FINANCE_GUARDS" >&2; exit 1; }
+echo "$FINANCE_GUARDS"
+if ! printf '%s\n' "$FINANCE_GUARDS" | grep -Eq '(^|[[:space:]│])4([[:space:]│]|$)'; then
+  echo "ERROR: finance cross-entity database guards missing; refusing deployment." >&2
+  exit 1
+fi
+# Do not deploy mailbox adapters before their database records and tenant guards exist.
+MAIL_TABLES="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name IN ('oa_finance_mail_account','oa_finance_mail_sync_log');" 2>&1)" || { echo "$MAIL_TABLES" >&2; exit 1; }
+echo "$MAIL_TABLES"
+if ! printf '%s\n' "$MAIL_TABLES" | grep -Eq '(^|[[:space:]│])2([[:space:]│]|$)'; then
+  echo "ERROR: migration 9021 finance mailbox tables missing; refusing deployment." >&2
+  exit 1
+fi
+MAIL_SCOPE="$(npx wrangler d1 execute PM_DB --remote --command="SELECT (SELECT COUNT(*) FROM pragma_table_info('oa_finance_invoice') WHERE name='source_mail_account_id')+(SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN ('oa_finance_mail_sync_log_company_insert','oa_finance_mail_sync_log_company_update','oa_finance_mail_account_ownership_update','oa_finance_invoice_mail_company_insert','oa_finance_invoice_mail_company_update')) AS n;" 2>&1)" || { echo "$MAIL_SCOPE" >&2; exit 1; }
+echo "$MAIL_SCOPE"
+if ! printf '%s\n' "$MAIL_SCOPE" | grep -Eq '(^|[[:space:]│])6([[:space:]│]|$)'; then
+  echo "ERROR: finance mailbox provenance or tenant guards missing; refusing deployment." >&2
   exit 1
 fi
 echo "[OA] Checking TypeScript/TSX parser diagnostics before Next.js build..."

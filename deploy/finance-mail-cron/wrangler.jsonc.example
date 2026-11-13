@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "smarten-oa-finance-mail-cron",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-10-01",
+  "triggers": { "crons": ["*/5 * * * *"] },
+  "vars": {
+    "OA_FINANCE_SYNC_URL": "https://oa.smartenx.com/api/oa/finance/sync-job"
+  }
+}
