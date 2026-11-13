@@ -64,6 +64,8 @@ export async function POST(request:NextRequest){
   const action=clean(body.action,40),id=clean(body.id,100);
   if(action==="add"){
    const s=validateMailSettings(body);
+   const existingLegacy=await one<{entity_id:string}>("SELECT entity_id FROM oa_finance_mailbox WHERE address=? OR receive_address=?",[s.address,s.address]);
+   if(existingLegacy)throw new Error("Mailbox already configured through legacy Resend; remove old route before enabling direct API synchronization");
    const secret=clean(body.client_secret,4000);
    if(!secret)throw new Error("Missing app client secret");
    const encrypted=await encryptEmailSecret(secret);
