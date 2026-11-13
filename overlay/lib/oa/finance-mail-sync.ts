@@ -36,7 +36,7 @@ function b64ToBytes(b64:string){
  return bytes;
 }
 async function fetchOk(url:string,init:RequestInit){
- // Cloudflare Workers does not implement redirect:"error". Use "manual" so
+ // Cloudflare Workers does not implement the unsupported error redirect mode. Use "manual" so
  // OAuth POST bodies and Bearer tokens are never forwarded to another host.
  const response=await fetch(url,{...init,redirect:"manual",cache:"no-store",signal:AbortSignal.timeout(20000)});
  if(response.status>=300&&response.status<400)throw new Error("Mail provider returned an unexpected redirect (HTTP "+response.status+")");
