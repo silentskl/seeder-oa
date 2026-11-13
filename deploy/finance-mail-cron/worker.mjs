@@ -13,8 +13,11 @@ export default {
     throw new Error("OA_FINANCE_SYNC_TOKEN is missing/too short");
    const response=await fetch(url.toString(),{
     method:"POST",headers:{"x-oa-finance-sync-token":env.OA_FINANCE_SYNC_TOKEN},
-    redirect:"error",signal:AbortSignal.timeout(240000)
+    // Cloudflare Workers only accepts redirect:"manual" or "follow".
+    // Do not forward the scheduler secret to any redirect destination.
+    redirect:"manual",signal:AbortSignal.timeout(240000)
    });
+   if(response.status>=300&&response.status<400)throw new Error("Finance mail sync endpoint returned an unexpected redirect HTTP "+response.status);
    if(!response.ok)throw new Error("Finance mail sync job HTTP "+response.status);
    const result=await response.json();
    console.log("Finance mailbox job",JSON.stringify({processedAccounts:result.processedAccounts,ok:result.ok}));
