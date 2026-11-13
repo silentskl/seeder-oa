@@ -1,5 +1,5 @@
 "use client";
-import {FormEvent,useCallback,useEffect,useState} from "react";
+import {FormEvent,useCallback,useEffect,useState,type ReactNode} from "react";
 
 type Provider="microsoft365"|"alibaba_mail";
 type Mailbox={id:string;entity_id:string;address:string;display_name:string;provider:Provider;tenant_id:string;client_id:string;api_base:string;folder_id:string;active:number;credential_configured:boolean;sync_interval_minutes:number;initial_lookback_days:number;last_success_at:string|null;last_attempt_at:string|null;last_error:string|null;};
@@ -18,7 +18,7 @@ async function api(entityId:string,action:string,data:Record<string,unknown>={})
  if(!response.ok||!parsed?.ok)throw new Error(parsed?.error||"Mail account API failed");
  return parsed.data;
 }
-function Labeled({label,children}:{label:string;children:React.ReactNode}){
+function Labeled({label,children}:{label:string;children:ReactNode}){
  return <label className="block min-w-0 text-xs font-medium"><span className="mb-1 block text-neutral-500">{label}</span>{children}</label>;
 }
 export function MailAccountsPanel({entityId}:{entityId:string}){
