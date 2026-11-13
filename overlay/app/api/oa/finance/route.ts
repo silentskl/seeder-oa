@@ -75,6 +75,8 @@ export async function POST(request:NextRequest){
   if(action==="set_mailbox"){
    const address=checkEmail(body.address);
    if(!/^payable@[^@]+$/.test(address))throw new Error("Invalid mailbox: use payable@your-company-domain");
+   const duplicateDirect=await one("SELECT id FROM oa_finance_mail_account WHERE address=? OR address=?",[address,address]);
+   if(duplicateDirect)throw new Error("Mailbox already connected via direct Microsoft/Alibaba API");
    const receiveAddress=body.receive_address?checkEmail(body.receive_address):address;
    if(!receiveAddress)throw new Error("Invalid receiving/forwarding address");
    await run("INSERT INTO oa_finance_mailbox(entity_id,address,receive_address,updated_by) VALUES(?,?,?,?) ON CONFLICT(entity_id) DO UPDATE SET address=excluded.address,receive_address=excluded.receive_address,updated_by=excluded.updated_by,updated_at=CURRENT_TIMESTAMP",[entity,address,receiveAddress,viewer.id]);
