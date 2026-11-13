@@ -29,6 +29,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS oa_finance_party_one_pending ON oa_finance_par
 CREATE TABLE IF NOT EXISTS oa_finance_mailbox (
  entity_id TEXT PRIMARY KEY REFERENCES oa_entity(id),
  address TEXT NOT NULL UNIQUE,
+ receive_address TEXT NOT NULL UNIQUE,
  updated_by TEXT NOT NULL REFERENCES user(id),
  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
