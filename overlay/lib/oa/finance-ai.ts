@@ -1,4 +1,4 @@
-import {one} from "./db";
+import {one,all,run} from "./db";
 import {decryptEmailSecret} from "./email";
 import {getOaEnv} from "./env";
 
@@ -131,7 +131,6 @@ function publicDiagnostic(d:FinanceAiDiagnostic){
  return {...d};
 }
 export async function recentFinanceAiCalls(entityId:string,invoiceId:string|null=null,limit=10){
- const {all}=await import("./db");
  const columns="id,operation,model_name AS model,protocol,outcome,http_status,response_status,finish_reason,output_types,duration_ms,input_tokens,output_tokens,reasoning_tokens,output_chars,request_id,error_code,created_at";
  const sql=invoiceId?
   "SELECT "+columns+" FROM oa_finance_ai_call_log WHERE entity_id=? AND invoice_id=? ORDER BY created_at DESC,id DESC LIMIT ?":
@@ -140,7 +139,6 @@ export async function recentFinanceAiCalls(entityId:string,invoiceId:string|null
 }
 async function recordDiagnostic(entityId:string,invoiceId:string|undefined,d:FinanceAiDiagnostic){
  try{
-  const {run}=await import("./db");
   await run(
    "INSERT INTO oa_finance_ai_call_log(id,entity_id,invoice_id,model_name,protocol,operation,outcome,http_status,response_status,finish_reason,output_types,duration_ms,input_tokens,output_tokens,reasoning_tokens,output_chars,request_id,error_code) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
    [d.id,entityId,invoiceId||null,d.model,d.protocol,d.operation,d.outcome,d.http_status,d.response_status,d.finish_reason,d.output_types,
