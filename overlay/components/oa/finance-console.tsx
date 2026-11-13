@@ -67,7 +67,7 @@ export function FinanceConsole({section}:{section:Section}){
  useEffect(()=>{
   let active=true;
   (async()=>{
-   const res=await fetch("/api/oa/entities",{cache:"no-store"});const json=await res.json();
+   const res=await fetch("/api/oa/finance/entities",{cache:"no-store"});const json=await res.json();
    const available:Row[]=json?.data?.entities||[];
    const enabled=!!json?.data?.multiEntityEnabled;
    const shown=available.filter(x=>x.role==="admin"&&(enabled||x.id==="legacy-primary"));
