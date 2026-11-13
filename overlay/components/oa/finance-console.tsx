@@ -10,11 +10,11 @@ const card="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutra
 const emptyParty={party_type:"supplier",company_name:"",address:"",contact_name:"",email:"",phone:"",bank_name:"",bank_account:"",bank_swift:"",root_id:"",assigned_approver_user_id:""};
 const emptyReview={id:"",direction:"ap",party_root_id:"",invoice_number:"",invoice_date:"",due_date:"",currency:"SGD",amount:"",invoice_bank_account:"",invoice_bank_name:""};
 function amount(minor:number|string|null,currency:string){
- try{const c=currency||"SGD",digits=new Intl.NumberFormat("en",{style:"currency",currency:c}).resolvedOptions().maximumFractionDigits||2;
+ try{const c=currency||"SGD",digits=new Intl.NumberFormat("en",{style:"currency",currency:c}).resolvedOptions().maximumFractionDigits??2;
  return new Intl.NumberFormat("en",{style:"currency",currency:c}).format(Number(minor||0)/(10**digits));}catch{return String(minor||"—");}
 }
 function major(minor:number|string|null,currency:string){
- try{const digits=new Intl.NumberFormat("en",{style:"currency",currency:currency||"SGD"}).resolvedOptions().maximumFractionDigits||2;
+ try{const digits=new Intl.NumberFormat("en",{style:"currency",currency:currency||"SGD"}).resolvedOptions().maximumFractionDigits??2;
  return String(Number(minor||0)/10**digits);}catch{return "";}
 }
 async function request(entityId:string,action:string,data:Record<string,unknown>={}){
