@@ -105,9 +105,10 @@ async function invokeModel(cfg:RuntimeConfig,prompt:string,document?:{bytes:Uint
   if(document)content.push({type:"image_url",image_url:{url:data,detail:"high"}});
  }
  const url=cfg.baseUrl+(cfg.protocol==="responses"?"/responses":"/chat/completions");
+ const tokenBudget=document?800:64;
  const payload=cfg.protocol==="responses"
-  ?{model:cfg.model,store:false,max_output_tokens:800,input:[{role:"user",content}]}
-  :{model:cfg.model,stream:false,max_tokens:800,messages:[{role:"user",content}]};
+  ?{model:cfg.model,store:false,max_output_tokens:tokenBudget,input:[{role:"user",content}]}
+  :{model:cfg.model,stream:false,max_tokens:tokenBudget,messages:[{role:"user",content}]};
  // Follow no redirects: avoid forwarding the financial document and bearer token.
  const res=await fetch(url,{method:"POST",redirect:"manual",cache:"no-store",
   signal:AbortSignal.timeout(60000),headers:{"Authorization":"Bearer "+cfg.key,"Content-Type":"application/json"},
