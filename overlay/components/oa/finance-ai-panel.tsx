@@ -30,6 +30,18 @@ export function FinanceAiPanel({entityId}:{entityId:string}){
  },[entityId]);
  useEffect(()=>{
   let active=true;
+  const refreshCalls=()=>{
+   void (async()=>{
+    const response=await fetch("/api/oa/finance/ai-settings?entity_id="+encodeURIComponent(entityId),{cache:"no-store"});
+    const result=await response.json().catch(()=>null);
+    if(active&&response.ok&&result?.ok)setCalls(result.data.calls||[]);
+   })().catch(()=>{ /* Main invoice view displays server errors. */ });
+  };
+  window.addEventListener("finance-ai-call-updated",refreshCalls);
+  return ()=>{active=false;window.removeEventListener("finance-ai-call-updated",refreshCalls);};
+ },[entityId]);
+ useEffect(()=>{
+  let active=true;
   version.current++;
   setSettings({...empty});setApiKey("");setError("");setNotice("");setCalls([]);setLoading(true);
   void load().catch(e=>{if(active)setError(String(e instanceof Error?e.message:e));}).finally(()=>{if(active)setLoading(false);});
