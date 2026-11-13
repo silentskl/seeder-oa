@@ -26,6 +26,8 @@ const adminNav = [
   ["/admin/oa/approvals", "Approvals"],
   ["/admin/oa/employees", "Employees"],
   ["/admin/oa/payroll", "Payroll"],
+  ["/admin/oa/parties", "Suppliers & Customers"],
+  ["/admin/oa/finance", "Finance · AR/AP"],
   ["/admin/oa/settings", "Settings"],
 ] as const;
 
