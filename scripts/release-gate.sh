@@ -14,6 +14,7 @@ python3 "$ROOT/tests/test_migrations.py" || fail 'SQLite migration tests failed'
 python3 "$ROOT/tests/test_business_travel_migration.py" || fail 'Business travel D1 migration tests failed'
 python3 "$ROOT/tests/test_finance_migration.py" || fail 'Finance D1 migration tests failed'
 python3 "$ROOT/tests/test_finance_mail_accounts_migration.py" || fail 'Finance mailbox D1 migration tests failed'
+python3 "$ROOT/tests/test_finance_ai_migration.py" || fail 'Finance AI D1 migration tests failed'
 python3 "$ROOT/tests/test_finance_edge_fetch.py" || fail 'Finance Cloudflare Edge fetch compatibility regression failed'
 node "$ROOT/tests/check-ts-syntax.cjs" "$ROOT/overlay" || fail 'TypeScript syntax test failed'
 [[ -f "$APP/package.json" ]] || fail "Full Seeder source unavailable at $APP; full build NOT verified"
@@ -21,6 +22,7 @@ node "$ROOT/tests/check-ts-syntax.cjs" "$ROOT/overlay" || fail 'TypeScript synta
 [[ -f "$APP/migrations/9019_business_travel.sql" ]] || fail 'Business travel migration missing from applied overlay'
 [[ -f "$APP/migrations/9020_finance.sql" ]] || fail 'Finance migration missing from applied overlay'
 [[ -f "$APP/migrations/9021_finance_mail_accounts.sql" ]] || fail 'Finance mailbox migration missing from applied overlay'
+[[ -f "$APP/migrations/9022_finance_ai_settings.sql" ]] || fail 'Finance AI settings migration missing from applied overlay'
 [[ -f "$APP/migrations/9008_medical_allowance_atomic.sql" ]] || fail "Medical allowance guard migration missing"
 [[ -f "$APP/migrations/9007_expense_items.sql" ]] || fail 'Overlay not applied: migration missing'
 [[ -d "$APP/node_modules" ]] || { echo 'Installing locked dependencies'; (cd "$APP" && npm ci); }

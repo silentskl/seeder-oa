@@ -50,6 +50,24 @@ https://help.aliyun.com/zh/document_detail/3022213.html
 ### Release checks
 Migration 9021_finance_mail_accounts.sql is additive and must be applied after 9020_finance.sql. The production gate checks new tables, Entity isolation triggers, source files, and SQLite tests. Verify in staging with two Entities and two distinct provider credentials; complete the full Next.js TypeScript/build checks. This PR does not deploy workers, change MX or enable multi-company flags.
 
+## Invoice AI through ModelBridge (company-specific)
+
+Admin → Finance · AR/AP → Invoice AI / ModelBridge 设置 lets each company choose its own Base URL, API Key, model and API protocol.
+
+- **Base URL:** use an HTTPS ModelBridge prefix ending in /v1 (for example, https://your-modelbridge-host/v1), not the full /responses endpoint. Vendor-prefixed paths such as https://your-modelbridge-host/vendor/v1 are supported.
+- **API Key:** paste a token issued in ModelBridge. It is encrypted using the existing OA_SETTINGS_MASTER_KEY, never returned to the browser, and retained on edits when the input is left blank.
+- **Model name:** enter the exact model identifier configured in ModelBridge and allowed for this token.
+- **API protocol:** Responses (default: /v1/responses, PDF and images) or Chat Completions (/v1/chat/completions, images only). Not every upstream model accepts PDF even if the gateway supports Responses. Select a compatible model.
+- **Enabled:** save and enable per company. Test connection sends a minimal prompt, not a real invoice. This validates credentials and model routing, but not PDF capability.
+
+Invoices already imported without AI can be reprocessed using **Re-extract AI** in each needs_review invoice's Actions column. It reads the existing private R2 document, without downloading the email again or creating duplicate invoices. Successful extraction updates only the pending invoice metadata; a failed extraction leaves the invoice unchanged. Human confirmation, bank-account matching and settlement approval remain required.
+
+AR/AP is based on matching extracted seller/buyer names with the selected Entity legal/display name, then matching an approved supplier/customer. AI output cannot approve an invoice or relax payment controls. Documents are sent to the chosen ModelBridge service and potentially its upstream provider, so evaluate this data-sharing decision before enabling it. HTTPS and redirect blocking protect keys from cross-origin forwarding.
+
+The legacy Worker-wide OA_FINANCE_AI_API_KEY / OA_FINANCE_AI_MODEL fallback remains only if the company has no saved AI setting. An explicit disabled company setting disables AI for that company. **ModelBridge configuration does not require Worker-wide API secrets.**
+
+Migration 9022_finance_ai_settings.sql is additive. The safe update flow must back up D1, apply the migration, check tables and then deploy. Run the Python migration test and full TypeScript/Next.js build.
+
 ## Incoming mailbox (Resend — optional legacy)
 1. Review database migration 9020_finance.sql, take a verified D1 backup, then deploy the Worker after schema and build checks.
 2. Configure payable@your-company-domain in Admin → Finance · AR/AP. If another email provider already owns your MX records, forward incoming payable emails to a dedicated Resend inbound address, and set that *actual receiving address* in the Finance mailbox settings.
@@ -57,8 +75,8 @@ Migration 9021_finance_mail_accounts.sql is additive and must be applied after 9
 4. Configure these secrets for the smarten-oa Worker with npx wrangler secret put NAME:
    - OA_FINANCE_RESEND_API_KEY — received email/attachment retrieval
    - OA_FINANCE_RESEND_WEBHOOK_SECRET — Svix webhook signing secret
-   - OA_FINANCE_AI_API_KEY — optional OpenAI invoice extraction
-   - OA_FINANCE_AI_MODEL — optional model override, default gpt-4.1-mini
+   - OA_FINANCE_AI_API_KEY — legacy Worker-level OpenAI fallback only (not needed for ModelBridge UI)
+   - OA_FINANCE_AI_MODEL — legacy Worker-level model override
 5. Test with a sample PDF and confirm the invoice is needs_review, attached PDF is stored privately, and cannot be paid without human approval.
 
 The webhook verifies the signature and timestamp, retrieves the email and attachment metadata from Resend, and saves PDF/JPEG/PNG/WebP attachments (max 12 MB). Retries are deduplicated using entity + source email ID + attachment ID.
@@ -79,4 +97,4 @@ Ambiguous invoice direction or counterparty matching remains needs_review. AI pa
 No bank-transfer initiation, bank ownership verification or bank-statement reconciliation is implied.
 
 ## Verification
-Run python3 tests/test_finance_migration.py, node tests/check-ts-syntax.cjs overlay, Next.js tsc --noEmit and npm run build inside the complete Seeder application. Production deployment script verifies all five new tables and four Entity guard triggers after D1 migration and before publishing. This development branch does not deploy automatically.
+Run python3 tests/test_finance_migration.py, node tests/check-ts-syntax.cjs overlay, Next.js tsc --noEmit and npm run build inside the complete Seeder application. Production deployment script verifies all five new tables and four Entity guard triggers after D1 migration and before publishing. Merging code does not deploy production.

@@ -1,6 +1,7 @@
 "use client";
 import {FormEvent,useCallback,useEffect,useRef,useState} from "react";
 import {MailAccountsPanel} from "./finance-mail-accounts";
+import {FinanceAiPanel} from "./finance-ai-panel";
 
 type Row=Record<string,any>;
 type Section="parties"|"ledger";
@@ -151,6 +152,7 @@ export function FinanceConsole({section}:{section:Section}){
      </tr>)}</tbody></table></div>
    </section>
   </>:<>
+   <FinanceAiPanel key={entity} entityId={entity}/>
    <MailAccountsPanel entityId={entity}/>
    <details className={card}><summary className="cursor-pointer font-semibold">Legacy Resend forwarding (optional)</summary>
    <section className="mt-3">
@@ -161,7 +163,7 @@ export function FinanceConsole({section}:{section:Section}){
      <div className="min-w-64 flex-1"><Field label="Actual Resend receiving address (if forwarded)" name="receive_address" value={receiveAddress} type="email" onChange={setReceiveAddress}/></div>
      <button className={btn} disabled={busy}>Save mailbox</button>
     </form>
-    <p className="mt-3 text-xs text-neutral-500">Resend inbound: {config.resendConfigured?"configured":"not configured"} · AI PDF/image extraction: {config.aiConfigured?"configured":"not configured (manual review)"}</p>
+    <p className="mt-3 text-xs text-neutral-500">Resend inbound: {config.resendConfigured?"configured":"not configured"}</p>
    </section></details>
    <section className={card}><h2 className="mb-3 font-semibold">Import an invoice manually</h2>
     <form className="flex flex-wrap items-center gap-2" onSubmit={e=>{e.preventDefault();const fd=new FormData(e.currentTarget),file=fd.get("file");
@@ -182,6 +184,7 @@ export function FinanceConsole({section}:{section:Section}){
       <td className="p-2">{i.status}<div className="text-xs">{i.extraction_note||""}</div></td>
       <td className="space-y-2 p-2">{i.status==="needs_review"?<>
        <button className={btn} disabled={busy} onClick={()=>setReview({id:i.id,direction:i.direction==="unknown"?"ap":i.direction,party_root_id:i.party_root_id||"",invoice_number:i.invoice_number||"",invoice_date:i.invoice_date||"",due_date:i.due_date||"",currency:i.currency||"SGD",amount:major(i.amount_minor,i.currency),invoice_bank_account:i.invoice_bank_account||"",invoice_bank_name:i.invoice_bank_name||""})}>Review</button>
+       <button className={btn} disabled={busy} onClick={()=>void run(async()=>{const result=await request(entity,"invoice_reextract",{id:i.id});setReview({...emptyReview});return result;},"AI re-extraction completed; verify the fields before confirming.")}>Re-extract AI</button>
        <button className={btn} disabled={busy} onClick={()=>void run(()=>request(entity,"invoice_reject",{id:i.id}),"Invoice rejected.")}>Reject</button>
       </>:i.status==="open"?<ProofForm entity={entity} invoice={i} busy={busy} run={run}/>:null}</td>
      </tr>)}</tbody></table></div>
