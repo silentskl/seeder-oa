@@ -25,7 +25,7 @@ async function adminAssignee(entity:string,userId:string,proposer:string,allowPa
 }
 function withAccess(e:unknown){
  if(e instanceof EntityAccessError)return fail(e.message,e.status);
- const msg=errorText(e);if(/^(Invalid|Missing|Select|Invoice|Bank|Cannot|Assignee|Only|This|Party|Settlement|Duplicate|No |A |Proof)/.test(msg))return fail(msg,409);
+ const msg=errorText(e);if(/^(Invalid|Missing|Select|Invoice|Bank|Cannot|Assignee|Only|This|Party|Settlement|Duplicate|No |A |Proof|Enable|AI extraction|PDF invoice)/.test(msg))return fail(msg,409);
  console.error("OA finance operation failed",e);
  return fail("Finance operation failed",500);
 }
