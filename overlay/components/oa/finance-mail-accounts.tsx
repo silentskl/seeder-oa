@@ -1,5 +1,5 @@
 "use client";
-import {FormEvent,useCallback,useEffect,useState,type ReactNode} from "react";
+import {FormEvent,useCallback,useEffect,useRef,useState,type ReactNode} from "react";
 
 type Provider="microsoft365"|"alibaba_mail";
 type Mailbox={id:string;entity_id:string;address:string;display_name:string;provider:Provider;tenant_id:string;client_id:string;api_base:string;folder_id:string;active:number;credential_configured:boolean;sync_interval_minutes:number;initial_lookback_days:number;last_success_at:string|null;last_attempt_at:string|null;last_error:string|null;};
@@ -22,6 +22,8 @@ function Labeled({label,children}:{label:string;children:ReactNode}){
  return <label className="block min-w-0 text-xs font-medium"><span className="mb-1 block text-neutral-500">{label}</span>{children}</label>;
 }
 export function MailAccountsPanel({entityId}:{entityId:string}){
+ const currentEntity=useRef(entityId); currentEntity.current=entityId;
+ const requestVersion=useRef(0);
  const [accounts,setAccounts]=useState<Mailbox[]>([]);
  const [logs,setLogs]=useState<SyncLog[]>([]);
  const [form,setForm]=useState({...defaults});
@@ -29,16 +31,19 @@ export function MailAccountsPanel({entityId}:{entityId:string}){
  const [error,setError]=useState(""),[notice,setNotice]=useState("");
  const [hasKey,setHasKey]=useState(false);
  const load=useCallback(async()=>{
+  const seq=++requestVersion.current;
+  if(entityId!==currentEntity.current)return;
   const r=await fetch("/api/oa/finance/mail-accounts?entity_id="+encodeURIComponent(entityId),{cache:"no-store"});
   const j=await r.json().catch(()=>null);
   if(!r.ok||!j?.ok)throw new Error(j?.error||"Unable to load email accounts");
+  if(seq!==requestVersion.current||entityId!==currentEntity.current)return;
   setAccounts(j.data.accounts||[]);setLogs(j.data.logs||[]);setHasKey(!!j.data.hasMasterKey);
  },[entityId]);
  useEffect(()=>{
   let active=true;
   setForm({...defaults});setLoading(true);setError("");setNotice("");
   load().catch(e=>{if(active)setError(String(e));}).finally(()=>{if(active)setLoading(false);});
-  return ()=>{active=false;};
+  return ()=>{active=false;requestVersion.current++;};
  },[load]);
  const patch=(values:Partial<typeof defaults>)=>setForm(s=>({...s,...values}));
  async function doWork(task:()=>Promise<unknown>,success:string){
