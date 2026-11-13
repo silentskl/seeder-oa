@@ -159,6 +159,14 @@ const cfg=parsed.config;
 const enabled=String(cfg?.vars?.OA_MULTI_ENTITY_BUSINESS_ENABLED ?? '').toLowerCase()==='true';
 if(enabled){console.error('ERROR: production configuration attempts to enable unverified multi-Entity access');process.exit(1)}
 NODE
+# Full compile/build must succeed BEFORE any remote D1 migration can be applied.
+# Finance migrations include schema changes; never alter production data because of a code-only type error.
+echo "[OA] Checking TypeScript/TSX parser diagnostics before Next.js build..."
+node "$ROOT/scripts/check-oa-syntax.mjs" "$APP"
+echo "[OA] Running complete TypeScript type check (before Webpack build)..."
+(cd "$APP" && ./node_modules/.bin/tsc --noEmit)
+echo "[DEPLOY] Building production bundle..."
+npm run build
 echo "[DEPLOY] Validating Cloudflare account and production D1 access..."
 # Explicit account selection prevents Wrangler from using a stale or unrelated account.
 EXPECTED_ACCOUNT="171a0b87cb7aa3df044f301599d7d86e"
@@ -328,12 +336,6 @@ if ! printf '%s\n' "$MAIL_SCOPE" | grep -Eq '(^|[[:space:]│])6([[:space:]│]|
   echo "ERROR: finance mailbox provenance or tenant guards missing; refusing deployment." >&2
   exit 1
 fi
-echo "[OA] Checking TypeScript/TSX parser diagnostics before Next.js build..."
-node "$ROOT/scripts/check-oa-syntax.mjs" "$APP"
-echo "[OA] Running complete TypeScript type check (before Webpack build)..."
-(cd "$APP" && ./node_modules/.bin/tsc --noEmit)
-echo "[DEPLOY] Building production bundle..."
-npm run build
 echo "[DEPLOY] Publishing Cloudflare Worker smarten-oa (oa.smartenx.com)..."
 npm run deploy
 echo "[DEPLOY] Completed: smarten-oa. Verify oa.smartenx.com login, OA pages, D1 and R2 access before deleting seeder-oa."
