@@ -1,5 +1,6 @@
 import {all,audit,one,run} from "./db";
 import {getOaEnv} from "./env";
+import {financeMultiEntityActive} from "./finance-entity";
 import {decryptEmailSecret} from "./email";
 import {clean,createInvoice,extractInvoice,FINANCE_MAX_FILE,FINANCE_TYPES,mailAddress,storeFinanceDocument} from "./finance";
 
@@ -223,5 +224,5 @@ export async function syncMailAccount(account:MailAccount){
  }
 }
 export async function dueMailAccounts(limit=12){
- return all<MailAccount>("SELECT * FROM oa_finance_mail_account WHERE active=1 AND (last_attempt_at IS NULL OR datetime(last_attempt_at,'+'||sync_interval_minutes||' minutes') <= CURRENT_TIMESTAMP) AND (sync_lock_until IS NULL OR datetime(sync_lock_until) <= CURRENT_TIMESTAMP) ORDER BY last_attempt_at ASC LIMIT ?",[limit]);
+ return all<MailAccount>("SELECT * FROM oa_finance_mail_account WHERE active=1 AND (?=1 OR entity_id='legacy-primary') AND (last_attempt_at IS NULL OR datetime(last_attempt_at,'+'||sync_interval_minutes||' minutes') <= CURRENT_TIMESTAMP) AND (sync_lock_until IS NULL OR datetime(sync_lock_until) <= CURRENT_TIMESTAMP) ORDER BY last_attempt_at ASC LIMIT ?",[financeMultiEntityActive()?1:0,limit]);
 }
