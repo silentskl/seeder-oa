@@ -1,6 +1,7 @@
 import {NextRequest,NextResponse} from "next/server";
 import {one,audit} from "@/lib/oa/db";
 import {getOaEnv} from "@/lib/oa/env";
+import {financeMultiEntityActive} from "@/lib/oa/finance-entity";
 import {clean,createInvoice,extractInvoice,FINANCE_MAX_FILE,FINANCE_TYPES,mailAddress,storeFinanceDocument} from "@/lib/oa/finance";
 export const runtime="nodejs";
 const fail=(message:string,status=400)=>NextResponse.json({ok:false,error:message},{status});
@@ -45,6 +46,7 @@ export async function POST(request:NextRequest){
   const entityIds=Array.from(new Set(matches.filter(Boolean).map(m=>m!.entity_id)));
   if(entityIds.length!==1)return fail("No unique configured finance mailbox for recipient",422);
   const entity=entityIds[0];
+  if(entity!=="legacy-primary"&&!financeMultiEntityActive())return fail("Finance multi-company access not enabled",403);
   const email=await resendGet("emails/receiving/"+encodeURIComponent(emailId),env.financeResendApiKey);
   const list=await resendGet("emails/receiving/"+encodeURIComponent(emailId)+"/attachments?limit=100",env.financeResendApiKey);
   const files:Array<any>=Array.isArray(list.data)?list.data:[];
