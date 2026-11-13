@@ -93,7 +93,7 @@ export async function POST(request:NextRequest){
    const note=clean(body.note,1000);
    const db=getOaEnv().db;
    const updates=[];
-   if(action==="party_approve")updates.push(db.prepare("UPDATE oa_finance_party SET status='superseded' WHERE entity_id=? AND root_id=? AND status='approved'").bind(entity,row.root_id));
+   if(action==="party_approve")updates.push(db.prepare("UPDATE oa_finance_party SET status='superseded' WHERE entity_id=? AND root_id=? AND status='approved' AND EXISTS(SELECT 1 FROM oa_finance_party p WHERE p.id=? AND p.entity_id=? AND p.status='pending')").bind(entity,row.root_id,id,entity));
    updates.push(db.prepare("UPDATE oa_finance_party SET status=?,approved_by=?,approved_at=CURRENT_TIMESTAMP,decision_note=? WHERE id=? AND entity_id=? AND status='pending'").bind(action==="party_approve"?"approved":"rejected",viewer.id,note||null,id,entity));
    const result=await db.batch(updates);
    if(result[result.length-1].meta?.changes!==1)throw new Error("Party proposal was already processed");
