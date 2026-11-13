@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS oa_finance_party (
  bank_swift TEXT NOT NULL DEFAULT '',
  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected','superseded')),
  created_by TEXT NOT NULL REFERENCES user(id),
+ assigned_approver_user_id TEXT REFERENCES user(id),
  approved_by TEXT REFERENCES user(id),
  approved_at TEXT,
  decision_note TEXT,
@@ -74,6 +75,7 @@ CREATE TABLE IF NOT EXISTS oa_finance_invoice (
 );
 CREATE INDEX IF NOT EXISTS oa_finance_invoice_queue ON oa_finance_invoice(entity_id,status,due_date,created_at);
 CREATE INDEX IF NOT EXISTS oa_finance_invoice_party ON oa_finance_invoice(entity_id,party_root_id);
+CREATE UNIQUE INDEX IF NOT EXISTS oa_finance_invoice_no_duplicate ON oa_finance_invoice(entity_id,party_root_id,direction,invoice_number) WHERE status IN ('open','settlement_pending','settled') AND invoice_number<>'';
 CREATE TABLE IF NOT EXISTS oa_finance_settlement (
  id TEXT PRIMARY KEY,
  entity_id TEXT NOT NULL REFERENCES oa_entity(id),
