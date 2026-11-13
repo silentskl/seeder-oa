@@ -175,7 +175,7 @@ export function FinanceConsole({section}:{section:Section}){
     <div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead><tr className="text-xs text-neutral-500">{["Invoice","Counterparty / Type","Amount / Due","Bank check","Status","Actions"].map(t=><th key={t} className="p-2">{t}</th>)}</tr></thead><tbody>
      {invoices.filter(i=>directionFilter==="all"||i.direction===directionFilter).map(i=><tr key={i.id} className="border-t align-top dark:border-neutral-800">
       <td className="p-2"><div className="font-medium">{i.invoice_number||"Unrecognized"}</div><div className="text-xs">{i.invoice_date||"—"}</div><a className="text-xs underline" href={fileUrl(entity,i.document_id)}>Original invoice</a></td>
-      <td className="p-2">{i.approved_party_name||i.counterparty_name||"Unmatched"}<div className="text-xs">{String(i.direction).toUpperCase()} · {i.source}</div></td>
+      <td className="p-2">{i.approved_party_name||i.counterparty_name||"Unmatched"}<div className="text-xs">{String(i.direction).toUpperCase()} · {i.source}</div>{i.source_mailbox&&<div className="text-xs text-neutral-500">{i.source_mailbox} · {i.source_provider}</div>}</td>
       <td className="p-2">{i.amount_minor!=null?amount(i.amount_minor,i.currency):"—"}<div className="text-xs">Due {i.due_date||"—"}</div></td>
       <td className="p-2"><span className={i.bank_check==="mismatch"?"text-red-600 font-semibold":""}>{i.bank_check}</span><div className="text-xs">{i.invoice_bank_account||"No account"}</div></td>
       <td className="p-2">{i.status}<div className="text-xs">{i.extraction_note||""}</div></td>
