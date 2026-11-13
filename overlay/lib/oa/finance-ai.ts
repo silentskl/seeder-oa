@@ -209,12 +209,13 @@ async function invokeModel(
     d.outcome="invalid_json";
     throw e;
    }
-   d.outcome="success";
+   d.outcome="success";d.duration_ms=Date.now()-started;
    return {text:"",parsed,diagnostic:publicDiagnostic(d)};
   }
-  d.outcome="success";
+  d.outcome="success";d.duration_ms=Date.now()-started;
   return {text,diagnostic:publicDiagnostic(d)};
  }catch(error){
+  d.duration_ms=Date.now()-started;
   failure=error instanceof Error?error.message:"UNKNOWN_ERROR";
   d.error_code=safeCode(failure,70)||"UNKNOWN_ERROR";
   const explanation=({
