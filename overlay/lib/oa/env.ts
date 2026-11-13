@@ -11,6 +11,7 @@ export function getOaEnv() {
     OA_FINANCE_AI_API_KEY?: string;
     OA_FINANCE_AI_MODEL?: string;
     OA_FINANCE_SYNC_TOKEN?: string;
+    OA_FINANCE_MULTI_ENTITY_ENABLED?: string;
   };
   return {
     db: e.PM_DB,
@@ -23,5 +24,6 @@ export function getOaEnv() {
     financeAiKey: e.OA_FINANCE_AI_API_KEY || "",
     financeAiModel: e.OA_FINANCE_AI_MODEL || "gpt-4.1-mini",
     financeSyncToken: e.OA_FINANCE_SYNC_TOKEN || "",
+    financeMultiEntityEnabled: String(e.OA_FINANCE_MULTI_ENTITY_ENABLED || "").toLowerCase() === "true",
   };
 }
