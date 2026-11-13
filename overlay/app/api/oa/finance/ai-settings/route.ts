@@ -6,7 +6,7 @@ import {one,run,audit} from "@/lib/oa/db";
 import {encryptEmailSecret} from "@/lib/oa/email";
 import {getOaEnv} from "@/lib/oa/env";
 import {
- financeAiSettings,publicFinanceAiSettings,testFinanceAiConnection,
+ financeAiSettings,publicFinanceAiSettings,testFinanceAiConnection,recentFinanceAiCalls,FinanceAiError,
  validateFinanceAiBaseUrl,validateFinanceAiModel,validateFinanceAiProtocol
 } from "@/lib/oa/finance-ai";
 
@@ -22,6 +22,7 @@ async function authorize(entityId:unknown){
 function safeFailure(error:unknown){
  if(error instanceof EntityAccessError)return fail(error.message,error.status);
  const message=error instanceof Error?error.message:"AI configuration failed";
+ if(error instanceof FinanceAiError)return NextResponse.json({ok:false,error:message,diagnostic:error.diagnostic},{status:422});
  if(/^(Invalid|Base URL|AI Base|AI gateway|AI API|Enable|PDF invoice|Missing|Model)/.test(message))
   return fail(message,400);
  console.error("Company finance AI settings operation failed",message);
@@ -31,7 +32,8 @@ export async function GET(request:NextRequest){
  try{
   const a=await authorize(request.nextUrl.searchParams.get("entity_id"));
   if(a.error)return a.error;
-  return NextResponse.json({ok:true,data:await publicFinanceAiSettings(a.entityId!)});
+  const [settings,calls]=await Promise.all([publicFinanceAiSettings(a.entityId!),recentFinanceAiCalls(a.entityId!,null,8)]);
+  return NextResponse.json({ok:true,data:{...settings,calls}});
  }catch(error){return safeFailure(error);}
 }
 export async function POST(request:NextRequest){

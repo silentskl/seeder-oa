@@ -50,6 +50,16 @@ https://help.aliyun.com/zh/document_detail/3022213.html
 ### Release checks
 Migration 9021_finance_mail_accounts.sql is additive and must be applied after 9020_finance.sql. The production gate checks new tables, Entity isolation triggers, source files, and SQLite tests. Verify in staging with two Entities and two distinct provider credentials; complete the full Next.js TypeScript/build checks. This PR does not deploy workers, change MX or enable multi-company flags.
 
+## ModelBridge AI diagnostics and re-extraction feedback
+
+- **Save AI settings** and **Test connection** show an explicit running state and a result directly beside their buttons; the test displays HTTP status, duration and output tokens.
+- **Recent ModelBridge calls** shows per-company test and invoice attempts, outcome, response status, finish reason, output item types, input/output/reasoning tokens, elapsed milliseconds and safe request ID.
+- No raw AI responses, invoice contents, prompts, document bytes or API keys are stored in diagnostic history. Logs are admin-only and scoped to the currently selected company.
+- Every **Re-extract AI** attempt refreshes the invoice list even when the model fails. The old "AI not configured" note is replaced with the new attempt's error; the previous unapproved invoice fields and document remain intact.
+- ModelBridge may report HTTP 200 while generating no visible text. The most common candidates are reasoning consuming the whole output budget (Responses status incomplete/max_output_tokens), a response-envelope mismatch or a text/PDF-incompatible upstream model. The invoice output cap was increased from **800 to 4096** tokens and parsing now accepts the two standard compatible text envelopes without replaying the paid request. These changes do not guarantee that a text-only model can ingest PDFs.
+- If ModelBridge calls are billed but results remain empty, inspect the new response status, finish reason, output types, reasoning token count, and request ID before changing the model. Confirm PDF capability and/or select a multimodal Responses-compatible model.
+- New D1 migration: **9023_finance_ai_diagnostics.sql**. Deployment scripts automatically back up D1, apply the migration before publishing, and check per-company triggers.
+
 ## Invoice AI through ModelBridge (company-specific)
 
 Admin → Finance · AR/AP → Invoice AI / ModelBridge 设置 lets each company choose its own Base URL, API Key, model and API protocol.

@@ -7,6 +7,7 @@ type AiSettings={
  enabled:boolean;api_key_configured:boolean;legacy_environment_configured:boolean;
  settings_master_key_configured:boolean;updated_at:string|null;
 };
+type AiCall={id:string;operation:string;model:string;protocol:string;outcome:string;http_status:number|null;response_status:string;finish_reason:string;output_types:string;duration_ms:number;input_tokens:number|null;output_tokens:number|null;reasoning_tokens:number|null;output_chars:number;request_id:string;error_code:string;created_at:string};
 const fields="w-full rounded-md border border-neutral-300 bg-white p-2 text-sm dark:border-neutral-700 dark:bg-neutral-950";
 const button="rounded-lg border border-neutral-300 px-3 py-2 text-sm font-medium disabled:opacity-40 dark:border-neutral-700";
 const empty:AiSettings={base_url:"",model_name:"",protocol:"responses",enabled:false,api_key_configured:false,legacy_environment_configured:false,settings_master_key_configured:false,updated_at:null};
@@ -15,6 +16,8 @@ export function FinanceAiPanel({entityId}:{entityId:string}){
  const [settings,setSettings]=useState<AiSettings>({...empty});
  const [apiKey,setApiKey]=useState("");
  const [loading,setLoading]=useState(true),[busy,setBusy]=useState(false);
+ const [phase,setPhase]=useState<"idle"|"saving"|"testing">("idle");
+ const [calls,setCalls]=useState<AiCall[]>([]);
  const [error,setError]=useState(""),[notice,setNotice]=useState("");
  const version=useRef(0);
  const load=useCallback(async()=>{
@@ -23,12 +26,24 @@ export function FinanceAiPanel({entityId}:{entityId:string}){
   const result=await r.json().catch(()=>null);
   if(!r.ok||!result?.ok)throw new Error(result?.error||"Cannot load invoice AI settings");
   if(seq!==version.current)return;
-  setSettings(result.data);
+  setSettings(result.data);setCalls(result.data.calls||[]);
+ },[entityId]);
+ useEffect(()=>{
+  let active=true;
+  const refreshCalls=()=>{
+   void (async()=>{
+    const response=await fetch("/api/oa/finance/ai-settings?entity_id="+encodeURIComponent(entityId),{cache:"no-store"});
+    const result=await response.json().catch(()=>null);
+    if(active&&response.ok&&result?.ok)setCalls(result.data.calls||[]);
+   })().catch(()=>{ /* Main invoice view displays server errors. */ });
+  };
+  window.addEventListener("finance-ai-call-updated",refreshCalls);
+  return ()=>{active=false;window.removeEventListener("finance-ai-call-updated",refreshCalls);};
  },[entityId]);
  useEffect(()=>{
   let active=true;
   version.current++;
-  setSettings({...empty});setApiKey("");setError("");setNotice("");setLoading(true);
+  setSettings({...empty});setApiKey("");setError("");setNotice("");setCalls([]);setLoading(true);
   void load().catch(e=>{if(active)setError(String(e instanceof Error?e.message:e));}).finally(()=>{if(active)setLoading(false);});
   return ()=>{active=false;version.current++;};
  },[load]);
@@ -38,20 +53,27 @@ export function FinanceAiPanel({entityId}:{entityId:string}){
    body:JSON.stringify({action,entity_id:entityId,...data})
   });
   const result=await r.json().catch(()=>null);
-  if(!r.ok||!result?.ok)throw new Error(result?.error||"Invoice AI request failed");
+  if(!r.ok||!result?.ok){
+   const d=result?.diagnostic;
+   throw new Error((result?.error||"Invoice AI request failed")+(d?" · HTTP "+(d.http_status??"—")+" · status "+(d.response_status||d.outcome)+" · output tokens "+(d.output_tokens??"—")+" · reasoning "+(d.reasoning_tokens??"—")+" · "+(d.finish_reason||d.error_code||"")+" · request "+(d.request_id||"—"):""));
+  }
   return result.data;
  }
- async function perform(work:()=>Promise<void>){
-  setBusy(true);setError("");setNotice("");
-  try{await work();}catch(e){setError(e instanceof Error?e.message:String(e));}
-  finally{setBusy(false);}
+ async function perform(action:"saving"|"testing",work:()=>Promise<void>){
+  setBusy(true);setPhase(action);setError("");setNotice("");
+  try{await work();}
+  catch(e){setError(e instanceof Error?e.message:String(e));}
+  finally{setBusy(false);setPhase("idle");}
  }
  async function save(event:FormEvent){
   event.preventDefault();
-  await perform(async()=>{
+  await perform("saving",async()=>{
    const result=await post("save",{base_url:settings.base_url,api_key:apiKey,
     model_name:settings.model_name,protocol:settings.protocol,enabled:settings.enabled}) as AiSettings;
    setSettings(result);setApiKey("");
+   const r=await fetch("/api/oa/finance/ai-settings?entity_id="+encodeURIComponent(entityId),{cache:"no-store"});
+   const latest=await r.json().catch(()=>null);
+   if(r.ok&&latest?.ok)setCalls(latest.data.calls||[]);
    setNotice("ModelBridge configuration saved for this company. Run Test connection before importing invoices.");
   });
  }
@@ -59,8 +81,7 @@ export function FinanceAiPanel({entityId}:{entityId:string}){
  return <section className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
   <h2 className="font-semibold">Invoice AI / ModelBridge 设置</h2>
   <p className="mb-3 mt-1 text-xs text-neutral-500">Each company configures its own ModelBridge endpoint, API Key and model. Secrets are encrypted and never shown again. This service receives invoice contents for extraction; use an approved model and data policy.</p>
-  {error&&<p role="alert" className="my-2 text-sm text-red-600">{error}</p>}
-  {notice&&<p role="status" className="my-2 text-sm">{notice}</p>}
+  
   {!settings.settings_master_key_configured&&<p className="text-sm text-red-600">Configure the existing OA_SETTINGS_MASTER_KEY before saving AI credentials.</p>}
   <form onSubmit={save} className="space-y-3">
    <div className="grid gap-3 md:grid-cols-3">
@@ -90,13 +111,39 @@ export function FinanceAiPanel({entityId}:{entityId:string}){
    </div>
    <p className="text-xs text-neutral-500">Enter the API prefix ending in <code>/v1</code>, not the full <code>/responses</code> URL. Optional vendor routing: <code>https://host/vendor/v1</code>. Use Responses with a model capable of reading PDF files; a successful connection test alone does not prove PDF compatibility.</p>
    <div className="flex flex-wrap items-center gap-2">
-    <button className={button} disabled={busy||!settings.settings_master_key_configured}>Save AI settings</button>
+    <button className={button} disabled={busy||!settings.settings_master_key_configured}>{phase==="saving"?"Saving…":"Save AI settings"}</button>
     <button type="button" className={button} disabled={busy||!settings.api_key_configured||!settings.enabled}
-     onClick={()=>void perform(async()=>{const result=await post("test");setNotice(result.connected?"ModelBridge connection succeeded for model "+result.model+".":"ModelBridge connection did not return a valid answer.");})}>
-     Test connection
+     onClick={()=>void perform("testing",async()=>{
+      const result=await post("test");
+      const d=result.diagnostic;
+      setNotice(result.connected?"Connection OK · "+result.model+" · HTTP "+(d?.http_status??"—")+" · "+(d?.duration_ms??"—")+"ms · output tokens "+(d?.output_tokens??"—")+" (reasoning "+(d?.reasoning_tokens??"—")+")":"Connection test returned no answer");
+      const r=await fetch("/api/oa/finance/ai-settings?entity_id="+encodeURIComponent(entityId),{cache:"no-store"});
+      const latest=await r.json().catch(()=>null);
+      if(r.ok&&latest?.ok)setCalls(latest.data.calls||[]);
+     })}>
+     {phase==="testing"?"Testing…":"Test connection"}
     </button>
     <span className="text-xs text-neutral-500">{settings.api_key_configured?"API Key stored securely":"API Key not set"} · {settings.enabled?"Enabled":"Disabled"}</span>
    </div>
+   {busy&&<p role="status" className="mt-2 text-sm font-medium">{phase==="saving"?"Saving company AI settings…":"Calling ModelBridge AI; checking response status and output…"}</p>}
+   {notice&&<p role="status" className="mt-2 rounded-md border border-green-300 p-3 text-sm text-green-800 dark:text-green-300">{notice}</p>}
+   {error&&<p role="alert" className="mt-2 rounded-md border border-red-300 p-3 text-sm text-red-700 dark:text-red-300">{error}</p>}
   </form>
+  <details className="mt-4 border-t pt-3 dark:border-neutral-800" open={calls.length>0}>
+   <summary className="cursor-pointer text-sm font-semibold">Recent ModelBridge calls / 最近 AI 调用（{calls.length}）</summary>
+   <p className="mt-1 text-xs text-neutral-500">No API key, invoice content, prompt or response text is retained in this diagnostic history.</p>
+   <div className="mt-2 overflow-x-auto"><table className="min-w-full text-left text-xs">
+    <thead><tr>{["Time","Operation / Model","Outcome","HTTP / Reason","Tokens in/out","Duration","Request ID"].map(s=><th key={s} className="p-2">{s}</th>)}</tr></thead>
+    <tbody>{calls.map(d=><tr key={d.id} className="border-t dark:border-neutral-800">
+     <td className="p-2">{d.created_at}</td>
+     <td className="p-2">{d.operation} · {d.model}<div className="text-neutral-500">{d.protocol} · {d.output_types||"unknown output"}</div></td>
+     <td className="p-2">{d.outcome}</td>
+     <td className="p-2">{d.http_status??"—"} · {d.response_status||"—"}<div>{d.finish_reason||d.error_code||"—"}</div></td>
+     <td className="p-2">{d.input_tokens??"—"} / {d.output_tokens??"—"}<div className="text-neutral-500">Reasoning: {d.reasoning_tokens??"—"}</div></td>
+     <td className="p-2">{d.duration_ms} ms</td>
+     <td className="p-2">{d.request_id||"—"}</td>
+    </tr>)}</tbody>
+   </table></div>
+  </details>
  </section>;
 }

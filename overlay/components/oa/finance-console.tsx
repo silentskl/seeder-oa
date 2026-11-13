@@ -88,10 +88,17 @@ export function FinanceConsole({section}:{section:Section}){
   return ()=>{active=false;};
  },[load]);
  async function run(task:()=>Promise<any>,message:string){
+  const company=entity;
   setBusy(true);setError("");setNotice("");
-  try{await task();await load(entity);setNotice(message);}
+  try{await task();setNotice(message);}
   catch(e){setError(e instanceof Error?e.message:String(e));}
-  finally{setBusy(false);}
+  finally{
+   // Refresh even on error so failed re-extractions replace the old stored note
+   // with the latest diagnostic result from the server.
+   try{await load(company);}
+   catch(e){setError(e instanceof Error?e.message:String(e));}
+   setBusy(false);
+  }
  }
  function selectEntity(id:string){
   selectedEntity.current=id;requestVersion.current++;
@@ -181,10 +188,18 @@ export function FinanceConsole({section}:{section:Section}){
       <td className="p-2">{i.approved_party_name||i.counterparty_name||"Unmatched"}<div className="text-xs">{String(i.direction).toUpperCase()} · {i.source}</div>{i.source_mailbox&&<div className="text-xs text-neutral-500">{i.source_mailbox} · {i.source_provider}</div>}</td>
       <td className="p-2">{i.amount_minor!=null?amount(i.amount_minor,i.currency):"—"}<div className="text-xs">Due {i.due_date||"—"}</div></td>
       <td className="p-2"><span className={i.bank_check==="mismatch"?"text-red-600 font-semibold":""}>{i.bank_check}</span><div className="text-xs">{i.invoice_bank_account||"No account"}</div></td>
-      <td className="p-2">{i.status}<div className="text-xs">{i.extraction_note||""}</div></td>
+      <td className="p-2">{i.status}
+       <div className="text-xs">{i.extraction_note||""}</div>
+       {i.last_ai_outcome&&<div className="mt-1 rounded border p-2 text-xs dark:border-neutral-700">
+        <div className="font-medium">Latest AI: {i.last_ai_outcome} · HTTP {i.last_ai_http_status??"—"} · {i.last_ai_response_status||"—"}</div>
+        <div>Output tokens: {i.last_ai_output_tokens??"—"} · Reasoning tokens: {i.last_ai_reasoning_tokens??"—"} · Reason: {i.last_ai_finish_reason||"—"}</div>
+        <div>Response shape: {i.last_ai_output_types||"—"}</div>
+        {i.last_ai_request_id&&<div>Request ID: {i.last_ai_request_id}</div>}
+       </div>}
+      </td>
       <td className="space-y-2 p-2">{i.status==="needs_review"?<>
        <button className={btn} disabled={busy} onClick={()=>setReview({id:i.id,direction:i.direction==="unknown"?"ap":i.direction,party_root_id:i.party_root_id||"",invoice_number:i.invoice_number||"",invoice_date:i.invoice_date||"",due_date:i.due_date||"",currency:i.currency||"SGD",amount:major(i.amount_minor,i.currency),invoice_bank_account:i.invoice_bank_account||"",invoice_bank_name:i.invoice_bank_name||""})}>Review</button>
-       <button className={btn} disabled={busy} onClick={()=>void run(async()=>{const result=await request(entity,"invoice_reextract",{id:i.id});setReview({...emptyReview});return result;},"AI re-extraction completed; verify the fields before confirming.")}>Re-extract AI</button>
+       <button className={btn} disabled={busy} onClick={()=>void run(async()=>{try{const result=await request(entity,"invoice_reextract",{id:i.id});setReview({...emptyReview});return result;}finally{window.dispatchEvent(new Event("finance-ai-call-updated"));}},"AI re-extraction completed; verify the fields before confirming.")}>{busy?"Processing…":"Re-extract AI"}</button>
        <button className={btn} disabled={busy} onClick={()=>void run(()=>request(entity,"invoice_reject",{id:i.id}),"Invoice rejected.")}>Reject</button>
       </>:i.status==="open"?<ProofForm entity={entity} invoice={i} busy={busy} run={run}/>:null}</td>
      </tr>)}</tbody></table></div>

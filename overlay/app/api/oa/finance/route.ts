@@ -5,7 +5,7 @@ import {all,audit,one,run} from "@/lib/oa/db";
 import {EntityAccessError} from "@/lib/oa/entity";
 import {bankCheck,clean,createInvoice,extractInvoice,mailAddress,normalizedBank,normalizedName} from "@/lib/oa/finance";
 import {getOaEnv} from "@/lib/oa/env";
-import {runtimeFinanceAiSettings,publicFinanceAiSettings} from "@/lib/oa/finance-ai";
+import {runtimeFinanceAiSettings,publicFinanceAiSettings,recentFinanceAiCalls,FinanceAiError} from "@/lib/oa/finance-ai";
 import {majorToMinor,normalizeCurrency} from "@/lib/oa/money";
 
 export const runtime="nodejs";
@@ -41,7 +41,7 @@ export async function GET(request:NextRequest){
   const view=clean(request.nextUrl.searchParams.get("view"),30);
   if(view==="parties")return ok(await all<any>("SELECT * FROM oa_finance_party WHERE entity_id=? ORDER BY created_at DESC,id DESC LIMIT 300",[entity]));
   if(view==="invoices"){
-   const rows=await all<any>("SELECT i.*,p.company_name AS approved_party_name,p.bank_account AS approved_bank_account,d.original_name AS document_name,a.address AS source_mailbox,a.provider AS source_provider FROM oa_finance_invoice i LEFT JOIN oa_finance_party p ON p.entity_id=i.entity_id AND p.root_id=i.party_root_id AND p.status='approved' LEFT JOIN oa_finance_document d ON d.id=i.document_id AND d.entity_id=i.entity_id LEFT JOIN oa_finance_mail_account a ON a.id=i.source_mail_account_id AND a.entity_id=i.entity_id WHERE i.entity_id=? ORDER BY i.created_at DESC,i.id DESC LIMIT 300",[entity]);
+   const rows=await all<any>("SELECT i.*,p.company_name AS approved_party_name,p.bank_account AS approved_bank_account,d.original_name AS document_name,a.address AS source_mailbox,a.provider AS source_provider,l.outcome AS last_ai_outcome,l.http_status AS last_ai_http_status,l.response_status AS last_ai_response_status,l.finish_reason AS last_ai_finish_reason,l.output_tokens AS last_ai_output_tokens,l.reasoning_tokens AS last_ai_reasoning_tokens,l.output_types AS last_ai_output_types,l.request_id AS last_ai_request_id,l.created_at AS last_ai_at FROM oa_finance_invoice i LEFT JOIN oa_finance_party p ON p.entity_id=i.entity_id AND p.root_id=i.party_root_id AND p.status='approved' LEFT JOIN oa_finance_document d ON d.id=i.document_id AND d.entity_id=i.entity_id LEFT JOIN oa_finance_mail_account a ON a.id=i.source_mail_account_id AND a.entity_id=i.entity_id LEFT JOIN oa_finance_ai_call_log l ON l.id=(SELECT d.id FROM oa_finance_ai_call_log d WHERE d.entity_id=i.entity_id AND d.invoice_id=i.id ORDER BY d.created_at DESC,d.id DESC LIMIT 1) WHERE i.entity_id=? ORDER BY i.created_at DESC,i.id DESC LIMIT 300",[entity]);
    return ok(rows.map(i=>{const expected=normalizedBank(i.approved_bank_account),received=normalizedBank(i.invoice_bank_account);return {...i,bank_check:!i.approved_bank_account?"unverified":!expected||!received?"missing":expected===received?"match":"mismatch",approved_bank_account:undefined};}));
   }
   if(view==="settlements")return ok(await all<any>("SELECT s.*,i.invoice_number,i.direction,i.currency,i.amount_minor,i.counterparty_name,d.original_name AS proof_name FROM oa_finance_settlement s JOIN oa_finance_invoice i ON i.id=s.invoice_id AND i.entity_id=s.entity_id JOIN oa_finance_document d ON d.id=s.document_id AND d.entity_id=s.entity_id WHERE s.entity_id=? ORDER BY s.submitted_at DESC,s.id DESC LIMIT 300",[entity]));
@@ -125,24 +125,40 @@ export async function POST(request:NextRequest){
   }
   if(action==="invoice_reextract"){
    const id=clean(body.id,80);
-   if(!await runtimeFinanceAiSettings(entity))throw new Error("Enable and configure company invoice AI before re-extraction");
+
    const invoice=await one<any>(
     "SELECT i.id,i.sender_email,d.r2_key,d.original_name,d.content_type FROM oa_finance_invoice i JOIN oa_finance_document d ON d.id=i.document_id AND d.entity_id=i.entity_id WHERE i.id=? AND i.entity_id=? AND i.status='needs_review'",
     [id,entity]);
    if(!invoice)throw new Error("Invoice is no longer awaiting review");
    const object=await getOaEnv().uploads.get(invoice.r2_key);
    if(!object)throw new Error("Invoice document not found in private storage");
-   const parsed=await extractInvoice({entityId:entity,bytes:new Uint8Array(await object.arrayBuffer()),
-    type:invoice.content_type,name:invoice.original_name,subject:"",body:"",sender:invoice.sender_email});
-   if(parsed.extractionStatus!=="extracted")throw new Error("AI extraction failed: "+(parsed.extractionNote||"unsupported document/model"));
-   const result=await run(
-    "UPDATE oa_finance_invoice SET direction=?,party_root_id=?,counterparty_name=?,invoice_number=?,invoice_date=?,due_date=?,currency=?,amount_minor=?,invoice_bank_account=?,invoice_bank_name=?,bank_check=?,extraction_status=?,extraction_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='needs_review'",
-    [parsed.direction,parsed.partyRootId,parsed.counterpartyName,parsed.invoiceNumber,parsed.invoiceDate,parsed.dueDate,
-     parsed.currency,parsed.amountMinor,parsed.bankAccount,parsed.bankName,parsed.bankCheck,parsed.extractionStatus,parsed.extractionNote,id,entity]
-   );
-   if(result.meta?.changes!==1)throw new Error("Invoice was already reviewed");
-   await audit(viewer.id,"finance.invoice.reextract","finance_invoice",id,{direction:parsed.direction,party:parsed.partyRootId,extraction:parsed.extractionStatus},entity);
-   return ok({id,direction:parsed.direction,extraction_status:parsed.extractionStatus,extraction_note:parsed.extractionNote});
+   try{
+    if(!await runtimeFinanceAiSettings(entity))throw new Error("Enable and configure company invoice AI before re-extraction");
+    const parsed=await extractInvoice({entityId:entity,bytes:new Uint8Array(await object.arrayBuffer()),
+     type:invoice.content_type,name:invoice.original_name,subject:"",body:"",sender:invoice.sender_email,
+     invoiceId:id,throwOnAiFailure:true});
+    if(parsed.extractionStatus!=="extracted")throw new Error("AI returned no extracted fields");
+    const result=await run(
+     "UPDATE oa_finance_invoice SET direction=?,party_root_id=?,counterparty_name=?,invoice_number=?,invoice_date=?,due_date=?,currency=?,amount_minor=?,invoice_bank_account=?,invoice_bank_name=?,bank_check=?,extraction_status=?,extraction_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='needs_review'",
+     [parsed.direction,parsed.partyRootId,parsed.counterpartyName,parsed.invoiceNumber,parsed.invoiceDate,parsed.dueDate,
+      parsed.currency,parsed.amountMinor,parsed.bankAccount,parsed.bankName,parsed.bankCheck,parsed.extractionStatus,parsed.extractionNote,id,entity]
+    );
+    if(result.meta?.changes!==1)throw new Error("Invoice was already reviewed");
+    const diagnostics=await recentFinanceAiCalls(entity,id,1);
+    await audit(viewer.id,"finance.invoice.reextract","finance_invoice",id,{direction:parsed.direction,party:parsed.partyRootId,extraction:parsed.extractionStatus,diagnosticId:diagnostics[0]?.id||null},entity);
+    return ok({id,direction:parsed.direction,extraction_status:parsed.extractionStatus,extraction_note:parsed.extractionNote,diagnostic:diagnostics[0]||null});
+   }catch(error){
+    const message=error instanceof Error?error.message:"AI re-extraction failed";
+    const safeNote=("Latest AI re-extraction failed: "+message).slice(0,380);
+    // Do not overwrite invoice data or its approval state on a failed retry;
+    // update the stale original error with the current attempt's failure.
+    await run("UPDATE oa_finance_invoice SET extraction_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='needs_review'",
+     [safeNote,id,entity]);
+    const diagnostics=await recentFinanceAiCalls(entity,id,1);
+    await audit(viewer.id,"finance.invoice.reextract_failed","finance_invoice",id,
+     {diagnosticId:diagnostics[0]?.id||null,errorCode:diagnostics[0]?.error_code||"NO_RESULT"},entity);
+    return NextResponse.json({ok:false,error:message,diagnostic:diagnostics[0]||null},{status:error instanceof FinanceAiError?422:400});
+   }
   }
   if(action==="invoice_review"){
    const id=clean(body.id,80);
