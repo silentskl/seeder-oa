@@ -38,9 +38,9 @@ export async function GET(request:NextRequest){
   if(view==="invoices")return ok(await all<any>("SELECT i.*,p.company_name AS approved_party_name,d.original_name AS document_name FROM oa_finance_invoice i LEFT JOIN oa_finance_party p ON p.entity_id=i.entity_id AND p.root_id=i.party_root_id AND p.status='approved' LEFT JOIN oa_finance_document d ON d.id=i.document_id AND d.entity_id=i.entity_id WHERE i.entity_id=? ORDER BY i.created_at DESC,i.id DESC LIMIT 300",[entity]));
   if(view==="settlements")return ok(await all<any>("SELECT s.*,i.invoice_number,i.direction,i.currency,i.amount_minor,i.counterparty_name,d.original_name AS proof_name FROM oa_finance_settlement s JOIN oa_finance_invoice i ON i.id=s.invoice_id AND i.entity_id=s.entity_id JOIN oa_finance_document d ON d.id=s.document_id AND d.entity_id=s.entity_id WHERE s.entity_id=? ORDER BY s.submitted_at DESC,s.id DESC LIMIT 300",[entity]));
   if(view==="config"){
-   const mailbox=await one<{address:string}>("SELECT address FROM oa_finance_mailbox WHERE entity_id=?",[entity]);
+   const mailbox=await one<{address:string;receive_address:string}>("SELECT address,receive_address FROM oa_finance_mailbox WHERE entity_id=?",[entity]);
    const approvers=await all<{id:string;name:string;email:string}>("SELECT u.id,u.name,u.email FROM oa_entity_member m JOIN user u ON u.id=m.user_id WHERE m.entity_id=? AND m.active=1 AND m.role='admin' ORDER BY u.name,u.email",[entity]);
-   return ok({mailbox:mailbox?.address||"",approvers,aiConfigured:!!getOaEnv().financeAiKey,resendConfigured:!!getOaEnv().financeResendApiKey&&!!getOaEnv().financeResendWebhookSecret});
+   return ok({mailbox:mailbox?.address||"",receiveAddress:mailbox?.receive_address||"",approvers,aiConfigured:!!getOaEnv().financeAiKey,resendConfigured:!!getOaEnv().financeResendApiKey&&!!getOaEnv().financeResendWebhookSecret});
   }
   return fail("Unknown finance view",404);
  }catch(e){if(errorText(e)==="UNAUTHORIZED")return fail("Unauthorized",401);return withAccess(e);}
@@ -71,9 +71,11 @@ export async function POST(request:NextRequest){
   if(action==="set_mailbox"){
    const address=checkEmail(body.address);
    if(!/^payable@[^@]+$/.test(address))throw new Error("Invalid mailbox: use payable@your-company-domain");
-   await run("INSERT INTO oa_finance_mailbox(entity_id,address,updated_by) VALUES(?,?,?) ON CONFLICT(entity_id) DO UPDATE SET address=excluded.address,updated_by=excluded.updated_by,updated_at=CURRENT_TIMESTAMP",[entity,address,viewer.id]);
-   await audit(viewer.id,"finance.mailbox.configure","finance_mailbox",entity,{address},entity);
-   return ok({address});
+   const receiveAddress=body.receive_address?checkEmail(body.receive_address):address;
+   if(!receiveAddress)throw new Error("Invalid receiving/forwarding address");
+   await run("INSERT INTO oa_finance_mailbox(entity_id,address,receive_address,updated_by) VALUES(?,?,?,?) ON CONFLICT(entity_id) DO UPDATE SET address=excluded.address,receive_address=excluded.receive_address,updated_by=excluded.updated_by,updated_at=CURRENT_TIMESTAMP",[entity,address,receiveAddress,viewer.id]);
+   await audit(viewer.id,"finance.mailbox.configure","finance_mailbox",entity,{address,receiveAddress},entity);
+   return ok({address,receiveAddress});
   }
   if(action==="party_assign"){
    const id=clean(body.id,80),row=await one<any>("SELECT created_by,status FROM oa_finance_party WHERE id=? AND entity_id=?",[id,entity]);
