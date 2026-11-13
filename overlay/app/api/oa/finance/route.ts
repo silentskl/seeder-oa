@@ -5,6 +5,7 @@ import {all,audit,one,run} from "@/lib/oa/db";
 import {EntityAccessError} from "@/lib/oa/entity";
 import {bankCheck,clean,createInvoice,extractInvoice,mailAddress,normalizedBank,normalizedName} from "@/lib/oa/finance";
 import {getOaEnv} from "@/lib/oa/env";
+import {runtimeFinanceAiSettings,publicFinanceAiSettings} from "@/lib/oa/finance-ai";
 import {majorToMinor,normalizeCurrency} from "@/lib/oa/money";
 
 export const runtime="nodejs";
@@ -47,7 +48,8 @@ export async function GET(request:NextRequest){
   if(view==="config"){
    const mailbox=await one<{address:string;receive_address:string}>("SELECT address,receive_address FROM oa_finance_mailbox WHERE entity_id=?",[entity]);
    const approvers=await all<{id:string;name:string;email:string}>("SELECT u.id,u.name,u.email FROM oa_entity_member m JOIN user u ON u.id=m.user_id WHERE m.entity_id=? AND m.active=1 AND m.role='admin' ORDER BY u.name,u.email",[entity]);
-   return ok({mailbox:mailbox?.address||"",receiveAddress:mailbox?.receive_address||"",approvers,aiConfigured:!!getOaEnv().financeAiKey,resendConfigured:!!getOaEnv().financeResendApiKey&&!!getOaEnv().financeResendWebhookSecret});
+   const ai=await publicFinanceAiSettings(entity);
+   return ok({mailbox:mailbox?.address||"",receiveAddress:mailbox?.receive_address||"",approvers,aiConfigured:ai.enabled&&ai.api_key_configured||ai.legacy_environment_configured,resendConfigured:!!getOaEnv().financeResendApiKey&&!!getOaEnv().financeResendWebhookSecret});
   }
   return fail("Unknown finance view",404);
  }catch(e){if(errorText(e)==="UNAUTHORIZED")return fail("Unauthorized",401);return withAccess(e);}
@@ -120,6 +122,27 @@ export async function POST(request:NextRequest){
    const id=await createInvoice({entityId:entity,documentId,source:"manual",sender:"",parsed});
    await audit(viewer.id,"finance.invoice.import","finance_invoice",id,{documentId,extraction:parsed.extractionStatus},entity);
    return ok({id,status:"needs_review"},201);
+  }
+  if(action==="invoice_reextract"){
+   const id=clean(body.id,80);
+   if(!await runtimeFinanceAiSettings(entity))throw new Error("Enable and configure company invoice AI before re-extraction");
+   const invoice=await one<any>(
+    "SELECT i.id,i.sender_email,d.r2_key,d.original_name,d.content_type FROM oa_finance_invoice i JOIN oa_finance_document d ON d.id=i.document_id AND d.entity_id=i.entity_id WHERE i.id=? AND i.entity_id=? AND i.status='needs_review'",
+    [id,entity]);
+   if(!invoice)throw new Error("Invoice is no longer awaiting review");
+   const object=await getOaEnv().uploads.get(invoice.r2_key);
+   if(!object)throw new Error("Invoice document not found in private storage");
+   const parsed=await extractInvoice({entityId:entity,bytes:new Uint8Array(await object.arrayBuffer()),
+    type:invoice.content_type,name:invoice.original_name,subject:"",body:"",sender:invoice.sender_email});
+   if(parsed.extractionStatus!=="extracted")throw new Error("AI extraction failed: "+(parsed.extractionNote||"unsupported document/model"));
+   const result=await run(
+    "UPDATE oa_finance_invoice SET direction=?,party_root_id=?,counterparty_name=?,invoice_number=?,invoice_date=?,due_date=?,currency=?,amount_minor=?,invoice_bank_account=?,invoice_bank_name=?,bank_check=?,extraction_status=?,extraction_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='needs_review'",
+    [parsed.direction,parsed.partyRootId,parsed.counterpartyName,parsed.invoiceNumber,parsed.invoiceDate,parsed.dueDate,
+     parsed.currency,parsed.amountMinor,parsed.bankAccount,parsed.bankName,parsed.bankCheck,parsed.extractionStatus,parsed.extractionNote,id,entity]
+   );
+   if(result.meta?.changes!==1)throw new Error("Invoice was already reviewed");
+   await audit(viewer.id,"finance.invoice.reextract","finance_invoice",id,{direction:parsed.direction,party:parsed.partyRootId,extraction:parsed.extractionStatus},entity);
+   return ok({id,direction:parsed.direction,extraction_status:parsed.extractionStatus,extraction_note:parsed.extractionNote});
   }
   if(action==="invoice_review"){
    const id=clean(body.id,80);
