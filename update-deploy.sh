@@ -132,7 +132,14 @@ if ! grep -q 'Current claim · Expense items' "$APP_CONSOLE" || ! grep -q 'Claim
   exit 1
 fi
 printf '[DEPLOY] Verified OA frontend source SHA256: '
-sha256sum "$APP_CONSOLE" | awk '{print $1}'
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256sum "$APP_CONSOLE" | awk '{print $1}'
+elif command -v shasum >/dev/null 2>&1; then
+  shasum -a 256 "$APP_CONSOLE" | awk '{print $1}'
+else
+  echo "ERROR: SHA256 checksum utility not found" >&2
+  exit 1
+fi
 echo "[DEPLOY] Checking Phase 2B entity isolation source invariants..."
 node "$ROOT/scripts/check-phase2b-isolation.mjs" "$APP"
 echo "[DEPLOY] Checking Phase 3/4 company controls and direct-download isolation..."
