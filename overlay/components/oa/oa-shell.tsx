@@ -11,6 +11,7 @@ type Props = {
   userEmail: string;
   isAdmin: boolean;
   isManager: boolean;
+  isFinanceAdmin: boolean;
 };
 
 const employeeNav = [
@@ -37,7 +38,7 @@ function NavLink({href,label}:{href:string;label:string}) {
   return <Link href={href} className={`block rounded-lg px-3 py-2 text-sm transition ${active?"bg-neutral-900 font-medium text-white dark:bg-white dark:text-neutral-900":"text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-300 dark:hover:bg-neutral-900 dark:hover:text-white"}`}>{label}</Link>;
 }
 
-export function OaShell({children,userName,userEmail,isAdmin,isManager}:Props) {
+export function OaShell({children,userName,userEmail,isAdmin,isManager,isFinanceAdmin}:Props) {
   const pathname = usePathname();
   const adminMode = pathname.startsWith("/admin/oa");
   return <div className="min-h-dvh bg-neutral-50 text-neutral-950 dark:bg-neutral-950 dark:text-neutral-100 md:flex">
@@ -53,6 +54,7 @@ export function OaShell({children,userName,userEmail,isAdmin,isManager}:Props) {
       </div>}
       <nav className="space-y-1">
         {(adminMode && isAdmin ? adminNav : employeeNav).map(([href,label])=><NavLink key={href} href={href} label={label}/>)}
+        {!isAdmin&&isFinanceAdmin&&<><NavLink href="/admin/oa/parties" label="Suppliers & Customers"/><NavLink href="/admin/oa/finance" label="Finance · AR/AP"/></>}
         {!adminMode && isManager ? <NavLink href="/oa/approvals" label="Approvals"/> : null}
       </nav>
       <div className="mt-5 border-t border-neutral-200 px-3 pt-4 dark:border-neutral-800">
