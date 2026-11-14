@@ -26,7 +26,7 @@ export function validateMailBackfillRange(from:unknown,to:unknown){
  const a=dateTime(start),b=dateTime(end);
  if(b<a)throw new Error("Backfill end date must not precede start date");
  if(b-a>3660*86400000)throw new Error("Backfill range must be 10 years or less");
- if(b>Date.now()+86400000)throw new Error("Backfill end date cannot be in the future");
+ if(b>Date.parse(new Date().toISOString().slice(0,10)+"T00:00:00.000Z"))throw new Error("Backfill end date cannot be in the future");
  const toExclusive=new Date(b+86400000).toISOString().slice(0,10);
  return {from:start,to:end,toExclusive};
 }
