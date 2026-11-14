@@ -70,10 +70,16 @@ export function FinanceConsole({section}:{section:Section}){
  const load=useCallback(async(id:string)=>{
   if(id!==selectedEntity.current)return;
   const seq=++requestVersion.current;
+  if(section==="parties"){
+   const [p,c]=await Promise.all([fetchView(id,"parties"),fetchView(id,"config")]);
+   if(seq!==requestVersion.current||id!==selectedEntity.current)return;
+   setParties(p);setConfig(c);
+   return;
+  }
   const [p,i,s,c,b]=await Promise.all([fetchView(id,"parties"),fetchView(id,"invoices"),fetchView(id,"settlements"),fetchView(id,"config"),fetchView(id,"balances")]);
   if(seq!==requestVersion.current||id!==selectedEntity.current)return;
   setParties(p);setInvoices(i);setSettlements(s);setBalances(b);setConfig(c);setMailbox(c.mailbox||"");setReceiveAddress(c.receiveAddress||c.mailbox||"");
- },[]);
+ },[section]);
  useEffect(()=>{
   let active=true;
   (async()=>{
