@@ -190,7 +190,7 @@ export function FinanceConsole({section}:{section:Section}){
       {([[t("Company name","公司名称"),"company_name"],[t("Address","地址"),"address"],[t("Contact name","联系人"),"contact_name"],[t("Email","电子邮箱"),"email"],[t("Telephone","电话"),"phone"],[t("Bank name","银行名称"),"bank_name"],[t("Bank account","银行账号"),"bank_account"],["SWIFT/BIC","bank_swift"]] as const).map(([label,k])=><Field key={k} label={label} name={k} value={party[k]}
        type={k==="email"?"email":"text"} required={k==="company_name"} onChange={v=>setParty(s=>({...s,[k]:v}))}/>)}
       <label className="text-xs">{t("Approving admin (optional)","审批管理员（可选）")}<select className={input+" mt-1"} value={party.assigned_approver_user_id||""} onChange={e=>setParty(s=>({...s,assigned_approver_user_id:e.target.value}))}>
-       <option value="">Any other admin</option>{admins.map(a=><option key={a.id} value={a.id}>{a.name||a.email}</option>)}</select></label>
+       <option value="">{t("Any other admin","任意其他管理员")}</option>{admins.map(a=><option key={a.id} value={a.id}>{a.name||a.email}</option>)}</select></label>
      </div>
      <div className="flex gap-2"><button disabled={busy} className={primary}>{t("Submit for approval","提交审批")}</button>{party.root_id&&<button type="button" className={btn} onClick={()=>setParty({...emptyParty})}>{t("Cancel editing","取消编辑")}</button>}</div>
     </form>
