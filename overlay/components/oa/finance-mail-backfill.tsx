@@ -6,7 +6,7 @@ type Account={id:string;address:string;active:number};
 type History={
  id:string;account_id:string;date_from:string;date_to:string;
  status:"queued"|"running"|"paused"|"completed"|"failed"|"cancelled";
- pages_processed:number;messages_scanned:number;invoices_imported:number;
+ pages_processed:number;messages_scanned:number;attachment_offset:number;invoices_imported:number;
  duplicates_skipped:number;other_skipped:number;retry_count:number;
  last_error:string|null;updated_at:string;created_at:string;finished_at:string|null;
 };
@@ -86,12 +86,12 @@ export function FinanceMailBackfillPanel({entityId,accounts}:{entityId:string;ac
   {error&&<p role="alert" className="mt-3 rounded-md border border-red-300 p-2 text-sm text-red-700 dark:text-red-300">{error}</p>}
   {notice&&<p role="status" className="mt-3 rounded-md border p-2 text-sm">{notice}</p>}
   <div className="mt-4 overflow-x-auto"><table className="min-w-full text-left text-xs">
-   <thead><tr>{["Mailbox / Dates","State","Pages","Scanned","Imported","Duplicates","Skipped","Last error","Actions"].map(x=><th key={x} className="p-2">{x}</th>)}</tr></thead>
+   <thead><tr>{["Mailbox / Dates","State","Pages","Scanned","File offset","Imported","Duplicates","Skipped","Last error","Actions"].map(x=><th key={x} className="p-2">{x}</th>)}</tr></thead>
    <tbody>{jobs.map(job=><tr key={job.id} className="border-t align-top dark:border-neutral-800">
     <td className="p-2">{accounts.find(a=>a.id===job.account_id)?.address||job.account_id}
      <div className="text-neutral-500">{job.date_from} – {job.date_to}</div></td>
     <td className="p-2 font-medium">{job.status}<div className="font-normal text-neutral-500">{job.updated_at}</div></td>
-    <td className="p-2">{job.pages_processed}</td><td className="p-2">{job.messages_scanned}</td>
+    <td className="p-2">{job.pages_processed}</td><td className="p-2">{job.messages_scanned}</td><td className="p-2">{job.attachment_offset}</td>
     <td className="p-2">{job.invoices_imported}</td><td className="p-2">{job.duplicates_skipped}</td>
     <td className="p-2">{job.other_skipped}</td><td className="max-w-52 p-2">{job.last_error||"—"}</td>
     <td className="p-2"><div className="flex flex-wrap gap-1">
