@@ -71,6 +71,8 @@ class FinanceMailBackfillMigrationTests(unittest.TestCase):
   self.assertIn('activeTab==="config"',UI)
   self.assertIn('activeTab==="data"',UI)
   self.assertIn("FinanceBalances",UI)
+  self.assertIn("LIMIT 300 OFFSET ?",FINANCE)
+  self.assertIn("Load older invoices",UI)
   self.assertIn("AR / Receivables",UI)
   self.assertIn("AP / Payables",UI)
  def test_totals_accounting_excludes_unapproved_invoices(self):
