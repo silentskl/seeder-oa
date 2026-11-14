@@ -52,9 +52,18 @@ def export(bucket: str, dest: Path, manifest: Path) -> None:
     secret = os.environ.get("R2_SECRET_ACCESS_KEY", "").strip()
     if not all((account,key,secret)):
         raise SystemExit("CLOUDFLARE_ACCOUNT_ID, R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY must be set")
+    # R2 jurisdictional buckets have different S3 endpoints. Never send
+    # bearer-like S3 credentials to an arbitrary URL from the environment.
+    from urllib.parse import urlparse
+    allowed={f"{account}.r2.cloudflarestorage.com"}
+    allowed.update(f"{account}.{region}.r2.cloudflarestorage.com" for region in ("eu","us","fedramp"))
+    endpoint=os.environ.get("R2_S3_ENDPOINT") or f"https://{account}.r2.cloudflarestorage.com"
+    parsed=urlparse(endpoint)
+    if parsed.scheme!="https" or parsed.hostname not in allowed or parsed.port or parsed.username or parsed.password or parsed.path not in ("","/") or parsed.query or parsed.fragment:
+        raise SystemExit("R2_S3_ENDPOINT must be an official Cloudflare endpoint for this account")
     dest.mkdir(parents=True, exist_ok=True)
     client = boto3.client("s3",region_name="auto",
-        endpoint_url=f"https://{account}.r2.cloudflarestorage.com",
+        endpoint_url=endpoint,
         aws_access_key_id=key, aws_secret_access_key=secret)
     results = []
     seen = set()
