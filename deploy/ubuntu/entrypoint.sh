@@ -12,7 +12,7 @@ if [ ! -d "$UPLOAD_DIR" ]; then
  exit 1
 fi
 for KEY in BETTER_AUTH_SECRET VCS_ENCRYPTION_KEY OA_SETTINGS_MASTER_KEY OA_FINANCE_SYNC_TOKEN BETTER_AUTH_URL; do
- eval "VALUE=\${$KEY:-}"
+ VALUE="$(printenv "$KEY" || true)"
  if [ -z "$VALUE" ]; then
   echo "FATAL: $KEY missing. Carry forward the ORIGINAL Cloudflare secret value." >&2
   exit 1
