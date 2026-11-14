@@ -28,7 +28,7 @@ UPDATE oa_finance_invoice AS i
   WHERE j.entity_id=i.entity_id AND j.direction=i.direction
     AND j.invoice_number_key=i.invoice_number_key AND j.invoice_number_key<>''
     AND j.status<>'rejected'
-    AND (j.created_at<i.created_at OR (j.created_at=i.created_at AND j.id<i.id))
+    AND (j.status IN ('open','settlement_pending','settled') OR j.created_at<i.created_at OR (j.created_at=i.created_at AND j.id<i.id))
     AND ((i.party_root_id IS NOT NULL AND j.party_root_id=i.party_root_id)
       OR (i.counterparty_key<>'' AND i.counterparty_key=j.counterparty_key))
   ORDER BY j.created_at ASC,j.id ASC LIMIT 1),
@@ -41,7 +41,7 @@ UPDATE oa_finance_invoice AS i
     WHERE j.entity_id=i.entity_id AND j.direction=i.direction
       AND j.invoice_number_key=i.invoice_number_key AND j.invoice_number_key<>''
       AND j.status<>'rejected'
-      AND (j.created_at<i.created_at OR (j.created_at=i.created_at AND j.id<i.id))
+      AND (j.status IN ('open','settlement_pending','settled') OR j.created_at<i.created_at OR (j.created_at=i.created_at AND j.id<i.id))
       AND ((i.party_root_id IS NOT NULL AND j.party_root_id=i.party_root_id)
         OR (i.counterparty_key<>'' AND i.counterparty_key=j.counterparty_key))
    );
