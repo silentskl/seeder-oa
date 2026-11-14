@@ -94,7 +94,8 @@ python3 deploy/ubuntu/migrate.py import \
 python3 deploy/ubuntu/migrate.py verify \
   --data-dir /data/seeder-oa/deploy/ubuntu/data
 docker compose -f deploy/ubuntu/docker-compose.yml config
-docker compose -f deploy/ubuntu/docker-compose.yml up -d --build
+# Rehearsal: do NOT run the finance scheduler against a live mailbox.
+bash deploy/ubuntu/start.sh --app-only
 docker compose -f deploy/ubuntu/docker-compose.yml ps
 docker compose -f deploy/ubuntu/docker-compose.yml logs --tail 100 seeder-oa
 ```
@@ -111,8 +112,11 @@ test copy. Email scheduler should remain disabled in the rehearsal to
 avoid double processing. To run the web app alone use:
 
 ```bash
-docker compose -f deploy/ubuntu/docker-compose.yml up -d --build seeder-oa
+bash deploy/ubuntu/start.sh --app-only
 ```
+
+The launcher rejects placeholder encryption secrets and refuses to start
+before the migrated SQLite database and files exist.
 
 Use a separate sandbox domain or localhost with a test-specific auth setup
 for application acceptance tests; don't expose the cloned production data.
@@ -130,7 +134,10 @@ for application acceptance tests; don't expose the cloned production data.
    it without a backup. Import the final snapshot into a **clean** data dir
    and run `migrate.py verify` **before** starting Docker.
 4. Verify `BETTER_AUTH_URL`, the existing encryption secrets, and the
-   selected multi-entity flags. Bring up the app, then the finance scheduler.
+   selected multi-entity flags. Bring up the app with
+   `bash deploy/ubuntu/start.sh --app-only`. After successful login,
+   document/Invoice and other smoke tests and DNS cutover, use
+   `bash deploy/ubuntu/start.sh` to enable the finance scheduler.
 5. Change DNS / Cloudflare reverse proxy origin for the existing HTTPS
    domain to Ubuntu Nginx. Proxy to `http://127.0.0.1:3000` with forwarded
    Host, scheme, and client IP headers; keep TLS on the canonical domain.
@@ -185,7 +192,7 @@ publishing script. Use:
 cd /data/seeder-oa
 git pull --ff-only origin main
 bash deploy/ubuntu/prepare.sh "$PWD/seeder-oa-app"
-docker compose -f deploy/ubuntu/docker-compose.yml up -d --build
+bash deploy/ubuntu/start.sh
 ```
 
 Check Node-mode migrations in `migrations/` before bringing the new image
