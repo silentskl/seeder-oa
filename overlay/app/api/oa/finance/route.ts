@@ -3,7 +3,7 @@ import {NextRequest,NextResponse} from "next/server";
 import {getViewer} from "@/lib/auth-server";
 import {all,audit,one,run} from "@/lib/oa/db";
 import {EntityAccessError} from "@/lib/oa/entity";
-import {bankCheck,clean,createInvoice,extractInvoice,mailAddress,normalizedBank,normalizedName} from "@/lib/oa/finance";
+import {bankCheck,clean,createInvoice,extractInvoice,mailAddress,normalizedBank,normalizedName,dueDatePlus30} from "@/lib/oa/finance";
 import {getOaEnv} from "@/lib/oa/env";
 import {runtimeFinanceAiSettings,publicFinanceAiSettings,recentFinanceAiCalls,FinanceAiError} from "@/lib/oa/finance-ai";
 import {majorToMinor,normalizeCurrency} from "@/lib/oa/money";
@@ -153,9 +153,9 @@ export async function POST(request:NextRequest){
      currency:parsed.currency,amountMinor:parsed.amountMinor};
     const duplicate=await findBusinessInvoiceDuplicate(probe),d=duplicateFields(probe,duplicate);
     const result=await run(
-     "UPDATE oa_finance_invoice SET direction=?,party_root_id=?,counterparty_name=?,invoice_number=?,invoice_date=?,due_date=?,currency=?,amount_minor=?,invoice_bank_account=?,invoice_bank_name=?,bank_check=?,extraction_status=?,extraction_note=?,invoice_number_key=?,counterparty_key=?,duplicate_of_invoice_id=?,duplicate_status=?,duplicate_reason=?,duplicate_decision_note='',duplicate_decided_by=NULL,duplicate_decided_at=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='needs_review'",
+     "UPDATE oa_finance_invoice SET direction=?,party_root_id=?,counterparty_name=?,invoice_number=?,invoice_date=?,due_date=?,due_date_inferred=?,currency=?,amount_minor=?,invoice_bank_account=?,invoice_bank_name=?,bank_check=?,extraction_status=?,extraction_note=?,due_date_inferred=?,invoice_number_key=?,counterparty_key=?,duplicate_of_invoice_id=?,duplicate_status=?,duplicate_reason=?,duplicate_decision_note='',duplicate_decided_by=NULL,duplicate_decided_at=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='needs_review'",
      [parsed.direction,parsed.partyRootId,parsed.counterpartyName,parsed.invoiceNumber,parsed.invoiceDate,parsed.dueDate,
-      parsed.currency,parsed.amountMinor,parsed.bankAccount,parsed.bankName,parsed.bankCheck,parsed.extractionStatus,parsed.extractionNote,d.invoice_number_key,d.counterparty_key,d.duplicate_of_invoice_id,d.duplicate_status,d.duplicate_reason,id,entity]
+      parsed.currency,parsed.amountMinor,parsed.bankAccount,parsed.bankName,parsed.bankCheck,parsed.extractionStatus,parsed.extractionNote,parsed.dueDateInferred?1:0,d.invoice_number_key,d.counterparty_key,d.duplicate_of_invoice_id,d.duplicate_status,d.duplicate_reason,id,entity]
     );
     if(result.meta?.changes!==1)throw new Error("Invoice was already reviewed");
     const diagnostics=await recentFinanceAiCalls(entity,id,1);
@@ -208,12 +208,16 @@ export async function POST(request:NextRequest){
    const number=clean(body.invoice_number,100);if(!number)throw new Error("Missing invoice number");
    const currency=normalizeCurrency(body.currency);
    const amount=majorToMinor(body.amount,currency);if(amount<=0)throw new Error("Invalid invoice amount");
+   const invoiceDate=validDate(body.invoice_date),submittedDue=validDate(body.due_date);
+   const previousWasInferred=prev.due_date_inferred===1&&!!prev.due_date&&prev.due_date===submittedDue;
+   const inferred=(!submittedDue&&!!invoiceDate)||(previousWasInferred&&prev.invoice_date!==invoiceDate);
+   const dueDate=inferred?dueDatePlus30(invoiceDate):submittedDue;
    const account=clean(body.invoice_bank_account,150);
    const bank=await bankCheck(entity,root,account);
    // For AP, the beneficiary account must match the currently approved supplier bank record.
    if(direction==="ap"&&bank!=="match")throw new Error("Bank account verification required before an AP invoice can be opened");
    const probe={entityId:entity,invoiceId:id,invoiceNumber:number,direction:direction as "ar"|"ap",
-    partyRootId:root,counterpartyName:party.company_name,invoiceDate:validDate(body.invoice_date),
+    partyRootId:root,counterpartyName:party.company_name,invoiceDate,
     currency,amountMinor:amount};
    const duplicate=await findBusinessInvoiceDuplicate(probe),d=duplicateFields(probe,duplicate);
    const dismissed=!!duplicate&&prev.duplicate_status==="dismissed"&&
@@ -237,7 +241,7 @@ export async function POST(request:NextRequest){
      ". Review the earlier invoice and confirm duplicate or clear the warning with an explanation before approval.",409);
    }
    const result=await run("UPDATE oa_finance_invoice SET direction=?,party_root_id=?,counterparty_name=?,invoice_number=?,invoice_date=?,due_date=?,currency=?,amount_minor=?,invoice_bank_account=?,invoice_bank_name=?,bank_check=?,invoice_number_key=?,counterparty_key=?,duplicate_of_invoice_id=?,duplicate_status=?,duplicate_reason=?,status='open',reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='needs_review'",
-    [direction,root,party.company_name,number,validDate(body.invoice_date),validDate(body.due_date),currency,amount,account,clean(body.invoice_bank_name,160),bank,d.invoice_number_key,d.counterparty_key,d.duplicate_of_invoice_id,dismissed?"dismissed":"none",duplicate?.reason||"",viewer.id,id,entity]);
+    [direction,root,party.company_name,number,invoiceDate,dueDate,inferred?1:0,currency,amount,account,clean(body.invoice_bank_name,160),bank,d.invoice_number_key,d.counterparty_key,d.duplicate_of_invoice_id,dismissed?"dismissed":"none",duplicate?.reason||"",viewer.id,id,entity]);
    if(result.meta?.changes!==1)throw new Error("Invoice was already reviewed");
    await audit(viewer.id,"finance.invoice.review","finance_invoice",id,{direction,root,bankCheck:bank},entity);
    return ok({status:"open",bank_check:bank});
