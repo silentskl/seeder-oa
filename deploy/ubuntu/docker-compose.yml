@@ -1,0 +1,44 @@
+name: seeder-oa
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: deploy/ubuntu/Dockerfile
+    image: seeder-oa:ubuntu
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      RUNTIME: node
+      NODE_ENV: production
+      SQLITE_DB_PATH: /data/seeder.db
+      UPLOADS_DIR: /data/uploads
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+    volumes:
+      - ./data:/data
+    ports:
+      - "127.0.0.1:${OA_HTTP_PORT:-3000}:3000"
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/sign-in',{redirect:'manual'}).then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+  mail-scheduler:
+    image: seeder-oa:ubuntu
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      OA_FINANCE_SYNC_URL: http://app:3000/api/oa/finance/sync-job
+      OA_FINANCE_SYNC_INTERVAL_SECONDS: "300"
+    entrypoint: ["node", "/app/finance-scheduler.mjs"]
+    security_opt:
+      - no-new-privileges:true
