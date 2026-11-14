@@ -59,15 +59,16 @@ const fileUrl=(entity:string,id:string)=>"/api/oa/finance/documents/"+encodeURIC
 function Field({label,name,value,onChange,type="text",required=false,disabled=false}:{label:string;name:string;value:any;onChange:(v:string)=>void;type?:string;required?:boolean;disabled?:boolean}){
  return <label className="block text-xs font-medium"><span className="mb-1 block text-neutral-500">{label}</span><input className={input} name={name} type={type} value={value??""} required={required} disabled={disabled} onChange={e=>onChange(e.target.value)}/></label>;
 }
-function ProofForm({entity,invoice,busy,run}:{entity:string;invoice:Row;busy:boolean;run:(task:()=>Promise<any>,message:string)=>Promise<void>}){
+function ProofForm({entity,invoice,busy,run,lang}:{entity:string;invoice:Row;busy:boolean;run:(task:()=>Promise<any>,message:string)=>Promise<void>;lang:"en"|"zh"}){
+ const t=(en:string,zh:string)=>financeTr(lang,en,zh);
  return <form className="flex flex-wrap items-center gap-2" onSubmit={e=>{
    e.preventDefault();const f=new FormData(e.currentTarget),file=f.get("file");
    if(!(file instanceof File)||!file.size)return;
-   if(!window.confirm("Submit payment / receipt evidence for administrator approval?"))return;
-   void run(async()=>{const document_id=await upload(entity,"settlement",file);await request(entity,"settlement_submit",{invoice_id:invoice.id,document_id,approver_id:f.get("approver_id")||""});},"Proof submitted for approval.");
+   if(!window.confirm(t("Submit payment / receipt evidence for administrator approval?","确认提交收付款凭证供管理员审批？")))return;
+   void run(async()=>{const document_id=await upload(entity,"settlement",file);await request(entity,"settlement_submit",{invoice_id:invoice.id,document_id,approver_id:f.get("approver_id")||""});},t("Proof submitted for approval.","凭证已提交审批。"));
   }}>
-  <input aria-label="Bank proof" type="file" name="file" required accept=".pdf,.png,.jpg,.jpeg,.webp" className="max-w-52 text-xs"/>
-  <button type="submit" className={btn} disabled={busy}>{invoice.direction==="ar"?"Record receipt (upload proof)":"Record payment (upload proof)"}</button>
+  <input aria-label={t("Bank proof","银行凭证")} type="file" name="file" required accept=".pdf,.png,.jpg,.jpeg,.webp" className="max-w-52 text-xs"/>
+  <button type="submit" className={btn} disabled={busy}>{invoice.direction==="ar"?t("Record receipt (upload proof)","登记收款（上传凭证）"):t("Record payment (upload proof)","登记付款（上传凭证）")}</button>
  </form>;
 }
 export function FinanceConsole({section}:{section:Section}){
@@ -303,7 +304,7 @@ export function FinanceConsole({section}:{section:Section}){
        <button className={btn} disabled={busy} onClick={()=>setReview({id:i.id,direction:i.direction==="unknown"?"ap":i.direction,party_root_id:i.party_root_id||"",counterparty_name:i.counterparty_name||"",invoice_number:i.invoice_number||"",invoice_date:i.invoice_date||"",due_date:i.due_date||"",currency:i.currency||"SGD",amount:major(i.amount_minor,i.currency),invoice_bank_account:i.invoice_bank_account||"",invoice_bank_name:i.invoice_bank_name||"",invoice_bank_swift:i.invoice_bank_swift||""})}>{t("Review","审核")}</button>
        <button className={btn} disabled={busy} onClick={()=>void run(async()=>{try{const result=await request(entity,"invoice_reextract",{id:i.id});setReview({...emptyReview});return result;}finally{window.dispatchEvent(new Event("finance-ai-call-updated"));}},t("AI re-extraction completed; verify fields before confirming.","AI 重新识别已完成，请核对资料后再确认。"))}>{busy?t("Processing…","处理中…"):t("Re-extract AI","重新 AI 识别")}</button>
        <button className={btn} disabled={busy} onClick={()=>void run(()=>request(entity,"invoice_reject",{id:i.id}),t("Invoice rejected.","发票已拒绝。"))}>Reject</button>
-      </>:i.status==="open"?<ProofForm entity={entity} invoice={i} busy={busy} run={run}/>:null}</td>
+      </>:i.status==="open"?<ProofForm entity={entity} invoice={i} busy={busy} run={run} lang={lang}/>:null}</td>
      </tr>)}</tbody></table></div>
     {hasMoreInvoices&&<div className="mt-3 flex items-center justify-between gap-2">
      <p className="text-xs text-neutral-500">{t("Showing recent invoices. Load older records as needed; balances always cover all approved invoices.","当前显示近期导入的发票。可继续加载历史记录；余额统计始终包含全部已批准发票。")}</p>
