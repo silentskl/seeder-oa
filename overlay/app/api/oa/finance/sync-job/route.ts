@@ -16,17 +16,6 @@ export async function POST(request:NextRequest){
  if(!secret||secret.length<32)return failure(503);
  const provided=request.headers.get("x-oa-finance-sync-token")||"";
  if(!provided||!await equalKey(provided,secret))return failure(401);
- const accounts=await dueMailAccounts(6);
- const results:Array<{accountId:string;entityId:string;status:"success"|"error";imported?:number}>=[];
- for(const account of accounts){
-  try{
-   const result=await syncMailAccount(account);
-   results.push({accountId:account.id,entityId:account.entity_id,status:"success",imported:result.imported});
-  }catch(error){
-   console.error("Finance scheduled mailbox sync failed",{accountId:account.id,error:error instanceof Error?error.message:"unknown"});
-   results.push({accountId:account.id,entityId:account.entity_id,status:"error"});
-  }
- }
  // One durable history batch per invocation. Each run saves a continuation
  // checkpoint; incremental sync remains separate and keeps its last_success_at.
  const backfills=await dueMailBackfills(1);
@@ -38,6 +27,17 @@ export async function POST(request:NextRequest){
   }catch(error){
    console.error("Finance backfill scheduler failed",{jobId:job.id,error:error instanceof Error?error.name:"unknown"});
    historyResults.push({id:job.id,status:"error",processed:0});
+  }
+ }
+ const accounts=await dueMailAccounts(6);
+ const results:Array<{accountId:string;entityId:string;status:"success"|"error";imported?:number}>=[];
+ for(const account of accounts){
+  try{
+   const result=await syncMailAccount(account);
+   results.push({accountId:account.id,entityId:account.entity_id,status:"success",imported:result.imported});
+  }catch(error){
+   console.error("Finance scheduled mailbox sync failed",{accountId:account.id,error:error instanceof Error?error.message:"unknown"});
+   results.push({accountId:account.id,entityId:account.entity_id,status:"error"});
   }
  }
  return NextResponse.json({ok:true,processedAccounts:results.length,results,processedBackfills:historyResults});
