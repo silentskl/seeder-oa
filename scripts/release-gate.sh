@@ -21,6 +21,7 @@ python3 "$ROOT/tests/test_finance_mail_backfill_migration.py" || fail 'Finance b
 python3 "$ROOT/tests/test_finance_invoice_business_dedup_migration.py" || fail 'Invoice business duplicate guards regression tests failed'
 python3 "$ROOT/tests/test_finance_due_date_review_i18n.py" || fail 'Finance due date, currency-conditional bank review and localization tests failed'
 python3 "$ROOT/tests/test_ubuntu_docker_migration.py" || fail 'Ubuntu SQLite/R2 migration tests failed'
+python3 "$ROOT/tests/test_oa_invite_auth_patcher.py" || fail 'Seeder invite-only signup patch compatibility tests failed'
 python3 "$ROOT/tests/test_finance_edge_fetch.py" || fail 'Finance Cloudflare Edge fetch compatibility regression failed'
 node "$ROOT/tests/check-ts-syntax.cjs" "$ROOT/overlay" || fail 'TypeScript syntax test failed'
 [[ -f "$APP/package.json" ]] || fail "Full Seeder source unavailable at $APP; full build NOT verified"
