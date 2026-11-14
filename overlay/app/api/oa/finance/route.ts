@@ -7,6 +7,7 @@ import {bankCheck,clean,createInvoice,extractInvoice,mailAddress,normalizedBank,
 import {getOaEnv} from "@/lib/oa/env";
 import {runtimeFinanceAiSettings,publicFinanceAiSettings,recentFinanceAiCalls,FinanceAiError} from "@/lib/oa/finance-ai";
 import {majorToMinor,normalizeCurrency} from "@/lib/oa/money";
+import {duplicateFields,findBusinessInvoiceDuplicate} from "@/lib/oa/finance-duplicates";
 
 export const runtime="nodejs";
 const ok=(data:unknown,status=200)=>NextResponse.json({ok:true,data},{status});
@@ -47,7 +48,7 @@ export async function GET(request:NextRequest){
   if(view==="invoices"){
    const offset=Number(request.nextUrl.searchParams.get("offset")||0);
    if(!Number.isSafeInteger(offset)||offset<0||offset>1000000)return fail("Invalid invoice page offset");
-   const rows=await all<any>("SELECT i.*,p.company_name AS approved_party_name,p.bank_account AS approved_bank_account,d.original_name AS document_name,a.address AS source_mailbox,a.provider AS source_provider,l.outcome AS last_ai_outcome,l.http_status AS last_ai_http_status,l.response_status AS last_ai_response_status,l.finish_reason AS last_ai_finish_reason,l.output_tokens AS last_ai_output_tokens,l.reasoning_tokens AS last_ai_reasoning_tokens,l.output_types AS last_ai_output_types,l.request_id AS last_ai_request_id,l.created_at AS last_ai_at FROM oa_finance_invoice i LEFT JOIN oa_finance_party p ON p.entity_id=i.entity_id AND p.root_id=i.party_root_id AND p.status='approved' LEFT JOIN oa_finance_document d ON d.id=i.document_id AND d.entity_id=i.entity_id LEFT JOIN oa_finance_mail_account a ON a.id=i.source_mail_account_id AND a.entity_id=i.entity_id LEFT JOIN oa_finance_ai_call_log l ON l.id=(SELECT d.id FROM oa_finance_ai_call_log d WHERE d.entity_id=i.entity_id AND d.invoice_id=i.id ORDER BY d.created_at DESC,d.id DESC LIMIT 1) WHERE i.entity_id=? ORDER BY i.created_at DESC,i.id DESC LIMIT 300 OFFSET ?",[entity,offset]);
+   const rows=await all<any>("SELECT i.*,dup.invoice_number AS duplicate_of_number,dup.status AS duplicate_of_status,dup.document_id AS duplicate_of_document_id,p.company_name AS approved_party_name,p.bank_account AS approved_bank_account,d.original_name AS document_name,a.address AS source_mailbox,a.provider AS source_provider,l.outcome AS last_ai_outcome,l.http_status AS last_ai_http_status,l.response_status AS last_ai_response_status,l.finish_reason AS last_ai_finish_reason,l.output_tokens AS last_ai_output_tokens,l.reasoning_tokens AS last_ai_reasoning_tokens,l.output_types AS last_ai_output_types,l.request_id AS last_ai_request_id,l.created_at AS last_ai_at FROM oa_finance_invoice i LEFT JOIN oa_finance_invoice dup ON dup.id=i.duplicate_of_invoice_id AND dup.entity_id=i.entity_id LEFT JOIN oa_finance_party p ON p.entity_id=i.entity_id AND p.root_id=i.party_root_id AND p.status='approved' LEFT JOIN oa_finance_document d ON d.id=i.document_id AND d.entity_id=i.entity_id LEFT JOIN oa_finance_mail_account a ON a.id=i.source_mail_account_id AND a.entity_id=i.entity_id LEFT JOIN oa_finance_ai_call_log l ON l.id=(SELECT d.id FROM oa_finance_ai_call_log d WHERE d.entity_id=i.entity_id AND d.invoice_id=i.id ORDER BY d.created_at DESC,d.id DESC LIMIT 1) WHERE i.entity_id=? ORDER BY i.created_at DESC,i.id DESC LIMIT 300 OFFSET ?",[entity,offset]);
    return ok(rows.map(i=>{const expected=normalizedBank(i.approved_bank_account),received=normalizedBank(i.invoice_bank_account);return {...i,bank_check:!i.approved_bank_account?"unverified":!expected||!received?"missing":expected===received?"match":"mismatch",approved_bank_account:undefined};}));
   }
   if(view==="settlements")return ok(await all<any>("SELECT s.*,i.invoice_number,i.direction,i.currency,i.amount_minor,i.counterparty_name,d.original_name AS proof_name FROM oa_finance_settlement s JOIN oa_finance_invoice i ON i.id=s.invoice_id AND i.entity_id=s.entity_id JOIN oa_finance_document d ON d.id=s.document_id AND d.entity_id=s.entity_id WHERE s.entity_id=? ORDER BY s.submitted_at DESC,s.id DESC LIMIT 300",[entity]));
@@ -144,15 +145,20 @@ export async function POST(request:NextRequest){
      type:invoice.content_type,name:invoice.original_name,subject:"",body:"",sender:invoice.sender_email,
      invoiceId:id,throwOnAiFailure:true});
     if(parsed.extractionStatus!=="extracted")throw new Error("AI returned no extracted fields");
+    const probe={entityId:entity,invoiceId:id,invoiceNumber:parsed.invoiceNumber,direction:parsed.direction,
+     partyRootId:parsed.partyRootId,counterpartyName:parsed.counterpartyName,invoiceDate:parsed.invoiceDate,
+     currency:parsed.currency,amountMinor:parsed.amountMinor};
+    const duplicate=await findBusinessInvoiceDuplicate(probe),d=duplicateFields(probe,duplicate);
     const result=await run(
-     "UPDATE oa_finance_invoice SET direction=?,party_root_id=?,counterparty_name=?,invoice_number=?,invoice_date=?,due_date=?,currency=?,amount_minor=?,invoice_bank_account=?,invoice_bank_name=?,bank_check=?,extraction_status=?,extraction_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='needs_review'",
+     "UPDATE oa_finance_invoice SET direction=?,party_root_id=?,counterparty_name=?,invoice_number=?,invoice_date=?,due_date=?,currency=?,amount_minor=?,invoice_bank_account=?,invoice_bank_name=?,bank_check=?,extraction_status=?,extraction_note=?,invoice_number_key=?,counterparty_key=?,duplicate_of_invoice_id=?,duplicate_status=?,duplicate_reason=?,duplicate_decision_note='',duplicate_decided_by=NULL,duplicate_decided_at=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='needs_review'",
      [parsed.direction,parsed.partyRootId,parsed.counterpartyName,parsed.invoiceNumber,parsed.invoiceDate,parsed.dueDate,
-      parsed.currency,parsed.amountMinor,parsed.bankAccount,parsed.bankName,parsed.bankCheck,parsed.extractionStatus,parsed.extractionNote,id,entity]
+      parsed.currency,parsed.amountMinor,parsed.bankAccount,parsed.bankName,parsed.bankCheck,parsed.extractionStatus,parsed.extractionNote,d.invoice_number_key,d.counterparty_key,d.duplicate_of_invoice_id,d.duplicate_status,d.duplicate_reason,id,entity]
     );
     if(result.meta?.changes!==1)throw new Error("Invoice was already reviewed");
     const diagnostics=await recentFinanceAiCalls(entity,id,1);
+    if(duplicate)await audit(viewer.id,"finance.invoice.possible_duplicate","finance_invoice",id,{duplicateOf:duplicate.id,reason:duplicate.reason},entity);
     await audit(viewer.id,"finance.invoice.reextract","finance_invoice",id,{direction:parsed.direction,party:parsed.partyRootId,extraction:parsed.extractionStatus,diagnosticId:diagnostics[0]?.id||null},entity);
-    return ok({id,direction:parsed.direction,extraction_status:parsed.extractionStatus,extraction_note:parsed.extractionNote,diagnostic:diagnostics[0]||null});
+    return ok({id,direction:parsed.direction,extraction_status:parsed.extractionStatus,extraction_note:parsed.extractionNote,duplicate_status:d.duplicate_status,duplicate_of_invoice_id:d.duplicate_of_invoice_id,diagnostic:diagnostics[0]||null});
    }catch(error){
     const message=error instanceof Error?error.message:"AI re-extraction failed";
     const safeNote=("Latest AI re-extraction failed: "+message).slice(0,380);
@@ -165,6 +171,27 @@ export async function POST(request:NextRequest){
      {diagnosticId:diagnostics[0]?.id||null,errorCode:diagnostics[0]?.error_code||"NO_RESULT"},entity);
     return NextResponse.json({ok:false,error:message,diagnostic:diagnostics[0]||null},{status:error instanceof FinanceAiError?422:400});
    }
+  }
+  if(action==="invoice_duplicate_confirm"||action==="invoice_duplicate_dismiss"){
+   const id=clean(body.id,80),note=clean(body.note,500);
+   const previous=await one<any>(
+    "SELECT id,duplicate_status,duplicate_of_invoice_id,invoice_number FROM oa_finance_invoice WHERE id=? AND entity_id=? AND status='needs_review'",
+    [id,entity]);
+   if(!previous||previous.duplicate_status!=="possible"||!previous.duplicate_of_invoice_id)
+    throw new Error("Invoice no longer has an unresolved duplicate warning");
+   if(action==="invoice_duplicate_dismiss"&&note.length<8)
+    throw new Error("Duplicate clearance requires an explanation (at least 8 characters)");
+   if(action==="invoice_duplicate_confirm"&&!note)
+    throw new Error("Duplicate confirmation requires a reason");
+   const confirmed=action==="invoice_duplicate_confirm";
+   const result=await run(
+    "UPDATE oa_finance_invoice SET duplicate_status=?,duplicate_decision_note=?,duplicate_decided_by=?,duplicate_decided_at=CURRENT_TIMESTAMP,status=CASE WHEN ?=1 THEN 'rejected' ELSE status END,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='needs_review' AND duplicate_status='possible'",
+    [confirmed?"confirmed":"dismissed",note,viewer.id,confirmed?1:0,id,entity]
+   );
+   if(result.meta?.changes!==1)throw new Error("Invoice duplicate decision was already processed");
+   await audit(viewer.id,confirmed?"finance.invoice.duplicate_confirm":"finance.invoice.duplicate_dismiss",
+    "finance_invoice",id,{duplicateOf:previous.duplicate_of_invoice_id,note},entity);
+   return ok({id,status:confirmed?"rejected":"needs_review",duplicate_status:confirmed?"confirmed":"dismissed"});
   }
   if(action==="invoice_review"){
    const id=clean(body.id,80);
@@ -182,8 +209,25 @@ export async function POST(request:NextRequest){
    const bank=await bankCheck(entity,root,account);
    // For AP, the beneficiary account must match the currently approved supplier bank record.
    if(direction==="ap"&&bank!=="match")throw new Error("Bank account verification required before an AP invoice can be opened");
-   const result=await run("UPDATE oa_finance_invoice SET direction=?,party_root_id=?,counterparty_name=?,invoice_number=?,invoice_date=?,due_date=?,currency=?,amount_minor=?,invoice_bank_account=?,invoice_bank_name=?,bank_check=?,status='open',reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='needs_review'",
-    [direction,root,party.company_name,number,validDate(body.invoice_date),validDate(body.due_date),currency,amount,account,clean(body.invoice_bank_name,160),bank,viewer.id,id,entity]);
+   const probe={entityId:entity,invoiceId:id,invoiceNumber:number,direction:direction as "ar"|"ap",
+    partyRootId:root,counterpartyName:party.company_name,invoiceDate:validDate(body.invoice_date),
+    currency,amountMinor:amount};
+   const duplicate=await findBusinessInvoiceDuplicate(probe),d=duplicateFields(probe,duplicate);
+   const dismissed=!!duplicate&&prev.duplicate_status==="dismissed"&&
+    prev.duplicate_of_invoice_id===duplicate.id&&prev.invoice_number_key===d.invoice_number_key&&
+    prev.direction===direction;
+   if(duplicate&&!dismissed){
+    await run(
+     "UPDATE oa_finance_invoice SET invoice_number_key=?,counterparty_key=?,duplicate_of_invoice_id=?,duplicate_status='possible',duplicate_reason=?,duplicate_decision_note='',duplicate_decided_by=NULL,duplicate_decided_at=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='needs_review'",
+     [d.invoice_number_key,d.counterparty_key,duplicate.id,d.duplicate_reason,id,entity]
+    );
+    await audit(viewer.id,"finance.invoice.duplicate_review_blocked","finance_invoice",id,
+     {duplicateOf:duplicate.id,reason:duplicate.reason},entity);
+    return fail("Possible duplicate invoice: "+duplicate.invoice_number+
+     ". Review the earlier invoice and confirm duplicate or clear the warning with an explanation before approval.",409);
+   }
+   const result=await run("UPDATE oa_finance_invoice SET direction=?,party_root_id=?,counterparty_name=?,invoice_number=?,invoice_date=?,due_date=?,currency=?,amount_minor=?,invoice_bank_account=?,invoice_bank_name=?,bank_check=?,invoice_number_key=?,counterparty_key=?,duplicate_of_invoice_id=?,duplicate_status=?,duplicate_reason=?,status='open',reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='needs_review'",
+    [direction,root,party.company_name,number,validDate(body.invoice_date),validDate(body.due_date),currency,amount,account,clean(body.invoice_bank_name,160),bank,d.invoice_number_key,d.counterparty_key,d.duplicate_of_invoice_id,dismissed?"dismissed":"none",duplicate?.reason||"",viewer.id,id,entity]);
    if(result.meta?.changes!==1)throw new Error("Invoice was already reviewed");
    await audit(viewer.id,"finance.invoice.review","finance_invoice",id,{direction,root,bankCheck:bank},entity);
    return ok({status:"open",bank_check:bank});
