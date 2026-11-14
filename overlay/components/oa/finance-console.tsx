@@ -32,6 +32,12 @@ async function fetchView(entityId:string,view:string){
  if(!res.ok||!json?.ok)throw new Error(json?.error||"Unable to load "+view);
  return json.data;
 }
+async function fetchInvoicePage(entityId:string,offset:number){
+ const res=await fetch("/api/oa/finance?entity_id="+encodeURIComponent(entityId)+"&view=invoices&offset="+encodeURIComponent(String(offset)),{cache:"no-store"});
+ const result=await res.json().catch(()=>null);
+ if(!res.ok||!result?.ok)throw new Error(result?.error||"Unable to load invoice page");
+ return result.data as Row[];
+}
 async function upload(entityId:string,purpose:"invoice"|"settlement",file:File){
  const form=new FormData();form.set("entity_id",entityId);form.set("purpose",purpose);form.set("file",file);
  const res=await fetch("/api/oa/finance/documents",{method:"POST",body:form});
@@ -60,6 +66,7 @@ export function FinanceConsole({section}:{section:Section}){
  const [entity,setEntity]=useState("legacy-primary"),[entities,setEntities]=useState<Row[]>([]);
  const [parties,setParties]=useState<Row[]>([]),[invoices,setInvoices]=useState<Row[]>([]),[settlements,setSettlements]=useState<Row[]>([]);
  const [balances,setBalances]=useState<FinanceBalanceRow[]>([]);
+ const [invoiceOffset,setInvoiceOffset]=useState(0),[hasMoreInvoices,setHasMoreInvoices]=useState(false);
  const [activeTab,setActiveTab]=useState<"data"|"config">("data");
  const [statusFilter,setStatusFilter]=useState("all");
  const [config,setConfig]=useState<Row>({mailbox:"",approvers:[],aiConfigured:false,resendConfigured:false});
@@ -76,9 +83,9 @@ export function FinanceConsole({section}:{section:Section}){
    setParties(p);setConfig(c);
    return;
   }
-  const [p,i,s,c,b]=await Promise.all([fetchView(id,"parties"),fetchView(id,"invoices"),fetchView(id,"settlements"),fetchView(id,"config"),fetchView(id,"balances")]);
+  const [p,i,s,c,b]=await Promise.all([fetchView(id,"parties"),fetchInvoicePage(id,0),fetchView(id,"settlements"),fetchView(id,"config"),fetchView(id,"balances")]);
   if(seq!==requestVersion.current||id!==selectedEntity.current)return;
-  setParties(p);setInvoices(i);setSettlements(s);setBalances(b);setConfig(c);setMailbox(c.mailbox||"");setReceiveAddress(c.receiveAddress||c.mailbox||"");
+  setParties(p);setInvoices(i);setInvoiceOffset(i.length);setHasMoreInvoices(i.length===300);setSettlements(s);setBalances(b);setConfig(c);setMailbox(c.mailbox||"");setReceiveAddress(c.receiveAddress||c.mailbox||"");
  },[section]);
  useEffect(()=>{
   let active=true;
@@ -112,9 +119,25 @@ export function FinanceConsole({section}:{section:Section}){
  }
  function selectEntity(id:string){
   selectedEntity.current=id;requestVersion.current++;
-  setEntity(id);setLoading(true);setError("");setParty({...emptyParty});setReview({...emptyReview});setActiveTab("data");
+  setEntity(id);setLoading(true);setError("");setParty({...emptyParty});setReview({...emptyReview});setActiveTab("data");setInvoices([]);setInvoiceOffset(0);setHasMoreInvoices(false);
   window.sessionStorage.setItem("oa.selectedEntity",id);
   void load(id).catch(e=>setError(String(e))).finally(()=>setLoading(false));
+ }
+ async function loadMoreInvoices(){
+  if(busy||!hasMoreInvoices)return;
+  const company=entity;
+  setBusy(true);setError("");
+  try{
+   const next=await fetchInvoicePage(company,invoiceOffset);
+   if(selectedEntity.current!==company)return;
+   setInvoices(prev=>{
+    const ids=new Set(prev.map(x=>x.id));
+    return [...prev,...next.filter(x=>!ids.has(x.id))];
+   });
+   setInvoiceOffset(prev=>prev+next.length);
+   setHasMoreInvoices(next.length===300);
+  }catch(e){setError(e instanceof Error?e.message:String(e));}
+  finally{setBusy(false);}
  }
  const approved=parties.filter(p=>p.status==="approved"),pending=parties.filter(p=>p.status==="pending");
  const admins:Row[]=config.approvers||[];
@@ -239,6 +262,10 @@ export function FinanceConsole({section}:{section:Section}){
        <button className={btn} disabled={busy} onClick={()=>void run(()=>request(entity,"invoice_reject",{id:i.id}),"Invoice rejected.")}>Reject</button>
       </>:i.status==="open"?<ProofForm entity={entity} invoice={i} busy={busy} run={run}/>:null}</td>
      </tr>)}</tbody></table></div>
+    {hasMoreInvoices&&<div className="mt-3 flex items-center justify-between gap-2">
+     <p className="text-xs text-neutral-500">Showing recently imported invoices. Use Load older invoices to inspect the rest; balance cards always include all approved invoices.</p>
+     <button type="button" className={btn} disabled={busy} onClick={()=>void loadMoreInvoices()}>Load older invoices</button>
+    </div>}
    </section>
    {review.id&&<section className={card}><h2 className="mb-3 font-semibold">Review Invoice · {review.invoice_number||review.id}</h2>
     <form className="space-y-3" onSubmit={e=>{e.preventDefault();void run(async()=>{await request(entity,"invoice_review",review);setReview({...emptyReview});},"Invoice reviewed and opened.");}}>
