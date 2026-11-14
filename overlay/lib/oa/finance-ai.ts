@@ -3,8 +3,9 @@ import {decryptEmailSecret} from "./email";
 import {getOaEnv} from "./env";
 
 export type FinanceAiProtocol="responses"|"chat_completions";
+export type FinanceAiEffort="auto"|"none"|"low"|"medium"|"high";
 export type FinanceAiSettings={
- entity_id:string;base_url:string;model_name:string;protocol:FinanceAiProtocol;
+ entity_id:string;base_url:string;model_name:string;protocol:FinanceAiProtocol;reasoning_effort:FinanceAiEffort;
  api_key_encrypted:string;enabled:number;updated_at:string;
 };
 export type FinanceAiExtracted={
@@ -40,6 +41,16 @@ export function validateFinanceAiProtocol(value:unknown):FinanceAiProtocol{
  if(value==="responses"||value==="chat_completions")return value;
  throw new Error("Invalid AI protocol; choose Responses or Chat Completions");
 }
+export function validateFinanceAiEffort(v:unknown):FinanceAiEffort{
+ if(v==="auto"||v==="none"||v==="low"||v==="medium"||v==="high")return v;
+ throw new Error("Invalid AI reasoning effort");
+}
+export function effectiveFinanceAiEffort(model:string,effort:FinanceAiEffort):Exclude<FinanceAiEffort,"auto">|null{
+ if(effort!=="auto")return effort;
+ // DeepSeek defaults to high thinking; routine extraction should not pay
+ // thousands of reasoning tokens before producing any JSON.
+ return /^deepseek(?:[-_]|$)/i.test(model)?"none":null;
+}
 export async function financeAiSettings(entityId:string){
  return one<FinanceAiSettings>("SELECT * FROM oa_finance_ai_settings WHERE entity_id=?",[entityId]);
 }
@@ -50,6 +61,7 @@ export async function publicFinanceAiSettings(entityId:string){
   base_url:settings?.base_url||"",
   model_name:settings?.model_name||"",
   protocol:settings?.protocol||"responses",
+  reasoning_effort:settings?.reasoning_effort||"auto",
   enabled:!!settings?.enabled,
   api_key_configured:!!settings?.api_key_encrypted,
   legacy_environment_configured:!settings&&!!env.financeAiKey,
@@ -57,7 +69,7 @@ export async function publicFinanceAiSettings(entityId:string){
   updated_at:settings?.updated_at||null,
  };
 }
-type RuntimeConfig={baseUrl:string;model:string;protocol:FinanceAiProtocol;key:string};
+type RuntimeConfig={baseUrl:string;model:string;protocol:FinanceAiProtocol;effort:FinanceAiEffort;key:string};
 export async function runtimeFinanceAiSettings(entityId:string):Promise<RuntimeConfig|null>{
  const saved=await financeAiSettings(entityId);
  if(saved){
@@ -65,12 +77,13 @@ export async function runtimeFinanceAiSettings(entityId:string):Promise<RuntimeC
   return {baseUrl:validateFinanceAiBaseUrl(saved.base_url),
    model:validateFinanceAiModel(saved.model_name),
    protocol:validateFinanceAiProtocol(saved.protocol),
+   effort:validateFinanceAiEffort(saved.reasoning_effort||"auto"),
    key:(await decryptEmailSecret(saved.api_key_encrypted))||""};
  }
  // Backward compatibility for already deployed installations.
  const env=getOaEnv();
  if(!env.financeAiKey)return null;
- return {baseUrl:"https://api.openai.com/v1",model:env.financeAiModel||"gpt-4.1-mini",protocol:"responses",key:env.financeAiKey};
+ return {baseUrl:"https://api.openai.com/v1",model:env.financeAiModel||"gpt-4.1-mini",protocol:"responses",effort:"auto",key:env.financeAiKey};
 }
 
 export type FinanceAiDiagnostic={
@@ -165,6 +178,12 @@ async function invokeModel(
   if(document?.type==="application/pdf"&&cfg.protocol==="chat_completions")
    throw new Error("PDF_REQUIRES_RESPONSES");
   const content:any[]=[];
+  // The DeepSeek Responses API does not accept inline PDF file_data:
+  // it requires /files upload and an input_file file_id. The intermediary
+  // ModelBridge route is not verified to forward that workflow, so reject
+  // before billing instead of sending a document the model cannot read.
+  if(document?.type==="application/pdf"&&/^deepseek(?:[-_]|$)/i.test(cfg.model))
+   throw new Error("DEEPSEEK_INLINE_PDF_UNSUPPORTED");
   const encoded=document?"data:"+document.type+";base64,"+b64(document.bytes):"";
   if(cfg.protocol==="responses"){
    content.push({type:"input_text",text:prompt});
@@ -179,9 +198,13 @@ async function invokeModel(
   // Increase invoice generation budget: reasoning models can consume the
   // first 800 tokens internally before emitting any visible JSON output.
   const budget=document?4096:128;
+  const effort=effectiveFinanceAiEffort(cfg.model,cfg.effort);
   const payload=cfg.protocol==="responses"
-   ?{model:cfg.model,store:false,max_output_tokens:budget,input:[{role:"user",content}]}
-   :{model:cfg.model,stream:false,max_tokens:budget,messages:[{role:"user",content}]};
+   ?{model:cfg.model,store:false,max_output_tokens:budget,input:[{role:"user",content}],
+     ...(effort?{reasoning:{effort}}:{})}
+   :{model:cfg.model,stream:false,max_tokens:budget,messages:[{role:"user",content}],
+     ...(effort==="none"&&/^deepseek(?:[-_]|$)/i.test(cfg.model)?{thinking:{type:"disabled"}}:
+       effort?{reasoning_effort:effort}:{})};
   const response=await fetch(url,{
    method:"POST",redirect:"manual",cache:"no-store",signal:AbortSignal.timeout(90000),
    headers:{"Authorization":"Bearer "+cfg.key,"Content-Type":"application/json"},
@@ -233,6 +256,7 @@ async function invokeModel(
    UNEXPECTED_REDIRECT:"AI gateway returned a redirect",
    NON_JSON_RESPONSE:"AI gateway response was not JSON",
    MISSING_KEY:"AI API key is missing",
+   DEEPSEEK_INLINE_PDF_UNSUPPORTED:"DeepSeek cannot read an inline PDF in Responses. Choose a PDF-capable model in ModelBridge, or convert this invoice to an image before importing; no model request was sent.",
   } as Record<string,string>)[failure]||(
     failure.startsWith("UPSTREAM_HTTP_")?"ModelBridge returned HTTP "+String(d.http_status):
     error instanceof Error&&error.name==="TimeoutError"?"AI request timed out":
