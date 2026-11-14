@@ -51,17 +51,19 @@ class FinanceMailBackfillMigrationTests(unittest.TestCase):
  def test_job_counters_and_continuation(self):
   self.insert("ok")
   self.db.execute(
-   "UPDATE oa_finance_mail_backfill SET page_cursor=?,message_offset=12,messages_scanned=13,invoices_imported=2,duplicates_skipped=5 WHERE id='ok'",
+   "UPDATE oa_finance_mail_backfill SET page_cursor=?,message_offset=12,attachment_offset=3,messages_scanned=13,invoices_imported=2,duplicates_skipped=5 WHERE id='ok'",
    ("https://graph.microsoft.com/v1.0/users/...",))
   self.assertEqual(self.db.execute(
-   "SELECT message_offset,messages_scanned,invoices_imported,duplicates_skipped FROM oa_finance_mail_backfill WHERE id='ok'").fetchone(),
-   (12,13,2,5))
+   "SELECT message_offset,attachment_offset,messages_scanned,invoices_imported,duplicates_skipped FROM oa_finance_mail_backfill WHERE id='ok'").fetchone(),
+   (12,3,13,2,5))
  def test_source_keeps_incremental_checkpoint(self):
   self.assertNotIn("SET last_success_at=",HISTORY)
   self.assertIn("importFinanceMailAttachments",HISTORY)
   self.assertIn("importFinanceMailAttachments",SYNC)
   self.assertIn('receivedDateTime ge ',SYNC)
   self.assertIn('page_cursor',HISTORY)
+  self.assertIn('attachment_offset',HISTORY)
+  self.assertIn('importFinanceMailAttachment',HISTORY)
   self.assertIn('sync_lock_until',HISTORY)
  def test_finance_balance_is_reviewed_only_and_ui_is_split(self):
   self.assertIn("view===\"balances\"",FINANCE)
