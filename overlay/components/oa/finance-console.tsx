@@ -2,6 +2,7 @@
 import {FormEvent,useCallback,useEffect,useRef,useState} from "react";
 import {MailAccountsPanel} from "./finance-mail-accounts";
 import {FinanceAiPanel} from "./finance-ai-panel";
+import {FinanceBalances,type FinanceBalanceRow} from "./finance-balances";
 
 type Row=Record<string,any>;
 type Section="parties"|"ledger";
@@ -50,7 +51,7 @@ function ProofForm({entity,invoice,busy,run}:{entity:string;invoice:Row;busy:boo
    void run(async()=>{const document_id=await upload(entity,"settlement",file);await request(entity,"settlement_submit",{invoice_id:invoice.id,document_id,approver_id:f.get("approver_id")||""});},"Proof submitted for approval.");
   }}>
   <input aria-label="Bank proof" type="file" name="file" required accept=".pdf,.png,.jpg,.jpeg,.webp" className="max-w-52 text-xs"/>
-  <button type="submit" className={btn} disabled={busy}>Submit proof</button>
+  <button type="submit" className={btn} disabled={busy}>{invoice.direction==="ar"?"Record receipt (upload proof)":"Record payment (upload proof)"}</button>
  </form>;
 }
 export function FinanceConsole({section}:{section:Section}){
@@ -58,17 +59,20 @@ export function FinanceConsole({section}:{section:Section}){
  const requestVersion=useRef(0);
  const [entity,setEntity]=useState("legacy-primary"),[entities,setEntities]=useState<Row[]>([]);
  const [parties,setParties]=useState<Row[]>([]),[invoices,setInvoices]=useState<Row[]>([]),[settlements,setSettlements]=useState<Row[]>([]);
+ const [balances,setBalances]=useState<FinanceBalanceRow[]>([]);
+ const [activeTab,setActiveTab]=useState<"data"|"config">("data");
+ const [statusFilter,setStatusFilter]=useState("all");
  const [config,setConfig]=useState<Row>({mailbox:"",approvers:[],aiConfigured:false,resendConfigured:false});
  const [party,setParty]=useState<Row>({...emptyParty}),[review,setReview]=useState<Row>({...emptyReview});
  const [mailbox,setMailbox]=useState(""),[receiveAddress,setReceiveAddress]=useState(""),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true);
  const [error,setError]=useState(""),[notice,setNotice]=useState("");
- const [directionFilter,setDirectionFilter]=useState("all");
+ const [directionFilter,setDirectionFilter]=useState("ar");
  const load=useCallback(async(id:string)=>{
   if(id!==selectedEntity.current)return;
   const seq=++requestVersion.current;
-  const [p,i,s,c]=await Promise.all([fetchView(id,"parties"),fetchView(id,"invoices"),fetchView(id,"settlements"),fetchView(id,"config")]);
+  const [p,i,s,c,b]=await Promise.all([fetchView(id,"parties"),fetchView(id,"invoices"),fetchView(id,"settlements"),fetchView(id,"config"),fetchView(id,"balances")]);
   if(seq!==requestVersion.current||id!==selectedEntity.current)return;
-  setParties(p);setInvoices(i);setSettlements(s);setConfig(c);setMailbox(c.mailbox||"");setReceiveAddress(c.receiveAddress||c.mailbox||"");
+  setParties(p);setInvoices(i);setSettlements(s);setBalances(b);setConfig(c);setMailbox(c.mailbox||"");setReceiveAddress(c.receiveAddress||c.mailbox||"");
  },[]);
  useEffect(()=>{
   let active=true;
@@ -102,12 +106,13 @@ export function FinanceConsole({section}:{section:Section}){
  }
  function selectEntity(id:string){
   selectedEntity.current=id;requestVersion.current++;
-  setEntity(id);setLoading(true);setError("");setParty({...emptyParty});setReview({...emptyReview});
+  setEntity(id);setLoading(true);setError("");setParty({...emptyParty});setReview({...emptyReview});setActiveTab("data");
   window.sessionStorage.setItem("oa.selectedEntity",id);
   void load(id).catch(e=>setError(String(e))).finally(()=>setLoading(false));
  }
  const approved=parties.filter(p=>p.status==="approved"),pending=parties.filter(p=>p.status==="pending");
  const admins:Row[]=config.approvers||[];
+ const shownInvoices=invoices.filter(i=>i.direction===directionFilter&&(statusFilter==="all"||i.status===statusFilter));
  const assignee=(assigned:string|null,action:string,id:string)=>(
   <select aria-label="Assign approving admin" className={input+" max-w-52"} value={assigned||""} disabled={busy}
     onChange={e=>{if(e.target.value)void run(()=>request(entity,action,{id,approver_id:e.target.value}),"Approver assigned.");}}>
@@ -119,9 +124,15 @@ export function FinanceConsole({section}:{section:Section}){
    <p className="text-sm text-neutral-500">Entity-scoped records · administrator approval · audit trail</p></div>
    {entities.length>1&&<select className={input+" max-w-72"} value={entity} onChange={e=>selectEntity(e.target.value)}>{entities.map(x=><option key={x.id} value={x.id}>{x.display_name}</option>)}</select>}
   </div>
+  <div role="tablist" aria-label={section==="parties"?"Suppliers and customers":"AR and AP"} className="flex gap-1 border-b border-neutral-200 pb-2 dark:border-neutral-800">
+   {(["data","config"] as const).map(t=><button key={t} type="button" role="tab" aria-selected={activeTab===t}
+    className={btn+(activeTab===t?" bg-neutral-900 text-white dark:bg-white dark:text-black":"")}
+    onClick={()=>setActiveTab(t)}>{t==="data"?"Data / 数据":"Configuration / 配置"}</button>)}
+  </div>
   {error&&<div role="alert" className="rounded-md border border-red-300 p-3 text-sm text-red-700">{error}</div>}
   {notice&&<div role="status" className="rounded-md border p-3 text-sm">{notice}</div>}
   {loading?<p className="text-sm text-neutral-500">Loading finance records…</p>:section==="parties"?<>
+   {activeTab==="config"&&<>
    <section className={card}>
     <h2 className="mb-3 font-semibold">{party.root_id?"Propose a change to approved company":"Add supplier or customer"}</h2>
      <p className="text-xs text-neutral-500">An active company administrator can approve or reject their own supplier/customer proposal. Payment/receipt proof approvals still require a different administrator.</p>
@@ -150,15 +161,19 @@ export function FinanceConsole({section}:{section:Section}){
      </div>
     </div>)}
    </section>
-   <section className={card}><h2 className="mb-3 font-semibold">Approved counterparties ({approved.length})</h2>
+   </>}
+   {activeTab==="data"&&<>
+   {(["supplier","customer"] as const).map(kind=><section key={kind} className={card}><h2 className="mb-3 font-semibold">Approved {kind==="supplier"?"Suppliers / 供应商":"Customers / 客户"} ({approved.filter(p=>p.party_type===kind||p.party_type==="both").length})</h2>
     <div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead><tr className="text-xs text-neutral-500">{["Company","Type","Contact","Bank details","Manage"].map(x=><th key={x} className="p-2">{x}</th>)}</tr></thead>
-     <tbody>{approved.map(p=><tr key={p.id} className="border-t dark:border-neutral-800"><td className="p-2"><div className="font-semibold">{p.company_name}</div><div className="text-xs">{p.address}</div></td><td className="p-2">{p.party_type}</td>
+     <tbody>{approved.filter(p=>p.party_type===kind||p.party_type==="both").map(p=><tr key={p.id} className="border-t dark:border-neutral-800"><td className="p-2"><div className="font-semibold">{p.company_name}</div><div className="text-xs">{p.address}</div></td><td className="p-2">{p.party_type}</td>
       <td className="p-2">{p.contact_name}<div className="text-xs">{p.email} {p.phone}</div></td>
       <td className="p-2">{p.bank_name}<div className="text-xs">{p.bank_account} · {p.bank_swift}</div></td>
       <td className="p-2"><button className={btn} onClick={()=>{setParty({party_type:p.party_type,company_name:p.company_name,address:p.address,contact_name:p.contact_name,email:p.email,phone:p.phone,bank_name:p.bank_name,bank_account:p.bank_account,bank_swift:p.bank_swift,root_id:p.root_id,assigned_approver_user_id:""});window.scrollTo({top:0,behavior:"smooth"});}}>Propose change</button></td>
      </tr>)}</tbody></table></div>
-   </section>
+   </section>)}
+   </>}
   </>:<>
+   {activeTab==="config"&&<>
    <FinanceAiPanel key={entity} entityId={entity}/>
    <MailAccountsPanel entityId={entity}/>
    <details className={card}><summary className="cursor-pointer font-semibold">Legacy Resend forwarding (optional)</summary>
@@ -181,14 +196,29 @@ export function FinanceConsole({section}:{section:Section}){
      <button className={btn} disabled={busy}>Upload & extract</button>
     </form>
    </section>
-   <section className={card}><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h2 className="font-semibold">AR / AP invoices ({invoices.length})</h2><div className="flex gap-2">{[["all","All"],["ar","AR / Receivables"],["ap","AP / Payables"],["unknown","Unclassified"]].map(([v,label])=><button key={v} className={btn+(directionFilter===v?" font-bold underline":"")} onClick={()=>setDirectionFilter(v)}>{label}</button>)}</div></div>
+   </>}
+   {activeTab==="data"&&<>
+   <FinanceBalances rows={balances}/>
+   <section className={card}><div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+    <h2 className="font-semibold">{directionFilter==="ar"?"Accounts Receivable / 应收账款":directionFilter==="ap"?"Accounts Payable / 应付账款":"Needs classification / 未分类"} ({shownInvoices.length})</h2>
+    <div className="flex flex-wrap items-center gap-2">
+     {([["ar","AR / Receivables"],["ap","AP / Payables"],["unknown","Unclassified"]] as const).map(([v,label])=><button key={v} type="button" className={btn+(directionFilter===v?" font-bold underline":"")} onClick={()=>{setDirectionFilter(v);setStatusFilter("all");}}>{label}</button>)}
+     <select aria-label="Filter invoice settlement status" className={input+" max-w-52"} value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}>
+      <option value="all">All statuses</option><option value="needs_review">Needs review</option>
+      <option value="open">{directionFilter==="ar"?"Unreceived":"Unpaid"}</option>
+      <option value="settlement_pending">Proof pending approval</option>
+      <option value="settled">{directionFilter==="ar"?"Received":"Paid"}</option>
+      <option value="rejected">Rejected</option>
+     </select>
+    </div>
+   </div>
     <div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead><tr className="text-xs text-neutral-500">{["Invoice","Counterparty / Type","Amount / Due","Bank check","Status","Actions"].map(t=><th key={t} className="p-2">{t}</th>)}</tr></thead><tbody>
-     {invoices.filter(i=>directionFilter==="all"||i.direction===directionFilter).map(i=><tr key={i.id} className="border-t align-top dark:border-neutral-800">
+     {shownInvoices.map(i=><tr key={i.id} className="border-t align-top dark:border-neutral-800">
       <td className="p-2"><div className="font-medium">{i.invoice_number||"Unrecognized"}</div><div className="text-xs">{i.invoice_date||"—"}</div><a className="text-xs underline" href={fileUrl(entity,i.document_id)}>Original invoice</a></td>
       <td className="p-2">{i.approved_party_name||i.counterparty_name||"Unmatched"}<div className="text-xs">{String(i.direction).toUpperCase()} · {i.source}</div>{i.source_mailbox&&<div className="text-xs text-neutral-500">{i.source_mailbox} · {i.source_provider}</div>}</td>
       <td className="p-2">{i.amount_minor!=null?amount(i.amount_minor,i.currency):"—"}<div className="text-xs">Due {i.due_date||"—"}</div></td>
       <td className="p-2"><span className={i.bank_check==="mismatch"?"text-red-600 font-semibold":""}>{i.bank_check}</span><div className="text-xs">{i.invoice_bank_account||"No account"}</div></td>
-      <td className="p-2">{i.status}
+      <td className="p-2"><span className="font-medium">{i.status==="open"?(i.direction==="ar"?"Unreceived / 未收款":"Unpaid / 未付款"):i.status==="settlement_pending"?"Proof pending approval / 待核销审核":i.status==="settled"?(i.direction==="ar"?"Received / 已收款":"Paid / 已付款"):i.status==="needs_review"?"Needs review / 待审核":i.status}</span>
        <div className="text-xs">{i.extraction_note||""}</div>
        {i.last_ai_outcome&&<div className="mt-1 rounded border p-2 text-xs dark:border-neutral-700">
         <div className="font-medium">Latest AI: {i.last_ai_outcome} · HTTP {i.last_ai_http_status??"—"} · {i.last_ai_response_status||"—"}</div>
@@ -228,6 +258,7 @@ export function FinanceConsole({section}:{section:Section}){
       </div>:null}</td>
      </tr>)}</tbody></table></div>
    </section>
+   </>}
   </>}
  </div>;
 }
