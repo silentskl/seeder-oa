@@ -168,7 +168,7 @@ export function FinanceConsole({section}:{section:Section}){
      <tbody>{approved.filter(p=>p.party_type===kind||p.party_type==="both").map(p=><tr key={p.id} className="border-t dark:border-neutral-800"><td className="p-2"><div className="font-semibold">{p.company_name}</div><div className="text-xs">{p.address}</div></td><td className="p-2">{p.party_type}</td>
       <td className="p-2">{p.contact_name}<div className="text-xs">{p.email} {p.phone}</div></td>
       <td className="p-2">{p.bank_name}<div className="text-xs">{p.bank_account} · {p.bank_swift}</div></td>
-      <td className="p-2"><button className={btn} onClick={()=>{setParty({party_type:p.party_type,company_name:p.company_name,address:p.address,contact_name:p.contact_name,email:p.email,phone:p.phone,bank_name:p.bank_name,bank_account:p.bank_account,bank_swift:p.bank_swift,root_id:p.root_id,assigned_approver_user_id:""});window.scrollTo({top:0,behavior:"smooth"});}}>Propose change</button></td>
+      <td className="p-2"><button className={btn} onClick={()=>{setParty({party_type:p.party_type,company_name:p.company_name,address:p.address,contact_name:p.contact_name,email:p.email,phone:p.phone,bank_name:p.bank_name,bank_account:p.bank_account,bank_swift:p.bank_swift,root_id:p.root_id,assigned_approver_user_id:""});setActiveTab("config");window.scrollTo({top:0,behavior:"smooth"});}}>Propose change</button></td>
      </tr>)}</tbody></table></div>
    </section>)}
    </>}
@@ -253,7 +253,7 @@ export function FinanceConsole({section}:{section:Section}){
       <td className="p-2">{s.status}<div className="text-xs text-neutral-500">{s.decided_at||s.submitted_at}</div></td>
       <td className="p-2">{s.status==="pending"?<div className="flex flex-wrap gap-2">
        {assignee(s.approver_user_id,"settlement_assign",s.id)}
-       <button className={primary} disabled={busy} onClick={()=>void run(()=>request(entity,"settlement_approve",{id:s.id}),"Bank proof approved; invoice settled.")}>Approve</button>
+       <button className={primary} disabled={busy} onClick={()=>void run(()=>request(entity,"settlement_approve",{id:s.id}),s.direction==="ar"?"Receipt confirmed; invoice marked received.":"Payment confirmed; invoice marked paid.")}>Approve {s.direction==="ar"?"receipt":"payment"}</button>
        <button className={btn} disabled={busy} onClick={()=>void run(()=>request(entity,"settlement_reject",{id:s.id,note:window.prompt("Rejection note")||""}),"Bank proof rejected.")}>Reject</button>
       </div>:null}</td>
      </tr>)}</tbody></table></div>
