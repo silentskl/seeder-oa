@@ -9,7 +9,17 @@ OUT="${1:-$ROOT/backups}"
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 NAME="seeder-oa-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
-restore_service(){ docker compose -f "$ROOT/docker-compose.yml" up -d >/dev/null; }
+# Remember exactly which services were running; never turn on a previously
+# disabled finance cron merely because a backup was performed.
+RUNNING="$(docker compose -f "$ROOT/docker-compose.yml" ps --services --status running)"
+restore_service(){
+  for service in $RUNNING; do
+    case "$service" in
+      seeder-oa|finance-mail-scheduler)
+        docker compose -f "$ROOT/docker-compose.yml" start "$service" >/dev/null || true ;;
+    esac
+  done
+}
 echo "Stopping app and scheduler briefly for a consistent local backup..."
 docker compose -f "$ROOT/docker-compose.yml" stop finance-mail-scheduler seeder-oa
 trap restore_service EXIT
