@@ -48,6 +48,7 @@ class BusinessInvoiceDedupTests(unittest.TestCase):
   by_id={row[0]:row[1:] for row in rows}
   self.assertEqual(by_id["first"],("inv001","none",None))
   self.assertEqual(by_id["again"],("inv001","possible","first"))
+  self.assertEqual(self.db.execute("SELECT duplicate_reason FROM oa_finance_invoice WHERE id='again'").fetchone()[0],"amount_and_date_conflict")
   self.assertEqual(by_id["other-vendor"],("inv001","none",None))
   self.assertEqual(by_id["other-company"],("inv001","none",None))
   self.assertEqual(self.db.execute("SELECT status FROM oa_finance_invoice WHERE id='again'").fetchone()[0],"needs_review")
