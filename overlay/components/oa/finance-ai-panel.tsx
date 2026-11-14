@@ -76,7 +76,7 @@ export function FinanceAiPanel({entityId,mode="settings",lang}:{entityId:string;
    const r=await fetch("/api/oa/finance/ai-settings?entity_id="+encodeURIComponent(entityId),{cache:"no-store"});
    const latest=await r.json().catch(()=>null);
    if(r.ok&&latest?.ok)setCalls(latest.data.calls||[]);
-   setNotice("ModelBridge configuration saved for this company. Run Test connection before importing invoices.");
+   setNotice(t("Configuration saved. Test the connection before importing invoices.","配置已保存。导入发票前请先测试连接。"));
   });
  }
  if(loading)return <section className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800"><p className="text-sm text-neutral-500">{t("Loading invoice AI settings…","正在加载发票 AI 配置…")}</p></section>;
@@ -105,7 +105,7 @@ export function FinanceAiPanel({entityId,mode="settings",lang}:{entityId:string;
   {!settings.settings_master_key_configured&&<p className="text-sm text-red-600">{t("Configure OA_SETTINGS_MASTER_KEY before saving AI credentials.","保存 AI 凭证前请配置 OA_SETTINGS_MASTER_KEY。")}</p>}
   <form onSubmit={save} className="space-y-3">
    <div className="grid gap-3 md:grid-cols-3">
-    <label className="block text-xs font-medium md:col-span-2">ModelBridge Base URL
+    <label className="block text-xs font-medium md:col-span-2">{t("ModelBridge Base URL","ModelBridge 接口地址")}
      <input className={fields+" mt-1"} type="url" placeholder="https://your-modelbridge-domain/v1" required
       value={settings.base_url} onChange={e=>setSettings(s=>({...s,base_url:e.target.value}))}/>
     </label>
@@ -120,8 +120,8 @@ export function FinanceAiPanel({entityId,mode="settings",lang}:{entityId:string;
     <label className="block text-xs font-medium">{t("API protocol","接口协议")}
      <select className={fields+" mt-1"} value={settings.protocol}
       onChange={e=>setSettings(s=>({...s,protocol:e.target.value as AiSettings["protocol"]}))}>
-      <option value="responses">Responses API (PDF and images)</option>
-      <option value="chat_completions">Chat Completions (images only)</option>
+      <option value="responses">{t("Responses API (PDF and images)","Responses 接口（支持 PDF 和图片）")}</option>
+      <option value="chat_completions">{t("Chat Completions (images only)","Chat Completions 接口（仅图片）")}</option>
      </select>
     </label>
     <label className="block text-xs font-medium">{t("Reasoning effort","推理强度")}
@@ -148,7 +148,7 @@ export function FinanceAiPanel({entityId,mode="settings",lang}:{entityId:string;
      onClick={()=>void perform("testing",async()=>{
       const result=await post("test");
       const d=result.diagnostic;
-      setNotice(result.connected?"Connection OK · "+result.model+" · HTTP "+(d?.http_status??"—")+" · "+(d?.duration_ms??"—")+"ms · output tokens "+(d?.output_tokens??"—")+" (reasoning "+(d?.reasoning_tokens??"—")+")":"Connection test returned no answer");
+      setNotice(result.connected?t("Connection OK","连接成功")+" · "+result.model+" · HTTP "+(d?.http_status??"—")+" · "+(d?.duration_ms??"—")+"ms · "+t("output tokens","输出 Token")+" "+(d?.output_tokens??"—")+" ("+t("reasoning","推理")+" "+(d?.reasoning_tokens??"—")+")":t("Connection test returned no answer","连接测试未返回有效结果"));
       const r=await fetch("/api/oa/finance/ai-settings?entity_id="+encodeURIComponent(entityId),{cache:"no-store"});
       const latest=await r.json().catch(()=>null);
       if(r.ok&&latest?.ok)setCalls(latest.data.calls||[]);
