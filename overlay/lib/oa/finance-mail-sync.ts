@@ -10,9 +10,9 @@ export type MailAccount={
  active:number;sync_interval_minutes:number;initial_lookback_days:number;last_attempt_at:string|null;
  last_success_at:string|null;last_error:string|null;sync_lock_until:string|null;
 };
-type MailMessage={id:string;subject:string;sender:string;body:string;receivedAt:string;hasAttachments:boolean};
+export type MailMessage={id:string;subject:string;sender:string;body:string;receivedAt:string;hasAttachments:boolean};
 type MailAttachment={id:string;name:string;contentType:string;size:number;inline:boolean};
-type MailClient={
+export type MailClient={
  list:(cursor:string|null)=>Promise<{messages:MailMessage[];cursor:string|null}>;
  attachments:(message:MailMessage)=>Promise<MailAttachment[]>;
  download:(message:MailMessage,attachment:MailAttachment)=>Promise<Uint8Array>;
@@ -71,12 +71,13 @@ async function mailToken(account:MailAccount){
  if(typeof data.access_token!=="string"||!data.access_token)throw new Error("Mail provider did not return an access token");
  return data.access_token as string;
 }
-function microsoftClient(account:MailAccount,token:string):MailClient{
+function microsoftClient(account:MailAccount,token:string,history?:{from:string;toExclusive:string;pageSize:number}):MailClient{
  const base=GRAPH+"/v1.0/users/"+encodeURIComponent(account.address);
  const folder=encodeURIComponent(account.folder_id||"inbox");
  const listBase=base+"/mailFolders/"+folder+"/messages";
  const u=new URL(listBase);
- u.searchParams.set("$top","100");
+ u.searchParams.set("$top",String(history?.pageSize||100));
+ if(history)u.searchParams.set("$filter","receivedDateTime ge "+history.from+"T00:00:00Z and receivedDateTime lt "+history.toExclusive+"T00:00:00Z");
  u.searchParams.set("$select","id,subject,hasAttachments,receivedDateTime,from,bodyPreview");
  u.searchParams.set("$orderby","receivedDateTime desc");
  return {
@@ -122,13 +123,13 @@ function microsoftClient(account:MailAccount,token:string):MailClient{
   },
  };
 }
-function alibabaClient(account:MailAccount,token:string):MailClient{
+function alibabaClient(account:MailAccount,token:string,history?:{from:string;toExclusive:string;pageSize:number}):MailClient{
  const base=configuredBase(account),mb=base+"/v2/users/"+encodeURIComponent(account.address);
  const folder=encodeURIComponent(account.folder_id||"2");
  return {
   async list(cursor){
    const url=new URL(mb+"/mailFolders/"+folder+"/messages");
-   url.searchParams.set("size","100");url.searchParams.set("orderby","DES");
+   url.searchParams.set("size",String(history?.pageSize||100));url.searchParams.set("orderby","DES");
    if(cursor)url.searchParams.set("cursor",cursor);
    const result=await json(url.toString(),token);
    if(!Array.isArray(result.messages))throw new Error("Alibaba Mail message list response is not recognized");
@@ -174,6 +175,37 @@ function alibabaClient(account:MailAccount,token:string):MailClient{
   }
  };
 }
+// Shared importer. Immutable provider IDs and unique invoice keys make replay safe.
+export async function importFinanceMailAttachments(account:MailAccount,client:MailClient,message:MailMessage){
+ const counts={scanned:0,imported:0,duplicates:0,skipped:0};
+ if(!message.hasAttachments)return counts;
+ counts.scanned=1;
+ const attachments=await client.attachments(message);
+ if(attachments.length>30)throw new Error("More than 30 attachments in an email");
+ for(const attachment of attachments){
+  if(!FINANCE_TYPES.has(attachment.contentType)||attachment.size>FINANCE_MAX_FILE){
+   counts.skipped++;continue;
+  }
+  const sourceEmailId=account.id+":"+message.id;
+  const existing=await one("SELECT id FROM oa_finance_invoice WHERE entity_id=? AND source_email_id=? AND source_attachment_id=?",
+   [account.entity_id,sourceEmailId,attachment.id]);
+  if(existing){counts.duplicates++;continue;}
+  const bytes=await client.download(message,attachment);
+  const doc=await storeFinanceDocument({entityId:account.entity_id,purpose:"invoice",name:attachment.name,type:attachment.contentType,bytes});
+  const parsed=await extractInvoice({entityId:account.entity_id,bytes,type:attachment.contentType,name:attachment.name,
+   subject:message.subject,body:message.body,sender:message.sender});
+  const id=await createInvoice({entityId:account.entity_id,documentId:doc,source:"email",
+   sourceEmailId,sourceAttachmentId:attachment.id,sender:message.sender,parsed,sourceMailAccountId:account.id});
+  await audit(null,"finance.invoice.provider_import","finance_invoice",id,
+   {accountId:account.id,provider:account.provider,sourceEmailId,attachmentId:attachment.id,extraction:parsed.extractionStatus},account.entity_id);
+  counts.imported++;
+ }
+ return counts;
+}
+export async function openFinanceMailClient(account:MailAccount,history?:{from:string;toExclusive:string;pageSize:number}){
+ const token=await mailToken(account);
+ return account.provider==="microsoft365"?microsoftClient(account,token,history):alibabaClient(account,token,history);
+}
 export async function testMailAccount(account:MailAccount){
  const token=await mailToken(account);
  const client=account.provider==="microsoft365"?microsoftClient(account,token):alibabaClient(account,token);
@@ -201,26 +233,8 @@ export async function syncMailAccount(account:MailAccount){
    for(const message of result.messages){
     const timestamp=Date.parse(message.receivedAt);
     if(Number.isFinite(timestamp)&&timestamp<cutoff){older++;continue;}
-    if(!message.hasAttachments)continue;
-    scanned++;
-    const attachments=await client.attachments(message);
-    if(attachments.length>30)throw new Error("More than 30 attachments in an email");
-    for(const a of attachments){
-     if(!FINANCE_TYPES.has(a.contentType))continue;
-     if(a.size>FINANCE_MAX_FILE)continue;
-     // Include account identity; provider message IDs are not globally unique across companies.
-     const sourceEmailId=account.id+":"+message.id;
-     const existing=await one("SELECT id FROM oa_finance_invoice WHERE entity_id=? AND source_email_id=? AND source_attachment_id=?",
-      [account.entity_id,sourceEmailId,a.id]);
-     if(existing){duplicates++;continue;}
-     const bytes=await client.download(message,a);
-     const doc=await storeFinanceDocument({entityId:account.entity_id,purpose:"invoice",name:a.name,type:a.contentType,bytes});
-     const parsed=await extractInvoice({entityId:account.entity_id,bytes,type:a.contentType,name:a.name,subject:message.subject,body:message.body,sender:message.sender});
-     const id=await createInvoice({entityId:account.entity_id,documentId:doc,source:"email",sourceEmailId,sourceAttachmentId:a.id,sender:message.sender,parsed,sourceMailAccountId:account.id});
-     await audit(null,"finance.invoice.provider_import","finance_invoice",id,
-      {accountId:account.id,provider:account.provider,sourceEmailId,attachmentId:a.id,extraction:parsed.extractionStatus},account.entity_id);
-     imported++;
-    }
+    const done=await importFinanceMailAttachments(account,client,message);
+    scanned+=done.scanned;imported+=done.imported;duplicates+=done.duplicates;
    }
    cursor=result.cursor;
    if(!cursor||older>0){completed=true;break;}
