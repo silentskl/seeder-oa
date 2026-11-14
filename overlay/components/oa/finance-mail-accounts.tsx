@@ -63,7 +63,7 @@ export function MailAccountsPanel({entityId,lang}:{entityId:string;lang:FinanceL
   await doWork(async()=>{
    await api(entityId,editing?"update":"add",form);
    setForm({...defaults});
-  },editing?"Mailbox updated.":"Mailbox added disabled. Test connectivity before enabling.");
+  },editing?t("Mailbox updated.","邮箱配置已更新。"):t("Mailbox added disabled. Test connectivity before enabling.","邮箱已添加（默认关闭）；请先测试连接再启用。"));
  }
  function edit(a:Mailbox){
   setForm({id:a.id,display_name:a.display_name||"",address:a.address,provider:a.provider,
@@ -82,31 +82,31 @@ export function MailAccountsPanel({entityId,lang}:{entityId:string;lang:FinanceL
     <thead><tr className="text-xs text-neutral-500">{[t("Mailbox","邮箱"),t("Provider / Interval","服务商与同步周期"),t("Enabled","启用状态"),t("Last success","最近同步成功"),t("Status / Actions","状态与操作")].map(x=><th key={x} className="p-2">{x}</th>)}</tr></thead>
     <tbody>{accounts.map(a=><tr className="border-t align-top dark:border-neutral-800" key={a.id}>
      <td className="p-2"><strong>{a.display_name||a.address}</strong><div className="text-xs">{a.address}</div></td>
-     <td className="p-2">{a.provider==="microsoft365"?"Microsoft 365":"Alibaba Mail"}<div className="text-xs">{a.sync_interval_minutes} min · {a.initial_lookback_days} day initial lookback</div></td>
+     <td className="p-2">{a.provider==="microsoft365"?"Microsoft 365":"Alibaba Mail"}<div className="text-xs">{a.sync_interval_minutes} {t("min","分钟")} · {a.initial_lookback_days} {t("day initial lookback","天首次回溯")}</div></td>
      <td className="p-2">{a.active?t("Enabled","已启用"):t("Disabled","已停用")}</td>
      <td className="p-2 text-xs">{a.last_success_at||t("Never","从未同步")}</td>
      <td className="p-2"><div className="flex flex-wrap gap-2">
       <button className={button} type="button" disabled={busy} onClick={()=>edit(a)}>{t("Configure","配置")}</button>
-      <button className={button} type="button" disabled={busy} onClick={()=>void doWork(()=>api(entityId,"test",{id:a.id}),"Connection test succeeded.")}>{t("Test connection","测试连接")}</button>
-      <button className={button} type="button" disabled={busy||!a.active} onClick={()=>void doWork(()=>api(entityId,"sync",{id:a.id}),"Manual sync complete.")}>{t("Sync now","立即同步")}</button>
+      <button className={button} type="button" disabled={busy} onClick={()=>void doWork(()=>api(entityId,"test",{id:a.id}) ,t("Connection test succeeded.","连接测试成功。"))}>{t("Test connection","测试连接")}</button>
+      <button className={button} type="button" disabled={busy||!a.active} onClick={()=>void doWork(()=>api(entityId,"sync",{id:a.id}) ,t("Manual sync complete.","手动同步完成。"))}>{t("Sync now","立即同步")}</button>
      </div>{a.last_error&&<p className="mt-1 text-xs text-red-600">{a.last_error}</p>}</td>
     </tr>)}</tbody>
-   </table>{!accounts.length&&<p className="p-3 text-sm text-neutral-500">No mailboxes connected to this company yet.</p>}</div>
+   </table>{!accounts.length&&<p className="p-3 text-sm text-neutral-500">{t("No mailboxes connected to this company yet.","该公司尚未连接财务邮箱。")}</p>}</div>
    <form className="mt-5 space-y-3 border-t pt-4 dark:border-neutral-800" onSubmit={save}>
     <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{editing?t("Edit mailbox","编辑邮箱"):t("Add mailbox","添加邮箱")}</h3>{editing&&<button type="button" className={button} onClick={()=>setForm({...defaults})}>{t("New connection / Cancel edit","新建连接／取消编辑")}</button>}</div>
     <div className="grid gap-3 md:grid-cols-3">
      <Labeled label={t("Email provider","邮箱服务商")}><select className={field} disabled={editing} value={form.provider} onChange={e=>patch({provider:e.target.value as Provider,folder_id:""})}>
-      <option value="microsoft365">Microsoft 365 / Outlook</option><option value="alibaba_mail">Alibaba Mail / 阿里企业邮箱</option>
+      <option value="microsoft365">Microsoft 365 / Outlook</option><option value="alibaba_mail">{t("Alibaba Mail","阿里企业邮箱")}</option>
      </select></Labeled>
      <Labeled label={t("Mailbox address","邮箱地址")}><input className={field} type="email" required readOnly={editing} value={form.address} placeholder="payable@example.com" onChange={e=>patch({address:e.target.value})}/></Labeled>
-     <Labeled label={t("Display name","显示名称")}><input className={field} value={form.display_name} placeholder="AP invoice inbox" onChange={e=>patch({display_name:e.target.value})}/></Labeled>
+     <Labeled label={t("Display name","显示名称")}><input className={field} value={form.display_name} placeholder={t("AP invoice inbox","应付发票收件箱")} onChange={e=>patch({display_name:e.target.value})}/></Labeled>
      <Labeled label={t("App client ID","应用客户端 ID")}><input className={field} required value={form.client_id} onChange={e=>patch({client_id:e.target.value})}/></Labeled>
      <Labeled label={editing?t("App client secret (blank = unchanged)","应用客户端密钥（留空保持不变）"):t("App client secret","应用客户端密钥")}>
       <input className={field} type="password" autoComplete="new-password" required={!editing} value={form.client_secret} onChange={e=>patch({client_secret:e.target.value})}/>
      </Labeled>
      {form.provider==="microsoft365"?<Labeled label={t("Microsoft Entra tenant ID","Microsoft Entra 租户 ID")}><input className={field} required placeholder="Tenant GUID" value={form.tenant_id} onChange={e=>patch({tenant_id:e.target.value})}/></Labeled>:
       <Labeled label={t("Alibaba API region","阿里云 API 区域")}><select className={field} value={form.api_base} onChange={e=>patch({api_base:e.target.value})}>
-       <option value="https://alimail-cn.aliyuncs.com">Standard / AI premium</option><option value="https://mail-open.xc.aliyun.com">Domestic deployment</option>
+       <option value="https://alimail-cn.aliyuncs.com">{t("Standard / AI premium","标准版／AI 高级版")}</option><option value="https://mail-open.xc.aliyun.com">{t("Domestic deployment","国内部署")}</option>
       </select></Labeled>}
      <Labeled label={t("Folder ID (optional)","文件夹 ID（可选）")}><input className={field} placeholder={form.provider==="microsoft365"?"inbox":"2 (Inbox)"} value={form.folder_id} onChange={e=>patch({folder_id:e.target.value})}/></Labeled>
      <Labeled label={t("Sync interval (minutes)","同步间隔（分钟）")}><input className={field} type="number" min={5} max={1440} value={form.sync_interval_minutes} onChange={e=>patch({sync_interval_minutes:Number(e.target.value)})}/></Labeled>
