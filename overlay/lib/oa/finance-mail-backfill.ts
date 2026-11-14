@@ -83,8 +83,8 @@ export async function dueMailBackfills(limit=1){
  );
 }
 const PAGE_SIZE=50;
-const BATCH_MAX_MESSAGES=15;
-const BATCH_TIME_MS=60000;
+const BATCH_MAX_MESSAGES=5;
+const BATCH_TIME_MS=40000;
 const LEASE_MS=9*60000;
 function errorText(error:unknown){
  const value=error instanceof Error?error.message:"Historical synchronization failed";
@@ -119,6 +119,8 @@ export async function processMailBackfill(id:string,entityId:string){
   const range=validateMailBackfillRange(job.date_from,job.date_to);
   const startTime=dateTime(range.from),endTime=dateTime(range.toExclusive);
   const client=await openFinanceMailClient(account,{from:range.from,toExclusive:range.toExclusive,pageSize:PAGE_SIZE});
+  // One provider page is re-fetched on resume, but already-processed
+  // messages are skipped by the persisted offset (and invoice unique keys).
   const page=await client.list(job.page_cursor);
   let offset=job.message_offset,tooOld=false;
   if(offset>page.messages.length)throw new Error("Mail provider pagination changed during historical sync; restart the task from the beginning");
