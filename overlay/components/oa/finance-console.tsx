@@ -13,7 +13,7 @@ const btn="rounded-lg border border-neutral-300 px-3 py-2 text-sm font-medium ho
 const primary=btn+" bg-neutral-900 text-white hover:bg-neutral-700 dark:bg-white dark:text-neutral-950";
 const card="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950";
 const emptyParty={party_type:"supplier",company_name:"",address:"",contact_name:"",email:"",phone:"",bank_name:"",bank_account:"",bank_swift:"",root_id:"",assigned_approver_user_id:""};
-const duplicateReasonLabel=(reason:string)=>({same_fields:"Same invoice number and details / 发票信息一致",amount_conflict:"Amount or currency differs / 金额或币种冲突",date_conflict:"Invoice date differs / 日期冲突",amount_and_date_conflict:"Amount and date differ / 金额与日期冲突",details_missing:"Some fields missing / 资料不完整",legacy_same_number_party:"Historical duplicate candidate / 历史疑似重复"} as Record<string,string>)[reason]||"Invoice number matches / 发票号匹配";
+const duplicateReasonLabel=(reason:string,lang:"en"|"zh")=>({same_fields:financeTr(lang,"Same number and details","发票号和信息一致"),amount_conflict:financeTr(lang,"Amount or currency differs","金额或币种不一致"),date_conflict:financeTr(lang,"Invoice date differs","开票日期不一致"),amount_and_date_conflict:financeTr(lang,"Amount and date differ","金额与日期不一致"),details_missing:financeTr(lang,"Some fields are missing","部分字段缺失"),legacy_same_number_party:financeTr(lang,"Historical duplicate candidate","历史疑似重复")} as Record<string,string>)[reason]||financeTr(lang,"Invoice number matches","发票编号相同");
 function overdueDays(dueDate:unknown,status:unknown):number{
  if(!["open","settlement_pending","needs_review"].includes(String(status))||typeof dueDate!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(dueDate))return 0;
  const due=Date.parse(dueDate+"T00:00:00Z");
@@ -226,24 +226,24 @@ export function FinanceConsole({section}:{section:Section}){
    {configTab==="calls"&&<FinanceAiPanel key={entity+"-calls"} entityId={entity} lang={lang} mode="calls"/>}
    {configTab==="mailboxes"&&<>
    <MailAccountsPanel entityId={entity} lang={lang}/>
-   <details className={card}><summary className="cursor-pointer font-semibold">Legacy Resend forwarding (optional)</summary>
+   <details className={card}><summary className="cursor-pointer font-semibold">{t("Legacy Resend forwarding (optional)","旧版 Resend 转发（可选）")}</summary>
    <section className="mt-3">
-    <h2 className="text-sm font-semibold">Resend mailbox configuration</h2>
-    <p className="mb-3 mt-1 text-xs text-neutral-500">Route payable@your-domain to Resend Inbound, or forward it to a Resend-provided receiving address. Configure that actual destination below and subscribe to email.received. The webhook must point to /api/oa/finance/inbound. Email attachment imports always require financial review.</p>
+    <h2 className="text-sm font-semibold">{t("Resend mailbox configuration","Resend 邮箱配置")}</h2>
+    <p className="mb-3 mt-1 text-xs text-neutral-500">{t("Use Resend Inbound or forward to a receiving address. The webhook must point to /api/oa/finance/inbound. Imported invoices require review.","可使用 Resend 入站邮件或转发邮箱，回调地址为 /api/oa/finance/inbound。导入发票仍需人工审核。")}</p>
     <form className="flex flex-wrap items-end gap-2" onSubmit={e=>{e.preventDefault();void run(()=>request(entity,"set_mailbox",{address:mailbox,receive_address:receiveAddress}),"Finance mailbox saved.");}}>
-     <div className="min-w-64 flex-1"><Field label="Incoming invoice mailbox" name="mailbox" value={mailbox} type="email" required onChange={setMailbox}/></div>
-     <div className="min-w-64 flex-1"><Field label="Actual Resend receiving address (if forwarded)" name="receive_address" value={receiveAddress} type="email" onChange={setReceiveAddress}/></div>
-     <button className={btn} disabled={busy}>Save mailbox</button>
+     <div className="min-w-64 flex-1"><Field label={t("Incoming invoice mailbox","发票接收邮箱")} name="mailbox" value={mailbox} type="email" required onChange={setMailbox}/></div>
+     <div className="min-w-64 flex-1"><Field label={t("Actual Resend receiving address (if forwarded)","Resend 接收地址（如转发）")} name="receive_address" value={receiveAddress} type="email" onChange={setReceiveAddress}/></div>
+     <button className={btn} disabled={busy}>{t("Save mailbox","保存邮箱")}</button>
     </form>
-    <p className="mt-3 text-xs text-neutral-500">Resend inbound: {config.resendConfigured?"configured":"not configured"}</p>
+    <p className="mt-3 text-xs text-neutral-500">{t("Resend inbound","Resend 入站邮件")}: {config.resendConfigured?t("configured","已配置"):t("not configured","未配置")}</p>
    </section></details>
-   <section className={card}><h2 className="mb-3 font-semibold">Import an invoice manually</h2>
+   <section className={card}><h2 className="mb-3 font-semibold">{t("Import an invoice manually","手动导入发票")}</h2>
     <form className="flex flex-wrap items-center gap-2" onSubmit={e=>{e.preventDefault();const fd=new FormData(e.currentTarget),file=fd.get("file");
      if(!(file instanceof File)||!file.size)return;
      void run(async()=>{const document_id=await upload(entity,"invoice",file);await request(entity,"invoice_import",{document_id,subject:fd.get("subject")});},"Invoice imported for review.");}}>
-     <input className={input+" max-w-72"} name="subject" placeholder="Invoice subject (optional)"/>
+     <input className={input+" max-w-72"} name="subject" placeholder={t("Invoice subject (optional)","发票主题（可选）")}/>
      <input type="file" name="file" required accept=".pdf,.jpg,.jpeg,.png,.webp" className="text-xs"/>
-     <button className={btn} disabled={busy}>Upload & extract</button>
+     <button className={btn} disabled={busy}>{t("Upload & extract","上传并识别")}</button>
     </form>
    </section>
    </>}
@@ -251,39 +251,39 @@ export function FinanceConsole({section}:{section:Section}){
    {activeTab==="data"&&<>
    <FinanceBalances rows={balances} lang={lang}/>
    <section className={card}><div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-    <h2 className="font-semibold">{directionFilter==="ar"?"Accounts Receivable / 应收账款":directionFilter==="ap"?"Accounts Payable / 应付账款":"Needs classification / 未分类"} ({shownInvoices.length})</h2>
+    <h2 className="font-semibold">{directionFilter==="ar"?t("Accounts Receivable","应收账款"):directionFilter==="ap"?t("Accounts Payable","应付账款"):t("Needs classification","待分类")} ({shownInvoices.length})</h2>
     <div className="flex flex-wrap items-center gap-2">
-     {([["ar","AR / Receivables"],["ap","AP / Payables"],["unknown","Unclassified"]] as const).map(([v,label])=><button key={v} type="button" className={btn+(directionFilter===v?" font-bold underline":"")} onClick={()=>{setDirectionFilter(v);setStatusFilter("all");}}>{label}</button>)}
-     <select aria-label="Filter invoice settlement status" className={input+" max-w-52"} value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}>
-      <option value="all">All statuses</option><option value="possible_duplicate">Possible duplicates / 疑似重复</option><option value="needs_review">Needs review</option>
-      <option value="open">{directionFilter==="ar"?"Unreceived":"Unpaid"}</option>
-      <option value="settlement_pending">Proof pending approval</option>
-      <option value="settled">{directionFilter==="ar"?"Received":"Paid"}</option>
-      <option value="rejected">Rejected</option>
+     {( [["ar",t("Accounts receivable","应收账款")],["ap",t("Accounts payable","应付账款")],["unknown",t("Unclassified","待分类")]] as const).map(([v,label])=><button key={v} type="button" className={btn+(directionFilter===v?" font-bold underline":"")} onClick={()=>{setDirectionFilter(v);setStatusFilter("all");}}>{label}</button>)}
+     <select aria-label={t("Filter invoice status","筛选发票状态")} className={input+" max-w-52"} value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}>
+      <option value="all">{t("All statuses","全部状态")}</option><option value="possible_duplicate">{t("Possible duplicates","疑似重复")}</option><option value="needs_review">{t("Needs review","待审核")}</option>
+      <option value="open">{directionFilter==="ar"?t("Unreceived","未收款"):t("Unpaid","未付款")}</option>
+      <option value="settlement_pending">{t("Proof pending approval","凭证待审核")}</option>
+      <option value="settled">{directionFilter==="ar"?t("Received","已收款"):t("Paid","已付款")}</option>
+      <option value="rejected">{t("Rejected","已拒绝")}</option>
      </select>
     </div>
    </div>
-    <div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead><tr className="text-xs text-neutral-500">{["Invoice","Counterparty / Type","Amount / Due","Bank check","Status","Actions"].map(t=><th key={t} className="p-2">{t}</th>)}</tr></thead><tbody>
+    <div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead><tr className="text-xs text-neutral-500">{[t("Invoice","发票"),t("Counterparty / Type","往来单位与类型"),t("Amount / Due","金额与到期日"),t("Bank check","银行校验"),t("Status","状态"),t("Actions","操作")].map(t=><th key={t} className="p-2">{t}</th>)}</tr></thead><tbody>
      {shownInvoices.map(i=><tr key={i.id} className={"border-t align-top "+(overdueDays(i.due_date,i.status)>0?"bg-red-50 text-red-900 dark:bg-red-950/40 dark:text-red-200":"dark:border-neutral-800")}>
-      <td className="p-2"><div className="font-medium">{i.invoice_number||"Unrecognized"}</div><div className="text-xs">{i.invoice_date||"—"}</div><a className="text-xs underline" href={fileUrl(entity,i.document_id)}>Original invoice</a></td>
-      <td className="p-2">{i.approved_party_name||i.counterparty_name||"Unmatched"}<div className="text-xs">{String(i.direction).toUpperCase()} · {i.source}</div>{i.source_mailbox&&<div className="text-xs text-neutral-500">{i.source_mailbox} · {i.source_provider}</div>}</td>
+      <td className="p-2"><div className="font-medium">{i.invoice_number||t("Unrecognized","未识别")}</div><div className="text-xs">{i.invoice_date||"—"}</div><a className="text-xs underline" href={fileUrl(entity,i.document_id)}>{t("Original invoice","原始发票")}</a></td>
+      <td className="p-2">{i.approved_party_name||i.counterparty_name||t("Unmatched","未匹配")}<div className="text-xs">{String(i.direction).toUpperCase()} · {i.source}</div>{i.source_mailbox&&<div className="text-xs text-neutral-500">{i.source_mailbox} · {i.source_provider}</div>}</td>
       <td className="p-2">{i.amount_minor!=null?amount(i.amount_minor,i.currency):"—"}<div className="text-xs">{t("Due","到期日")} {i.due_date||"—"}{i.due_date_inferred===1&&<span className="ml-1 text-amber-700 dark:text-amber-300">{t("(estimated +30 days)","（推算 +30 天）")}</span>}</div>{overdueDays(i.due_date,i.status)>0&&<div className="text-xs font-bold text-red-700 dark:text-red-300">{t("Overdue by","已逾期")} {overdueDays(i.due_date,i.status)} {t("days","天")}</div>}</td>
-      <td className="p-2">{i.direction==="ar"?<span className="text-xs text-neutral-500">AR receiving account · not checked against customer</span>:<span className={i.bank_check==="mismatch"?"text-red-600 font-semibold":""}>{i.bank_check}</span>}<div className="text-xs">{i.invoice_bank_account||"No account"}</div></td>
-      <td className="p-2"><span className="font-medium">{i.status==="open"?(i.direction==="ar"?"Unreceived / 未收款":"Unpaid / 未付款"):i.status==="settlement_pending"?"Proof pending approval / 待核销审核":i.status==="settled"?(i.direction==="ar"?"Received / 已收款":"Paid / 已付款"):i.status==="needs_review"?"Needs review / 待审核":i.status}</span>
+      <td className="p-2">{i.direction==="ar"?<span className="text-xs text-neutral-500">{t("AR receiving bank account","应收发票收款账户")}</span>:<span className={i.bank_check==="mismatch"?"text-red-600 font-semibold":""}>{i.bank_check}</span>}<div className="text-xs">{i.invoice_bank_account||t("No account","无银行账号")}</div></td>
+      <td className="p-2"><span className="font-medium">{i.status==="open"?(i.direction==="ar"?t("Unreceived","未收款"):t("Unpaid","未付款")):i.status==="settlement_pending"?t("Proof pending approval","待核销审核"):i.status==="settled"?(i.direction==="ar"?t("Received","已收款"):t("Paid","已付款")):i.status==="needs_review"?t("Needs review","待审核"):i.status}</span>
        <div className="text-xs">{i.extraction_note||""}</div>
        {i.duplicate_status==="possible"&&<div role="alert" className="mt-2 rounded-md border border-amber-500 bg-amber-50 p-2 text-xs text-amber-950 dark:bg-amber-950 dark:text-amber-100">
-        <div className="font-semibold">Possible Duplicate / 疑似重复 Invoice</div>
-        <div>{duplicateReasonLabel(i.duplicate_reason)}</div>
-        <div>Linked invoice: <strong>{i.duplicate_of_number||i.duplicate_of_invoice_id||"Existing invoice"}</strong> · {i.duplicate_of_status||"—"}</div>
-        {i.duplicate_of_document_id&&<a className="underline" href={fileUrl(entity,i.duplicate_of_document_id)} target="_blank" rel="noopener noreferrer">Compare original invoice / 查看原件</a>}
-        <div className="mt-1">Not booked until reviewed. Confirm or clear with reason.</div>
+        <div className="font-semibold">{t("Possible duplicate invoice","疑似重复发票")}</div>
+        <div>{duplicateReasonLabel(i.duplicate_reason,lang)}</div>
+        <div>{t("Linked invoice","关联发票")}: <strong>{i.duplicate_of_number||i.duplicate_of_invoice_id||"Existing invoice"}</strong> · {i.duplicate_of_status||"—"}</div>
+        {i.duplicate_of_document_id&&<a className="underline" href={fileUrl(entity,i.duplicate_of_document_id)} target="_blank" rel="noopener noreferrer">{t("Compare original invoice","对照原始发票")}</a>}
+        <div className="mt-1">{t("Not booked until reviewed. Confirm or clear with a reason.","审核前不计入账款。请确认重复或填写理由排除。")}</div>
        </div>}
-       {i.duplicate_status==="dismissed"&&<div className="mt-1 text-xs text-neutral-600 dark:text-neutral-300">Duplicate warning cleared / 人工排重通过 · {i.duplicate_decision_note}</div>}
-       {i.duplicate_status==="confirmed"&&<div className="mt-1 text-xs text-neutral-500">Confirmed duplicate / 确认重复（已拒绝入账）</div>}
+       {i.duplicate_status==="dismissed"&&<div className="mt-1 text-xs text-neutral-600 dark:text-neutral-300">{t("Duplicate warning cleared","重复提示已人工排除")} · {i.duplicate_decision_note}</div>}
+       {i.duplicate_status==="confirmed"&&<div className="mt-1 text-xs text-neutral-500">{t("Confirmed duplicate (excluded from ledger)","已确认重复（不予入账）")}</div>}
        {i.last_ai_outcome&&<div className="mt-1 rounded border p-2 text-xs dark:border-neutral-700">
-        <div className="font-medium">Latest AI: {i.last_ai_outcome} · HTTP {i.last_ai_http_status??"—"} · {i.last_ai_response_status||"—"}</div>
-        <div>Output tokens: {i.last_ai_output_tokens??"—"} · Reasoning tokens: {i.last_ai_reasoning_tokens??"—"} · Reason: {i.last_ai_finish_reason||"—"}</div>
-        <div>Response shape: {i.last_ai_output_types||"—"}</div>
+        <div className="font-medium">{t("Latest AI","最近 AI 调用")}: {i.last_ai_outcome} · HTTP {i.last_ai_http_status??"—"} · {i.last_ai_response_status||"—"}</div>
+        <div>{t("Output tokens","输出 Token")}: {i.last_ai_output_tokens??"—"} · {t("Reasoning tokens","推理 Token")}: {i.last_ai_reasoning_tokens??"—"} · {t("Reason","原因")}: {i.last_ai_finish_reason||"—"}</div>
+        <div>{t("Response shape","响应格式")}: {i.last_ai_output_types||"—"}</div>
         {i.last_ai_request_id&&<div>Request ID: {i.last_ai_request_id}</div>}
        </div>}
       </td>
@@ -300,14 +300,14 @@ export function FinanceConsole({section}:{section:Section}){
          void run(()=>request(entity,"invoice_duplicate_dismiss",{id:i.id,note}),"Duplicate warning cleared. Complete invoice review.");
         }}>Clear warning / 排除重复</button>
        </div>}
-       <button className={btn} disabled={busy} onClick={()=>setReview({id:i.id,direction:i.direction==="unknown"?"ap":i.direction,party_root_id:i.party_root_id||"",counterparty_name:i.counterparty_name||"",invoice_number:i.invoice_number||"",invoice_date:i.invoice_date||"",due_date:i.due_date||"",currency:i.currency||"SGD",amount:major(i.amount_minor,i.currency),invoice_bank_account:i.invoice_bank_account||"",invoice_bank_name:i.invoice_bank_name||"",invoice_bank_swift:i.invoice_bank_swift||""})}>Review</button>
-       <button className={btn} disabled={busy} onClick={()=>void run(async()=>{try{const result=await request(entity,"invoice_reextract",{id:i.id});setReview({...emptyReview});return result;}finally{window.dispatchEvent(new Event("finance-ai-call-updated"));}},"AI re-extraction completed; verify the fields before confirming.")}>{busy?"Processing…":"Re-extract AI"}</button>
+       <button className={btn} disabled={busy} onClick={()=>setReview({id:i.id,direction:i.direction==="unknown"?"ap":i.direction,party_root_id:i.party_root_id||"",counterparty_name:i.counterparty_name||"",invoice_number:i.invoice_number||"",invoice_date:i.invoice_date||"",due_date:i.due_date||"",currency:i.currency||"SGD",amount:major(i.amount_minor,i.currency),invoice_bank_account:i.invoice_bank_account||"",invoice_bank_name:i.invoice_bank_name||"",invoice_bank_swift:i.invoice_bank_swift||""})}>{t("Review","审核")}</button>
+       <button className={btn} disabled={busy} onClick={()=>void run(async()=>{try{const result=await request(entity,"invoice_reextract",{id:i.id});setReview({...emptyReview});return result;}finally{window.dispatchEvent(new Event("finance-ai-call-updated"));}},"AI re-extraction completed; verify the fields before confirming.")}>{busy?t("Processing…","处理中…"):t("Re-extract AI","重新 AI 识别")}</button>
        <button className={btn} disabled={busy} onClick={()=>void run(()=>request(entity,"invoice_reject",{id:i.id}),"Invoice rejected.")}>Reject</button>
       </>:i.status==="open"?<ProofForm entity={entity} invoice={i} busy={busy} run={run}/>:null}</td>
      </tr>)}</tbody></table></div>
     {hasMoreInvoices&&<div className="mt-3 flex items-center justify-between gap-2">
      <p className="text-xs text-neutral-500">Showing recently imported invoices. Use Load older invoices to inspect the rest; balance cards always include all approved invoices.</p>
-     <button type="button" className={btn} disabled={busy} onClick={()=>void loadMoreInvoices()}>Load older invoices</button>
+     <button type="button" className={btn} disabled={busy} onClick={()=>void loadMoreInvoices()}>{t("Load older invoices","加载更早发票")}</button>
     </div>}
    </section>
    {review.id&&<section className={card}><h2 className="mb-3 font-semibold">Review Invoice · {review.invoice_number||review.id}</h2>
