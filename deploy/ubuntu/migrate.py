@@ -171,7 +171,7 @@ def verify(data_dir):
     expected=report["table_counts"]
     drift={name:(value,counts.get(name)) for name,value in expected.items() if counts.get(name)!=value}
     if drift:fail("Database changed since snapshot; for cutover verification stop writers and re-import final snapshot: "+str(drift)[:500])
-    upload_files=[p for p in (data_dir/"uploads").rglob("*") if p.is_file() and not p.name.endswith(".meta.json")]
+    upload_files=[p for p in (data_dir/"uploads").rglob("*") if p.is_file() and not (p.name.endswith(".meta.json") and p.with_name(p.name[:-10]).exists())]
     if len(upload_files)!=report["r2"]["objects"]:
         fail("R2 file count differs from migration report")
     print("PASS: SQLite integrity, foreign keys, table counts, invoice attachments, R2 object count")
