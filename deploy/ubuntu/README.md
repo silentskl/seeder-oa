@@ -116,7 +116,10 @@ bash deploy/ubuntu/start.sh --app-only
 ```
 
 The launcher rejects placeholder encryption secrets and refuses to start
-before the migrated SQLite database and files exist.
+before the migrated SQLite database and files exist. It builds the patched
+Docker image and repairs ownership of the restored files to the upstream
+Seeder runtime UID 1001 before starting the non-root server. Do not use
+world-writable file permissions to bypass SQLite or attachment permission errors.
 
 Use a separate sandbox domain or localhost with a test-specific auth setup
 for application acceptance tests; don't expose the cloned production data.
