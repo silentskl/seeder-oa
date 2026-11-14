@@ -98,9 +98,11 @@ def audit_db(conn,upload_root=None):
         if table.startswith("sqlite_"):continue
         counts[table]=int(conn.execute('SELECT COUNT(*) FROM "'+table.replace('"','""')+'"').fetchone()[0])
     if upload_root is not None:
-        rows=conn.execute("SELECT r2_key FROM oa_finance_document WHERE r2_key IS NOT NULL AND r2_key<>''").fetchall()
-        missing_docs=[row[0] for row in rows if not key_path(upload_root,row[0]).is_file()]
-        if missing_docs:fail("Missing finance invoice/payment attachments: "+str(missing_docs[:MAX_ERRORS]))
+        for table in ("oa_finance_document","oa_file"):
+            if table not in tables:continue
+            rows=conn.execute("SELECT r2_key FROM "+table+" WHERE r2_key IS NOT NULL AND r2_key<>''").fetchall()
+            missing_docs=[row[0] for row in rows if not key_path(upload_root,row[0]).is_file()]
+            if missing_docs:fail("Missing "+table+" attachments: "+str(missing_docs[:MAX_ERRORS]))
     return counts
 
 def sidecars(root,expected):
