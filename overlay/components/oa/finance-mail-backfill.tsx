@@ -54,18 +54,14 @@ export function FinanceMailBackfillPanel({entityId,accounts,lang}:{entityId:stri
   try{
    const result=await api(entityId,"POST",action==="create"?
     {action,account_id:selected,date_from:range.from,date_to:range.to}:{action,id});
-   setNotice(action==="create"?"Historical sync queued. The scheduled worker advances it in small batches; use Run next batch for an immediate step.":
-    action==="process"?"Historical batch processed: "+String((result as any)?.processed??0)+" message(s).":
-    "Historical sync "+action+" request accepted.");
+   setNotice(action==="create"?t("History scan queued. Use Run next batch to advance immediately.","已创建历史补同步任务。可手动执行下一批。"):action==="process"?t("Processed","本批处理")+" "+String((result as any)?.processed??0)+" "+t("message(s).","封邮件。"):t("Request accepted.","操作已提交。"));
   }catch(e){setError(e instanceof Error?e.message:String(e));}
   finally{try{await load();}catch(e){setError(e instanceof Error?e.message:String(e));}setBusy(false);}
  }
  return <section className="mt-4 rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
   <h3 className="font-semibold">{t("Historical email backfill","历史邮件补同步")}</h3>
   <p className="mb-3 mt-1 text-xs text-neutral-500">
-   Choose an inclusive UTC date range. Jobs run in durable batches with per-mailbox locking and duplicate detection.
-   Normal incremental synchronization and its successful checkpoint are not reset.
-   Exact repeats are skipped; business-level possible duplicate invoices are imported into review with a warning and do not count toward booked balances.
+   {t("Choose an inclusive UTC date range. Jobs run in resumable batches without resetting incremental sync. Exact repeated attachments are skipped; suspicious invoices remain for review.","请选择 UTC 起止日期。任务支持分批执行与断点续跑，不影响增量同步。相同附件会跳过，疑似重复发票仍保留待审核。")}
   </p>
   <div className="grid gap-3 sm:grid-cols-3">
    <label className="text-xs font-medium">{t("Mailbox","邮箱")}
@@ -93,7 +89,7 @@ export function FinanceMailBackfillPanel({entityId,accounts,lang}:{entityId:stri
    <tbody>{jobs.map(job=><tr key={job.id} className="border-t align-top dark:border-neutral-800">
     <td className="p-2">{accounts.find(a=>a.id===job.account_id)?.address||job.account_id}
      <div className="text-neutral-500">{job.date_from} – {job.date_to}</div></td>
-    <td className="p-2 font-medium">{job.status}<div className="font-normal text-neutral-500">{job.updated_at}</div></td>
+    <td className="p-2 font-medium">{({queued:t("Queued","排队中"),running:t("Running","运行中"),paused:t("Paused","已暂停"),completed:t("Completed","已完成"),failed:t("Failed","失败"),cancelled:t("Cancelled","已取消")} as Record<string,string>)[job.status]||job.status}<div className="font-normal text-neutral-500">{job.updated_at}</div></td>
     <td className="p-2">{job.pages_processed}</td><td className="p-2">{job.messages_scanned}</td><td className="p-2">{job.attachment_offset}</td>
     <td className="p-2">{job.invoices_imported}</td><td className="p-2">{job.duplicates_skipped}</td>
     <td className="p-2">{job.other_skipped}</td><td className="max-w-52 p-2">{job.last_error||"—"}</td>
@@ -104,7 +100,7 @@ export function FinanceMailBackfillPanel({entityId,accounts,lang}:{entityId:stri
      </>}
      {(job.status==="paused"||job.status==="failed")&&<button type="button" className={button} disabled={busy} onClick={()=>void perform("resume",job.id)}>{t("Resume","恢复")}</button>}
      {!["completed","cancelled"].includes(job.status)&&<button type="button" className={button} disabled={busy}
-      onClick={()=>{if(window.confirm("Cancel this historical sync? Imported invoices will remain."))void perform("cancel",job.id);}}>{t("Cancel","取消")}</button>}
+      onClick={()=>{if(window.confirm(t("Cancel this history scan? Imported invoices will remain.","确定取消历史补同步吗？已导入发票会保留。")))void perform("cancel",job.id);}}>{t("Cancel","取消")}</button>}
     </div></td>
    </tr>)}</tbody>
   </table>{!loading&&!jobs.length&&<p className="p-3 text-sm text-neutral-500">{t("No historical backfill tasks yet.","暂无历史补同步任务。")}</p>}</div>
