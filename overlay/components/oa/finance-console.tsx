@@ -3,6 +3,8 @@ import {FormEvent,useCallback,useEffect,useRef,useState} from "react";
 import {MailAccountsPanel} from "./finance-mail-accounts";
 import {FinanceAiPanel} from "./finance-ai-panel";
 import {FinanceBalances,type FinanceBalanceRow} from "./finance-balances";
+import {invoiceReviewChecks,invoiceReviewVerified} from "@/lib/oa/finance-review-checks";
+import {useFinanceLanguage,financeTr,financeError} from "@/lib/oa/finance-i18n";
 
 type Row=Record<string,any>;
 type Section="parties"|"ledger";
@@ -12,7 +14,14 @@ const primary=btn+" bg-neutral-900 text-white hover:bg-neutral-700 dark:bg-white
 const card="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950";
 const emptyParty={party_type:"supplier",company_name:"",address:"",contact_name:"",email:"",phone:"",bank_name:"",bank_account:"",bank_swift:"",root_id:"",assigned_approver_user_id:""};
 const duplicateReasonLabel=(reason:string)=>({same_fields:"Same invoice number and details / 发票信息一致",amount_conflict:"Amount or currency differs / 金额或币种冲突",date_conflict:"Invoice date differs / 日期冲突",amount_and_date_conflict:"Amount and date differ / 金额与日期冲突",details_missing:"Some fields missing / 资料不完整",legacy_same_number_party:"Historical duplicate candidate / 历史疑似重复"} as Record<string,string>)[reason]||"Invoice number matches / 发票号匹配";
-const emptyReview={id:"",direction:"ap",party_root_id:"",invoice_number:"",invoice_date:"",due_date:"",currency:"SGD",amount:"",invoice_bank_account:"",invoice_bank_name:""};
+function overdueDays(dueDate:unknown,status:unknown):number{
+ if(!["open","settlement_pending","needs_review"].includes(String(status))||typeof dueDate!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(dueDate))return 0;
+ const due=Date.parse(dueDate+"T00:00:00Z");
+ if(!Number.isFinite(due))return 0;
+ const today=new Date(),todayEpoch=Date.UTC(today.getFullYear(),today.getMonth(),today.getDate());
+ return Math.max(0,Math.floor((todayEpoch-due)/86400000));
+}
+const emptyReview={id:"",direction:"ap",party_root_id:"",counterparty_name:"",invoice_number:"",invoice_date:"",due_date:"",currency:"SGD",amount:"",invoice_bank_account:"",invoice_bank_name:"",invoice_bank_swift:""};
 function amount(minor:number|string|null,currency:string){
  try{const c=currency||"SGD",digits=new Intl.NumberFormat("en",{style:"currency",currency:c}).resolvedOptions().maximumFractionDigits??2;
  return new Intl.NumberFormat("en",{style:"currency",currency:c}).format(Number(minor||0)/(10**digits));}catch{return String(minor||"—");}
@@ -47,8 +56,8 @@ async function upload(entityId:string,purpose:"invoice"|"settlement",file:File){
  return json.data.id as string;
 }
 const fileUrl=(entity:string,id:string)=>"/api/oa/finance/documents/"+encodeURIComponent(id)+"?entity_id="+encodeURIComponent(entity);
-function Field({label,name,value,onChange,type="text",required=false}:{label:string;name:string;value:any;onChange:(v:string)=>void;type?:string;required?:boolean}){
- return <label className="block text-xs font-medium"><span className="mb-1 block text-neutral-500">{label}</span><input className={input} name={name} type={type} value={value??""} required={required} onChange={e=>onChange(e.target.value)}/></label>;
+function Field({label,name,value,onChange,type="text",required=false,disabled=false}:{label:string;name:string;value:any;onChange:(v:string)=>void;type?:string;required?:boolean;disabled?:boolean}){
+ return <label className="block text-xs font-medium"><span className="mb-1 block text-neutral-500">{label}</span><input className={input} name={name} type={type} value={value??""} required={required} disabled={disabled} onChange={e=>onChange(e.target.value)}/></label>;
 }
 function ProofForm({entity,invoice,busy,run}:{entity:string;invoice:Row;busy:boolean;run:(task:()=>Promise<any>,message:string)=>Promise<void>}){
  return <form className="flex flex-wrap items-center gap-2" onSubmit={e=>{
@@ -62,6 +71,8 @@ function ProofForm({entity,invoice,busy,run}:{entity:string;invoice:Row;busy:boo
  </form>;
 }
 export function FinanceConsole({section}:{section:Section}){
+ const [lang]=useFinanceLanguage();
+ const t=(en:string,zh:string)=>financeTr(lang,en,zh);
  const selectedEntity=useRef("legacy-primary");
  const requestVersion=useRef(0);
  const [entity,setEntity]=useState("legacy-primary"),[entities,setEntities]=useState<Row[]>([]);
@@ -69,6 +80,7 @@ export function FinanceConsole({section}:{section:Section}){
  const [balances,setBalances]=useState<FinanceBalanceRow[]>([]);
  const [invoiceOffset,setInvoiceOffset]=useState(0),[hasMoreInvoices,setHasMoreInvoices]=useState(false);
  const [activeTab,setActiveTab]=useState<"data"|"config">("data");
+ const [configTab,setConfigTab]=useState<"mailboxes"|"ai"|"calls">("mailboxes");
  const [statusFilter,setStatusFilter]=useState("all");
  const [config,setConfig]=useState<Row>({mailbox:"",approvers:[],aiConfigured:false,resendConfigured:false});
  const [party,setParty]=useState<Row>({...emptyParty}),[review,setReview]=useState<Row>({...emptyReview});
@@ -120,7 +132,7 @@ export function FinanceConsole({section}:{section:Section}){
  }
  function selectEntity(id:string){
   selectedEntity.current=id;requestVersion.current++;
-  setEntity(id);setLoading(true);setError("");setParty({...emptyParty});setReview({...emptyReview});setActiveTab("data");setInvoices([]);setInvoiceOffset(0);setHasMoreInvoices(false);
+  setEntity(id);setLoading(true);setError("");setParty({...emptyParty});setReview({...emptyReview});setActiveTab("data");setConfigTab("mailboxes");setInvoices([]);setInvoiceOffset(0);setHasMoreInvoices(false);
   window.sessionStorage.setItem("oa.selectedEntity",id);
   void load(id).catch(e=>setError(String(e))).finally(()=>setLoading(false));
  }
@@ -142,6 +154,9 @@ export function FinanceConsole({section}:{section:Section}){
  }
  const approved=parties.filter(p=>p.status==="approved"),pending=parties.filter(p=>p.status==="pending");
  const admins:Row[]=config.approvers||[];
+ const approvedParty=approved.find(p=>p.root_id===review.party_root_id&&(p.party_type==="both"||p.party_type===(review.direction==="ap"?"supplier":"customer")));
+ const checks=invoiceReviewChecks({counterparty_name:review.counterparty_name,invoice_bank_name:review.invoice_bank_name,invoice_bank_account:review.invoice_bank_account,invoice_bank_swift:review.invoice_bank_swift,currency:review.currency},approvedParty);
+ const reviewVerified=!!approvedParty&&invoiceReviewVerified(checks);
  const shownInvoices=invoices.filter(i=>i.direction===directionFilter&&(statusFilter==="all"||(statusFilter==="possible_duplicate"?i.duplicate_status==="possible":i.status===statusFilter)));
  const assignee=(assigned:string|null,action:string,id:string)=>(
   <select aria-label="Assign approving admin" className={input+" max-w-52"} value={assigned||""} disabled={busy}
@@ -192,6 +207,7 @@ export function FinanceConsole({section}:{section:Section}){
     </div>)}
    </section>
    </>}
+   </>}
    {activeTab==="data"&&<>
    {(["supplier","customer"] as const).map(kind=><section key={kind} className={card}><h2 className="mb-3 font-semibold">Approved {kind==="supplier"?"Suppliers / 供应商":"Customers / 客户"} ({approved.filter(p=>p.party_type===kind||p.party_type==="both").length})</h2>
     <div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead><tr className="text-xs text-neutral-500">{["Company","Type","Contact","Bank details","Manage"].map(x=><th key={x} className="p-2">{x}</th>)}</tr></thead>
@@ -204,8 +220,13 @@ export function FinanceConsole({section}:{section:Section}){
    </>}
   </>:<>
    {activeTab==="config"&&<>
-   <FinanceAiPanel key={entity} entityId={entity}/>
-   <MailAccountsPanel entityId={entity}/>
+   <div role="tablist" aria-label={t("Finance configuration","财务配置")} className="flex flex-wrap gap-2 border-b pb-2 dark:border-neutral-800">
+    {([["mailboxes",t("Connected company mailboxes","企业财务邮箱")],["ai",t("ModelBridge AI settings","ModelBridge AI 设置")],["calls",t("Recent ModelBridge calls","最近 ModelBridge 调用")]] as const).map(([tab,label])=><button type="button" key={tab} role="tab" aria-selected={configTab===tab} className={btn+(configTab===tab?" bg-neutral-900 text-white dark:bg-white dark:text-black":"")} onClick={()=>setConfigTab(tab)}>{label}</button>)}
+   </div>
+   {configTab==="ai"&&<FinanceAiPanel key={entity+"-ai"} entityId={entity} lang={lang} mode="settings"/>}
+   {configTab==="calls"&&<FinanceAiPanel key={entity+"-calls"} entityId={entity} lang={lang} mode="calls"/>}
+   {configTab==="mailboxes"&&<>
+   <MailAccountsPanel entityId={entity} lang={lang}/>
    <details className={card}><summary className="cursor-pointer font-semibold">Legacy Resend forwarding (optional)</summary>
    <section className="mt-3">
     <h2 className="text-sm font-semibold">Resend mailbox configuration</h2>
@@ -228,7 +249,7 @@ export function FinanceConsole({section}:{section:Section}){
    </section>
    </>}
    {activeTab==="data"&&<>
-   <FinanceBalances rows={balances}/>
+   <FinanceBalances rows={balances} lang={lang}/>
    <section className={card}><div className="mb-3 flex flex-wrap items-center justify-between gap-2">
     <h2 className="font-semibold">{directionFilter==="ar"?"Accounts Receivable / 应收账款":directionFilter==="ap"?"Accounts Payable / 应付账款":"Needs classification / 未分类"} ({shownInvoices.length})</h2>
     <div className="flex flex-wrap items-center gap-2">
@@ -243,10 +264,10 @@ export function FinanceConsole({section}:{section:Section}){
     </div>
    </div>
     <div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead><tr className="text-xs text-neutral-500">{["Invoice","Counterparty / Type","Amount / Due","Bank check","Status","Actions"].map(t=><th key={t} className="p-2">{t}</th>)}</tr></thead><tbody>
-     {shownInvoices.map(i=><tr key={i.id} className="border-t align-top dark:border-neutral-800">
+     {shownInvoices.map(i=><tr key={i.id} className={"border-t align-top "+(overdueDays(i.due_date,i.status)>0?"bg-red-50 text-red-900 dark:bg-red-950/40 dark:text-red-200":"dark:border-neutral-800")}>
       <td className="p-2"><div className="font-medium">{i.invoice_number||"Unrecognized"}</div><div className="text-xs">{i.invoice_date||"—"}</div><a className="text-xs underline" href={fileUrl(entity,i.document_id)}>Original invoice</a></td>
       <td className="p-2">{i.approved_party_name||i.counterparty_name||"Unmatched"}<div className="text-xs">{String(i.direction).toUpperCase()} · {i.source}</div>{i.source_mailbox&&<div className="text-xs text-neutral-500">{i.source_mailbox} · {i.source_provider}</div>}</td>
-      <td className="p-2">{i.amount_minor!=null?amount(i.amount_minor,i.currency):"—"}<div className="text-xs">Due {i.due_date||"—"}</div></td>
+      <td className="p-2">{i.amount_minor!=null?amount(i.amount_minor,i.currency):"—"}<div className="text-xs">{t("Due","到期日")} {i.due_date||"—"}{i.due_date_inferred===1&&<span className="ml-1 text-amber-700 dark:text-amber-300">{t("(estimated +30 days)","（推算 +30 天）")}</span>}</div>{overdueDays(i.due_date,i.status)>0&&<div className="text-xs font-bold text-red-700 dark:text-red-300">{t("Overdue by","已逾期")} {overdueDays(i.due_date,i.status)} {t("days","天")}</div>}</td>
       <td className="p-2">{i.direction==="ar"?<span className="text-xs text-neutral-500">AR receiving account · not checked against customer</span>:<span className={i.bank_check==="mismatch"?"text-red-600 font-semibold":""}>{i.bank_check}</span>}<div className="text-xs">{i.invoice_bank_account||"No account"}</div></td>
       <td className="p-2"><span className="font-medium">{i.status==="open"?(i.direction==="ar"?"Unreceived / 未收款":"Unpaid / 未付款"):i.status==="settlement_pending"?"Proof pending approval / 待核销审核":i.status==="settled"?(i.direction==="ar"?"Received / 已收款":"Paid / 已付款"):i.status==="needs_review"?"Needs review / 待审核":i.status}</span>
        <div className="text-xs">{i.extraction_note||""}</div>
@@ -279,7 +300,7 @@ export function FinanceConsole({section}:{section:Section}){
          void run(()=>request(entity,"invoice_duplicate_dismiss",{id:i.id,note}),"Duplicate warning cleared. Complete invoice review.");
         }}>Clear warning / 排除重复</button>
        </div>}
-       <button className={btn} disabled={busy} onClick={()=>setReview({id:i.id,direction:i.direction==="unknown"?"ap":i.direction,party_root_id:i.party_root_id||"",invoice_number:i.invoice_number||"",invoice_date:i.invoice_date||"",due_date:i.due_date||"",currency:i.currency||"SGD",amount:major(i.amount_minor,i.currency),invoice_bank_account:i.invoice_bank_account||"",invoice_bank_name:i.invoice_bank_name||""})}>Review</button>
+       <button className={btn} disabled={busy} onClick={()=>setReview({id:i.id,direction:i.direction==="unknown"?"ap":i.direction,party_root_id:i.party_root_id||"",counterparty_name:i.counterparty_name||"",invoice_number:i.invoice_number||"",invoice_date:i.invoice_date||"",due_date:i.due_date||"",currency:i.currency||"SGD",amount:major(i.amount_minor,i.currency),invoice_bank_account:i.invoice_bank_account||"",invoice_bank_name:i.invoice_bank_name||"",invoice_bank_swift:i.invoice_bank_swift||""})}>Review</button>
        <button className={btn} disabled={busy} onClick={()=>void run(async()=>{try{const result=await request(entity,"invoice_reextract",{id:i.id});setReview({...emptyReview});return result;}finally{window.dispatchEvent(new Event("finance-ai-call-updated"));}},"AI re-extraction completed; verify the fields before confirming.")}>{busy?"Processing…":"Re-extract AI"}</button>
        <button className={btn} disabled={busy} onClick={()=>void run(()=>request(entity,"invoice_reject",{id:i.id}),"Invoice rejected.")}>Reject</button>
       </>:i.status==="open"?<ProofForm entity={entity} invoice={i} busy={busy} run={run}/>:null}</td>
