@@ -8,20 +8,27 @@ export const clean=(v:unknown,max=300)=>String(v??"").trim().slice(0,max);
 export const normalizedName=(v:unknown)=>clean(v,300).normalize("NFKC").toLowerCase().replace(/[^a-z0-9\u00c0-\u024f\u3400-\u9fff]+/g,"");
 export const normalizedBank=(v:unknown)=>clean(v,150).toUpperCase().replace(/[^A-Z0-9]/g,"");
 export const validDate=(v:unknown)=>{const s=clean(v,10);return /^\d{4}-\d{2}-\d{2}$/.test(s)&&!Number.isNaN(Date.parse(s+"T00:00:00Z"))?s:null;};
+// Calendar-day arithmetic in UTC; time of day and server/browser timezone do not affect invoice due dates.
+export function dueDatePlus30(invoiceDate:string|null):string|null{
+ if(!invoiceDate||!/^\d{4}-\d{2}-\d{2}$/.test(invoiceDate))return null;
+ const epoch=Date.parse(invoiceDate+"T00:00:00.000Z");
+ if(!Number.isFinite(epoch)||new Date(epoch).toISOString().slice(0,10)!==invoiceDate)return null;
+ return new Date(epoch+30*86400000).toISOString().slice(0,10);
+}
 export const mailAddress=(v:unknown)=>{const raw=clean(v,400);const s=(raw.match(/<([^<>]+)>\s*$/)?.[1]||raw).trim().toLowerCase();return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)?s:"";};
 export const safeFileName=(v:string)=>v.replace(/[\r\n"\\/]/g,"_").slice(0,150)||"invoice";
 export const FINANCE_MAX_FILE=12*1024*1024;
 export const FINANCE_TYPES=new Set(["application/pdf","image/png","image/jpeg","image/webp"]);
 export type Extracted={
  seller_name:string;buyer_name:string;invoice_number:string;invoice_date:string;due_date:string;
- currency:string;total_amount:string;bank_name:string;bank_account:string;notes:string;
+ currency:string;total_amount:string;bank_name:string;bank_account:string;bank_swift:string;notes:string;
 };
 export type ParsedInvoice={
  direction:"ar"|"ap"|"unknown";partyRootId:string|null;counterpartyName:string;
  invoiceNumber:string;invoiceDate:string|null;dueDate:string|null;
- currency:string|null;amountMinor:number|null;bankName:string;bankAccount:string;
+ currency:string|null;amountMinor:number|null;bankName:string;bankAccount:string;bankSwift:string;
  bankCheck:"match"|"mismatch"|"missing"|"unverified";extractionStatus:"extracted"|"needs_manual_review";
- extractionNote:string;
+ extractionNote:string;dueDateInferred:boolean;
 };
 function isInvoiceDocumentType(contentType:string,bytes:Uint8Array){
  if(!FINANCE_TYPES.has(contentType))return false;
@@ -76,9 +83,12 @@ export async function extractInvoice(input:{entityId:string;bytes:Uint8Array;typ
    if(data?.currency&&data?.total_amount){currency=normalizeCurrency(data.currency);amountMinor=majorToMinor(data.total_amount,currency);if(amountMinor<=0)amountMinor=null;}
  }catch{currency=null;amountMinor=null;reason+=" Invalid amount or currency.";}
  const check=await bankCheck(input.entityId,party?.root_id||null,clean(data?.bank_account,150));
+ const invoiceDate=validDate(data?.invoice_date),documentDueDate=validDate(data?.due_date);
+ const inferred=!!data&&!documentDueDate&&!!invoiceDate;
+ const dueDate=documentDueDate||(inferred?dueDatePlus30(invoiceDate):null);
  return {direction,partyRootId:party?.root_id||null,counterpartyName,invoiceNumber:clean(data?.invoice_number,100),
-   invoiceDate:validDate(data?.invoice_date),dueDate:validDate(data?.due_date),
-   currency,amountMinor,bankName:clean(data?.bank_name,150),bankAccount:clean(data?.bank_account,150),
+   invoiceDate,dueDate,dueDateInferred:inferred,
+   currency,amountMinor,bankName:clean(data?.bank_name,150),bankAccount:clean(data?.bank_account,150),bankSwift:clean(data?.bank_swift,80),
    bankCheck:check,extractionStatus:data?"extracted":"needs_manual_review",
    extractionNote:(reason||(!party?"Counterparty not uniquely matched to an approved record.":"")).slice(0,400)};
 }
@@ -92,10 +102,10 @@ export async function createInvoice(input:{entityId:string;documentId:string;sou
  // A possible business duplicate remains a separate, reviewable invoice and
  // keeps its original R2 document. It is NOT booked until reviewed.
  await run(
-  "INSERT INTO oa_finance_invoice(id,entity_id,direction,party_root_id,counterparty_name,invoice_number,invoice_date,due_date,currency,amount_minor,invoice_bank_account,invoice_bank_name,sender_email,source,source_email_id,source_attachment_id,document_id,bank_check,extraction_status,extraction_note,source_mail_account_id,invoice_number_key,counterparty_key,duplicate_of_invoice_id,duplicate_status,duplicate_reason) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-  [id,input.entityId,p.direction,p.partyRootId,p.counterpartyName,p.invoiceNumber,p.invoiceDate,p.dueDate,p.currency,p.amountMinor,p.bankAccount,p.bankName,
+  "INSERT INTO oa_finance_invoice(id,entity_id,direction,party_root_id,counterparty_name,invoice_number,invoice_date,due_date,currency,amount_minor,invoice_bank_account,invoice_bank_name,invoice_bank_swift,sender_email,source,source_email_id,source_attachment_id,document_id,bank_check,extraction_status,extraction_note,source_mail_account_id,invoice_number_key,counterparty_key,duplicate_of_invoice_id,duplicate_status,duplicate_reason,due_date_inferred) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+  [id,input.entityId,p.direction,p.partyRootId,p.counterpartyName,p.invoiceNumber,p.invoiceDate,p.dueDate,p.currency,p.amountMinor,p.bankAccount,p.bankName,p.bankSwift,
    mailAddress(input.sender),input.source,input.sourceEmailId||null,input.sourceAttachmentId||null,input.documentId,p.bankCheck,p.extractionStatus,p.extractionNote,input.sourceMailAccountId||null,
-   fields.invoice_number_key,fields.counterparty_key,fields.duplicate_of_invoice_id,fields.duplicate_status,fields.duplicate_reason]
+   fields.invoice_number_key,fields.counterparty_key,fields.duplicate_of_invoice_id,fields.duplicate_status,fields.duplicate_reason,p.dueDateInferred?1:0]
  );
  if(duplicate){
   await audit(null,"finance.invoice.possible_duplicate","finance_invoice",id,
