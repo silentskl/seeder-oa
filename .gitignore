@@ -1,0 +1,18 @@
+# Never add production data, copied secrets or generated Seeder checkout.
+seeder-oa-app/
+recovery-backups/
+deploy/ubuntu/.env
+deploy/ubuntu/data/
+deploy/ubuntu/backups/
+deploy/ubuntu/oa-preflight/
+deploy/ubuntu/oa-final/
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+*.tar.gz
+.oa-deploy-secrets
+.env
+.env.local
+*.pem

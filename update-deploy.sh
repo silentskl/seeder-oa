@@ -198,6 +198,7 @@ python3 "$ROOT/tests/test_finance_ai_reasoning_migration.py"
 python3 "$ROOT/tests/test_finance_mail_backfill_migration.py"
 python3 "$ROOT/tests/test_finance_invoice_business_dedup_migration.py"
 python3 "$ROOT/tests/test_finance_due_date_review_i18n.py"
+python3 "$ROOT/tests/test_ubuntu_docker_migration.py"
 python3 "$ROOT/tests/test_finance_edge_fetch.py"
 echo "[DEPLOY] Synchronizing migrations from reviewed overlay..."
 mkdir -p migrations

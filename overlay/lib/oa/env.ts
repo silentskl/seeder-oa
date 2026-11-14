@@ -1,7 +1,27 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 export function getOaEnv() {
-  const { env } = getCloudflareContext();
+  // Seeder upstream v2.1.0 already supports Node.js with local SQLite and uploads.
+  // Do not invoke getCloudflareContext outside Workers (it throws on Ubuntu).
+  const env = process.env.RUNTIME === "node"
+    ? (()=>{
+        // Match upstream lib/storage/index.ts lazy Node-only require pattern.
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const adapters = require("./node-adapters") as typeof import("./node-adapters");
+        return {
+          PM_DB:adapters.nodeOaDb(),UPLOADS:adapters.nodeOaUploads(),
+          OA_SETTINGS_MASTER_KEY:process.env.OA_SETTINGS_MASTER_KEY,
+          BETTER_AUTH_URL:process.env.BETTER_AUTH_URL,
+          OA_MULTI_ENTITY_BUSINESS_ENABLED:process.env.OA_MULTI_ENTITY_BUSINESS_ENABLED,
+          OA_FINANCE_RESEND_API_KEY:process.env.OA_FINANCE_RESEND_API_KEY,
+          OA_FINANCE_RESEND_WEBHOOK_SECRET:process.env.OA_FINANCE_RESEND_WEBHOOK_SECRET,
+          OA_FINANCE_AI_API_KEY:process.env.OA_FINANCE_AI_API_KEY,
+          OA_FINANCE_AI_MODEL:process.env.OA_FINANCE_AI_MODEL,
+          OA_FINANCE_SYNC_TOKEN:process.env.OA_FINANCE_SYNC_TOKEN,
+          OA_FINANCE_MULTI_ENTITY_ENABLED:process.env.OA_FINANCE_MULTI_ENTITY_ENABLED,
+        } as unknown as ReturnType<typeof getCloudflareContext>["env"];
+      })()
+    : getCloudflareContext().env;
   const e = env as typeof env & {
     OA_SETTINGS_MASTER_KEY?: string;
     BETTER_AUTH_URL?: string;

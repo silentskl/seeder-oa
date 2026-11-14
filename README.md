@@ -1,5 +1,19 @@
 # Seeder OA v0.1.15
 
+## Ubuntu 24.04 Docker migration (Cloudflare → Node/SQLite/files)
+
+**New:** [Ubuntu Docker deployment and D1/R2 data migration guide](deploy/ubuntu/README.md).
+The application now has a Node-mode OA adapter and a guarded Ubuntu migration path
+that preserves the original SQLite/D1 database, R2 object keys, user IDs, invoices,
+audit logs and encrypted provider credentials (with their original encryption keys).
+Use `deploy/ubuntu/prepare.sh` and `deploy/ubuntu/start.sh` on Ubuntu; **do not**
+use the old Cloudflare publishing command after cutover. Run `export-cloudflare.sh`
+against production only with approved read permissions, and rehearse before the
+final write-frozen migration. This repository does not migrate your live data
+automatically.
+
+
+
 ## Finance: ModelBridge invoice AI (configurable per company)
 
 Under Admin → Finance · AR/AP → Invoice AI / ModelBridge 设置, company administrators can set the ModelBridge HTTPS Base URL (/v1), API Key, model name, Responses or Chat Completions protocol and Enabled state. The key is encrypted in D1 with OA_SETTINGS_MASTER_KEY and is not returned to the browser. A connection test and **Re-extract AI** action for existing pending invoices are included; PDF uses the Responses protocol. Migration 9022_finance_ai_settings.sql and the migration/build deployment gates are required. See FINANCE.md for security and setup.

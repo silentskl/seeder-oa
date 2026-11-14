@@ -1,0 +1,49 @@
+# Run from the seeder-oa root: docker compose -f deploy/ubuntu/docker-compose.yml up -d --build
+# Both services are local to Ubuntu. The OA HTTP port binds loopback for an existing TLS reverse proxy.
+services:
+  seeder-oa:
+    build:
+      context: ../../seeder-oa-app
+      dockerfile: Dockerfile
+    image: seeder-oa:ubuntu-local
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      RUNTIME: node
+      SQLITE_DB_PATH: /app/data/seeder.db
+      UPLOADS_DIR: /app/data/uploads
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+    volumes:
+      - ./data:/app/data
+    ports:
+      - "127.0.0.1:${OA_BIND_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD","node","-e","require('http').get('http://127.0.0.1:3000/',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
+    security_opt:
+      - no-new-privileges:true
+  finance-mail-scheduler:
+    image: curlimages/curl:8.11.1
+    restart: unless-stopped
+    env_file: [.env]
+    depends_on:
+      seeder-oa:
+        condition: service_healthy
+    command:
+      - sh
+      - -ec
+      - |
+        : "$${OA_FINANCE_SYNC_TOKEN:?OA_FINANCE_SYNC_TOKEN is required}"
+        while :; do
+          curl --fail --silent --show-error --max-time 110 \
+            -X POST http://seeder-oa:3000/api/oa/finance/sync-job \
+            -H "x-oa-finance-sync-token: $${OA_FINANCE_SYNC_TOKEN}" \
+            -H "Content-Type: application/json" || true
+          sleep 300
+        done
+    security_opt:
+      - no-new-privileges:true
