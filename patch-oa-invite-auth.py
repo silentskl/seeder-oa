@@ -52,14 +52,65 @@ new='''        before: async (candidateUser, ctx) => {
             });
           }
 '''
-if old not in s:
-    raise SystemExit("ERROR: Seeder signup hook differs from reviewed version; refusing unsafe changes")
+# Both variants are reviewed and preserve the original owner's first-run gate:
+# - older Seeder: hasRegisteredUser()
+# - Seeder v2.1.0: getDb()/user table lookup, optionally with the VCS bot
+#   excluded by patch-bootstrap-vcs.py (run before this script).
+# Never replace a generic "if (existing)" from an unknown implementation.
+new_before=new.split("          if (await hasRegisteredUser()) {",1)[0]
+v21_before='''        before: async (candidateUser) => {
+          const email = candidateUser.email.toLowerCase();
+'''
+v21_guard='''          if (existing) {
+            throw new APIError("FORBIDDEN", {
+              message: "Sign-up is disabled. Ask an admin to invite you.",
+            });
+          }
+'''
+v21_guard_with_invite='''          if (existing) {
+            if (allowedByOaInvite) return { data: { ...candidateUser, email } };
+            throw new APIError("FORBIDDEN", {
+              message: "Sign-up is disabled. Ask an admin to invite you.",
+            });
+          }
+'''
+v21_queries=(
+    '''          const db = getDb();
+          const [existing] = await db
+            .select({ id: schema.user.id })
+            .from(schema.user)
+            .where(ne(schema.user.id, VCS_BOT_USER_ID))
+            .limit(1);
+
+''',
+    '''          const db = getDb();
+          const [existing] = await db
+            .select({ id: schema.user.id })
+            .from(schema.user)
+            .limit(1);
+
+''',
+)
+patch_from=patch_to=None
+if old in s:
+    patch_from,patch_to=old,new
+else:
+    for query in v21_queries:
+        candidate=v21_before+query+v21_guard
+        if candidate in s:
+            patch_from=candidate
+            patch_to=new_before+query+v21_guard_with_invite
+            break
+if patch_from is None:
+    raise SystemExit("ERROR: Seeder signup hook differs from reviewed legacy/v2.1.0 versions; refusing unsafe changes")
+if s.count(patch_from)!=1:
+    raise SystemExit("ERROR: ambiguous Seeder signup gate; refusing unsafe changes")
 if 'import { getOaEnv } from "@/lib/oa/env";' not in s:
     anchor='import { ensurePersonalSpace } from "@/lib/services/spaces";'
     if anchor not in s:
         raise SystemExit("ERROR: Seeder auth import anchor changed; cannot safely insert OA D1 dependency")
     s=s.replace(anchor,anchor+'\nimport { getOaEnv } from "@/lib/oa/env";',1)
-s=s.replace(old,new,1)
+s=s.replace(patch_from,patch_to,1)
 # Prevent an invited user from acquiring the global owner role by owning the
 # OWNER_EMAIL string; owner bootstrap is the ONLY permissible elevation.
 old_after='''        after: async (createdUser) => {
