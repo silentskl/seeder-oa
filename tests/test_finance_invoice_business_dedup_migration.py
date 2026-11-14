@@ -84,7 +84,8 @@ class BusinessInvoiceDedupTests(unittest.TestCase):
   self.assertIn("invoice_duplicate_confirm",API)
   self.assertIn("invoice_duplicate_dismiss",API)
   self.assertIn("duplicate_review_blocked",API)
-  self.assertIn("Possible Duplicate",UI)
+  # The duplicate banner is language-aware, but the warning remains visible.
+  self.assertIn('t("Possible duplicate invoice","疑似重复发票")',UI)
   self.assertIn("Confirm duplicate",UI)
   self.assertIn("Clear warning",UI)
   self.assertIn("amount_and_date_conflict",DETECT)

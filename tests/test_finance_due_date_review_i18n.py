@@ -21,7 +21,7 @@ class FinanceDueDateAndReviewTests(unittest.TestCase):
  def test_migration_additive_defaults(self):
   db=sqlite3.connect(":memory:")
   db.execute("CREATE TABLE oa_finance_invoice(id TEXT PRIMARY KEY, entity_id TEXT, status TEXT NOT NULL DEFAULT 'needs_review', due_date TEXT)")
-  db.execute("INSERT INTO oa_finance_invoice VALUES('old','company')")
+  db.execute("INSERT INTO oa_finance_invoice(id,entity_id) VALUES('old','company')")
   db.executescript(MIG)
   self.assertEqual(
    db.execute("SELECT due_date_inferred,invoice_bank_swift FROM oa_finance_invoice WHERE id='old'").fetchone(),

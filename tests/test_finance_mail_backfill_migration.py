@@ -76,8 +76,11 @@ class FinanceMailBackfillMigrationTests(unittest.TestCase):
   self.assertIn("FinanceBalances",UI)
   self.assertIn("LIMIT 300 OFFSET ?",FINANCE)
   self.assertIn("Load older invoices",UI)
-  self.assertIn("AR / Receivables",UI)
-  self.assertIn("AP / Payables",UI)
+  # Labels are translated at runtime; assert both accounting directions remain
+  # selectable instead of pinning tests to the retired English-only labels.
+  self.assertIn('["ar",t("Accounts receivable","应收账款")]',UI)
+  self.assertIn('["ap",t("Accounts payable","应付账款")]',UI)
+  self.assertIn("directionFilter===v",UI)
  def test_totals_accounting_excludes_unapproved_invoices(self):
   db=sqlite3.connect(":memory:")
   db.execute("CREATE TABLE invoices(direction TEXT,currency TEXT,status TEXT,amount_minor INT)")
