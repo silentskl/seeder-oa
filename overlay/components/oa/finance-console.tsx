@@ -11,6 +11,7 @@ const btn="rounded-lg border border-neutral-300 px-3 py-2 text-sm font-medium ho
 const primary=btn+" bg-neutral-900 text-white hover:bg-neutral-700 dark:bg-white dark:text-neutral-950";
 const card="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950";
 const emptyParty={party_type:"supplier",company_name:"",address:"",contact_name:"",email:"",phone:"",bank_name:"",bank_account:"",bank_swift:"",root_id:"",assigned_approver_user_id:""};
+const duplicateReasonLabel=(reason:string)=>({same_fields:"Same invoice number and details / 发票信息一致",amount_conflict:"Amount or currency differs / 金额或币种冲突",date_conflict:"Invoice date differs / 日期冲突",amount_and_date_conflict:"Amount and date differ / 金额与日期冲突",details_missing:"Some fields missing / 资料不完整",legacy_same_number_party:"Historical duplicate candidate / 历史疑似重复"} as Record<string,string>)[reason]||"Invoice number matches / 发票号匹配";
 const emptyReview={id:"",direction:"ap",party_root_id:"",invoice_number:"",invoice_date:"",due_date:"",currency:"SGD",amount:"",invoice_bank_account:"",invoice_bank_name:""};
 function amount(minor:number|string|null,currency:string){
  try{const c=currency||"SGD",digits=new Intl.NumberFormat("en",{style:"currency",currency:c}).resolvedOptions().maximumFractionDigits??2;
@@ -141,7 +142,7 @@ export function FinanceConsole({section}:{section:Section}){
  }
  const approved=parties.filter(p=>p.status==="approved"),pending=parties.filter(p=>p.status==="pending");
  const admins:Row[]=config.approvers||[];
- const shownInvoices=invoices.filter(i=>i.direction===directionFilter&&(statusFilter==="all"||i.status===statusFilter));
+ const shownInvoices=invoices.filter(i=>i.direction===directionFilter&&(statusFilter==="all"||(statusFilter==="possible_duplicate"?i.duplicate_status==="possible":i.status===statusFilter)));
  const assignee=(assigned:string|null,action:string,id:string)=>(
   <select aria-label="Assign approving admin" className={input+" max-w-52"} value={assigned||""} disabled={busy}
     onChange={e=>{if(e.target.value)void run(()=>request(entity,action,{id,approver_id:e.target.value}),"Approver assigned.");}}>
@@ -233,7 +234,7 @@ export function FinanceConsole({section}:{section:Section}){
     <div className="flex flex-wrap items-center gap-2">
      {([["ar","AR / Receivables"],["ap","AP / Payables"],["unknown","Unclassified"]] as const).map(([v,label])=><button key={v} type="button" className={btn+(directionFilter===v?" font-bold underline":"")} onClick={()=>{setDirectionFilter(v);setStatusFilter("all");}}>{label}</button>)}
      <select aria-label="Filter invoice settlement status" className={input+" max-w-52"} value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}>
-      <option value="all">All statuses</option><option value="needs_review">Needs review</option>
+      <option value="all">All statuses</option><option value="possible_duplicate">Possible duplicates / 疑似重复</option><option value="needs_review">Needs review</option>
       <option value="open">{directionFilter==="ar"?"Unreceived":"Unpaid"}</option>
       <option value="settlement_pending">Proof pending approval</option>
       <option value="settled">{directionFilter==="ar"?"Received":"Paid"}</option>
@@ -249,6 +250,15 @@ export function FinanceConsole({section}:{section:Section}){
       <td className="p-2">{i.direction==="ar"?<span className="text-xs text-neutral-500">AR receiving account · not checked against customer</span>:<span className={i.bank_check==="mismatch"?"text-red-600 font-semibold":""}>{i.bank_check}</span>}<div className="text-xs">{i.invoice_bank_account||"No account"}</div></td>
       <td className="p-2"><span className="font-medium">{i.status==="open"?(i.direction==="ar"?"Unreceived / 未收款":"Unpaid / 未付款"):i.status==="settlement_pending"?"Proof pending approval / 待核销审核":i.status==="settled"?(i.direction==="ar"?"Received / 已收款":"Paid / 已付款"):i.status==="needs_review"?"Needs review / 待审核":i.status}</span>
        <div className="text-xs">{i.extraction_note||""}</div>
+       {i.duplicate_status==="possible"&&<div role="alert" className="mt-2 rounded-md border border-amber-500 bg-amber-50 p-2 text-xs text-amber-950 dark:bg-amber-950 dark:text-amber-100">
+        <div className="font-semibold">Possible Duplicate / 疑似重复 Invoice</div>
+        <div>{duplicateReasonLabel(i.duplicate_reason)}</div>
+        <div>Linked invoice: <strong>{i.duplicate_of_number||i.duplicate_of_invoice_id||"Existing invoice"}</strong> · {i.duplicate_of_status||"—"}</div>
+        {i.duplicate_of_document_id&&<a className="underline" href={fileUrl(entity,i.duplicate_of_document_id)} target="_blank" rel="noopener noreferrer">Compare original invoice / 查看原件</a>}
+        <div className="mt-1">Not booked until reviewed. Confirm or clear with reason.</div>
+       </div>}
+       {i.duplicate_status==="dismissed"&&<div className="mt-1 text-xs text-neutral-600 dark:text-neutral-300">Duplicate warning cleared / 人工排重通过 · {i.duplicate_decision_note}</div>}
+       {i.duplicate_status==="confirmed"&&<div className="mt-1 text-xs text-neutral-500">Confirmed duplicate / 确认重复（已拒绝入账）</div>}
        {i.last_ai_outcome&&<div className="mt-1 rounded border p-2 text-xs dark:border-neutral-700">
         <div className="font-medium">Latest AI: {i.last_ai_outcome} · HTTP {i.last_ai_http_status??"—"} · {i.last_ai_response_status||"—"}</div>
         <div>Output tokens: {i.last_ai_output_tokens??"—"} · Reasoning tokens: {i.last_ai_reasoning_tokens??"—"} · Reason: {i.last_ai_finish_reason||"—"}</div>
@@ -257,6 +267,18 @@ export function FinanceConsole({section}:{section:Section}){
        </div>}
       </td>
       <td className="space-y-2 p-2">{i.status==="needs_review"?<>
+       {i.duplicate_status==="possible"&&<div className="flex flex-col gap-1">
+        <button type="button" className={btn+" border-amber-400"} disabled={busy} onClick={()=>{
+         const note=window.prompt("Reason this is a duplicate invoice (required):");
+         if(note===null)return;
+         void run(()=>request(entity,"invoice_duplicate_confirm",{id:i.id,note}),"Duplicate confirmed and excluded from AR/AP.");
+        }}>Confirm duplicate / 确认重复</button>
+        <button type="button" className={btn} disabled={busy} onClick={()=>{
+         const note=window.prompt("Explain why this is a DIFFERENT invoice (at least 8 characters):");
+         if(note===null)return;
+         void run(()=>request(entity,"invoice_duplicate_dismiss",{id:i.id,note}),"Duplicate warning cleared. Complete invoice review.");
+        }}>Clear warning / 排除重复</button>
+       </div>}
        <button className={btn} disabled={busy} onClick={()=>setReview({id:i.id,direction:i.direction==="unknown"?"ap":i.direction,party_root_id:i.party_root_id||"",invoice_number:i.invoice_number||"",invoice_date:i.invoice_date||"",due_date:i.due_date||"",currency:i.currency||"SGD",amount:major(i.amount_minor,i.currency),invoice_bank_account:i.invoice_bank_account||"",invoice_bank_name:i.invoice_bank_name||""})}>Review</button>
        <button className={btn} disabled={busy} onClick={()=>void run(async()=>{try{const result=await request(entity,"invoice_reextract",{id:i.id});setReview({...emptyReview});return result;}finally{window.dispatchEvent(new Event("finance-ai-call-updated"));}},"AI re-extraction completed; verify the fields before confirming.")}>{busy?"Processing…":"Re-extract AI"}</button>
        <button className={btn} disabled={busy} onClick={()=>void run(()=>request(entity,"invoice_reject",{id:i.id}),"Invoice rejected.")}>Reject</button>
@@ -268,6 +290,7 @@ export function FinanceConsole({section}:{section:Section}){
     </div>}
    </section>
    {review.id&&<section className={card}><h2 className="mb-3 font-semibold">Review Invoice · {review.invoice_number||review.id}</h2>
+    {invoices.find(i=>i.id===review.id)?.duplicate_status==="possible"&&<p role="alert" className="rounded-md border border-amber-400 p-3 text-sm text-amber-900 dark:text-amber-300">Possible duplicate: compare original documents and use Confirm duplicate or Clear warning before approving this invoice.</p>}
     <form className="space-y-3" onSubmit={e=>{e.preventDefault();void run(async()=>{await request(entity,"invoice_review",review);setReview({...emptyReview});},"Invoice reviewed and opened.");}}>
      <div className="grid gap-3 sm:grid-cols-3">
       <label className="text-xs">AR / AP<select className={input+" mt-1"} value={review.direction} onChange={e=>setReview(s=>({...s,direction:e.target.value,party_root_id:""}))}><option value="ap">AP / Payable</option><option value="ar">AR / Receivable</option></select></label>
