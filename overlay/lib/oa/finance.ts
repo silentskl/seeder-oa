@@ -2,6 +2,8 @@ import {all,one,run} from "./db";
 import {getOaEnv} from "./env";
 import {majorToMinor,normalizeCurrency} from "./money";
 import {extractWithFinanceAi} from "./finance-ai";
+import {duplicateFields,findBusinessInvoiceDuplicate} from "./finance-duplicates";
+import {audit} from "./db";
 
 export const clean=(v:unknown,max=300)=>String(v??"").trim().slice(0,max);
 export const normalizedName=(v:unknown)=>clean(v,300).normalize("NFKC").toLowerCase().replace(/[^a-z0-9\u00c0-\u024f\u3400-\u9fff]+/g,"");
@@ -83,7 +85,22 @@ export async function extractInvoice(input:{entityId:string;bytes:Uint8Array;typ
 }
 export async function createInvoice(input:{entityId:string;documentId:string;source:"email"|"manual";sourceEmailId?:string|null;sourceAttachmentId?:string|null;sourceMailAccountId?:string|null;sender:string;parsed:ParsedInvoice}){
  const id=crypto.randomUUID(),p=input.parsed;
- await run("INSERT INTO oa_finance_invoice(id,entity_id,direction,party_root_id,counterparty_name,invoice_number,invoice_date,due_date,currency,amount_minor,invoice_bank_account,invoice_bank_name,sender_email,source,source_email_id,source_attachment_id,document_id,bank_check,extraction_status,extraction_note,source_mail_account_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-   [id,input.entityId,p.direction,p.partyRootId,p.counterpartyName,p.invoiceNumber,p.invoiceDate,p.dueDate,p.currency,p.amountMinor,p.bankAccount,p.bankName,mailAddress(input.sender),input.source,input.sourceEmailId||null,input.sourceAttachmentId||null,input.documentId,p.bankCheck,p.extractionStatus,p.extractionNote,input.sourceMailAccountId||null]);
+ const probe={entityId:input.entityId,invoiceId:id,invoiceNumber:p.invoiceNumber,direction:p.direction,
+  partyRootId:p.partyRootId,counterpartyName:p.counterpartyName,invoiceDate:p.invoiceDate,
+  currency:p.currency,amountMinor:p.amountMinor};
+ const duplicate=await findBusinessInvoiceDuplicate(probe);
+ const fields=duplicateFields(probe,duplicate);
+ // A possible business duplicate remains a separate, reviewable invoice and
+ // keeps its original R2 document. It is NOT booked until reviewed.
+ await run(
+  "INSERT INTO oa_finance_invoice(id,entity_id,direction,party_root_id,counterparty_name,invoice_number,invoice_date,due_date,currency,amount_minor,invoice_bank_account,invoice_bank_name,sender_email,source,source_email_id,source_attachment_id,document_id,bank_check,extraction_status,extraction_note,source_mail_account_id,invoice_number_key,counterparty_key,duplicate_of_invoice_id,duplicate_status,duplicate_reason) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+  [id,input.entityId,p.direction,p.partyRootId,p.counterpartyName,p.invoiceNumber,p.invoiceDate,p.dueDate,p.currency,p.amountMinor,p.bankAccount,p.bankName,
+   mailAddress(input.sender),input.source,input.sourceEmailId||null,input.sourceAttachmentId||null,input.documentId,p.bankCheck,p.extractionStatus,p.extractionNote,input.sourceMailAccountId||null,
+   fields.invoice_number_key,fields.counterparty_key,fields.duplicate_of_invoice_id,fields.duplicate_status,fields.duplicate_reason]
+ );
+ if(duplicate){
+  await audit(null,"finance.invoice.possible_duplicate","finance_invoice",id,
+   {duplicateOf:duplicate.id,reason:duplicate.reason,source:input.source},input.entityId);
+ }
  return id;
 }
