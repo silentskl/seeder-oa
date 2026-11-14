@@ -207,7 +207,6 @@ export function FinanceConsole({section}:{section:Section}){
     </div>)}
    </section>
    </>}
-   </>}
    {activeTab==="data"&&<>
    {(["supplier","customer"] as const).map(kind=><section key={kind} className={card}><h2 className="mb-3 font-semibold">Approved {kind==="supplier"?"Suppliers / 供应商":"Customers / 客户"} ({approved.filter(p=>p.party_type===kind||p.party_type==="both").length})</h2>
     <div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead><tr className="text-xs text-neutral-500">{["Company","Type","Contact","Bank details","Manage"].map(x=><th key={x} className="p-2">{x}</th>)}</tr></thead>
@@ -247,6 +246,7 @@ export function FinanceConsole({section}:{section:Section}){
      <button className={btn} disabled={busy}>Upload & extract</button>
     </form>
    </section>
+   </>}
    </>}
    {activeTab==="data"&&<>
    <FinanceBalances rows={balances} lang={lang}/>
