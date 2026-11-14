@@ -70,7 +70,7 @@ class FinanceDueDateAndReviewTests(unittest.TestCase):
   self.assertIn('text-red-700',UI)
   self.assertIn('invoiceReviewChecks(',API)
   self.assertIn('counterparty_name:clean(body.counterparty_name,300)',API)
-  self.assertIn('party_root_id=? AND status=',API)
+  self.assertIn("SELECT * FROM oa_finance_party WHERE entity_id=? AND root_id=? AND status='approved'",API)
  def test_insert_sql_placeholder_count(self):
   match=re.search(r'INSERT INTO oa_finance_invoice\(([^)]+)\) VALUES\(([^)]+)\)',CORE)
   self.assertIsNotNone(match)
