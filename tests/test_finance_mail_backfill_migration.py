@@ -58,8 +58,11 @@ class FinanceMailBackfillMigrationTests(unittest.TestCase):
    (12,3,13,2,5))
  def test_source_keeps_incremental_checkpoint(self):
   self.assertNotIn("SET last_success_at=",HISTORY)
-  self.assertIn("importFinanceMailAttachments",HISTORY)
+  # History backfill checkpoints after EACH attachment; normal incremental
+  # sync uses the batch wrapper, which calls the same singular importer.
+  self.assertIn("await importFinanceMailAttachment(account,client,message,attachments[aidx])",HISTORY)
   self.assertIn("importFinanceMailAttachments",SYNC)
+  self.assertIn("await importFinanceMailAttachment(account,client,message,attachment)",SYNC)
   self.assertIn('receivedDateTime ge ',SYNC)
   self.assertIn('page_cursor',HISTORY)
   self.assertIn('attachment_offset',HISTORY)
