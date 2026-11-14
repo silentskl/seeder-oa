@@ -80,6 +80,9 @@ class UbuntuMigrationTests(unittest.TestCase):
   self.assertIn("nodeOaDb",adapter)
   self.assertIn("nodeOaUploads",adapter)
   self.assertIn("getStorage()",adapter)
+  start=(ROOT/"deploy/ubuntu/start.sh").read_text()
+  self.assertIn("chown -R seeder:seeder /app/data",start)
+  self.assertIn("docker compose",start)
 
 if __name__=="__main__":
  unittest.main(verbosity=2)
