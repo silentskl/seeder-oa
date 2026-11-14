@@ -6,6 +6,7 @@ services:
       dockerfile: deploy/ubuntu/Dockerfile
     image: seeder-oa:ubuntu
     restart: unless-stopped
+    stop_grace_period: 300s
     env_file:
       - .env
     environment:
@@ -33,6 +34,7 @@ services:
     profiles: [mail-sync]
     image: seeder-oa:ubuntu
     restart: unless-stopped
+    stop_grace_period: 300s
     depends_on:
       app:
         condition: service_healthy
