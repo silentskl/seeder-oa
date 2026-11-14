@@ -50,6 +50,22 @@ https://help.aliyun.com/zh/document_detail/3022213.html
 ### Release checks
 Migration 9021_finance_mail_accounts.sql is additive and must be applied after 9020_finance.sql. The production gate checks new tables, Entity isolation triggers, source files, and SQLite tests. Verify in staging with two Entities and two distinct provider credentials; complete the full Next.js TypeScript/build checks. This PR does not deploy workers, change MX or enable multi-company flags.
 
+## Invoice due date, overdue warnings and strict Review checks
+
+- If the AI extracts a valid Invoice Date but the invoice contains no Due Date, Seeder OA derives **Due Date = Invoice Date + 30 calendar days**, calculated in UTC so browser/server timezone does not shift the calendar date. If no valid Invoice Date exists, Due Date remains unset for manual correction. The original document remains unchanged.
+- New invoices persist `due_date_inferred=1` for derived dates, and the AR/AP list labels these as **estimated +30 days**. AI Re-extract applies the same rule. Manually entered due dates are not silently overwritten; changing an invoice date during Review recomputes an *unchanged inferred due date*.
+- Unsettled invoices with Due Date before the browser-local current date are highlighted in **red**, with days overdue. Already settled or rejected invoices are not treated as currently overdue.
+- Review dynamically compares the invoice's **counterparty company name, bank name, bank account and SWIFT/BIC** against the selected company's currently approved supplier/customer record. Missing values fail checks. **SWIFT/BIC is mandatory and compared only when the Invoice Currency is USD; other currencies show Not required and never block because of SWIFT alone.** The comparison runs in the browser for immediate feedback AND on the server before allowing financial confirmation, using a fresh approved party lookup.
+- All required rows must match before Total Amount becomes editable and Confirm reviewed invoice is enabled. The server rejects attempts to bypass this even with a direct API call. The original invoice PDF is kept for audit.
+- The invoice extraction prompt now includes `bank_swift`, extracting only values actually stated in the source; it never invents missing SWIFT data. Legacy invoices with no captured SWIFT will require manual review if denominated in USD.
+- AR caution: Many receivable invoices state the seller's (your company's) receiving account, while customer master records may contain the customer's account. The requested strict AR customer-bank comparison is intentionally enforced, so these invoices will fail until the master-data and invoice-bank verification policy is aligned. This protects financial controls but may require a separate AR receivable-account master in a future enhancement.
+
+**Finance settings layout:** Finance / AR/AP has Data and Configuration main tabs. Under Configuration, three exclusive sub-tabs display **Connected company mailboxes**, **ModelBridge AI settings**, and **Recent ModelBridge calls**. Legacy Resend and manual uploads remain under the mailbox tab and no longer appear when the AI or calls tab is selected.
+
+**Language:** the Office sidebar exposes English or 简体中文, persisted in local storage. New finance UI strings, comparisons, overdue warnings, mailbox forms, backfill progress, ModelBridge configuration and history are presented in the selected language. Protocol names, model IDs, bank identifiers, timestamps and raw technical diagnostics retain their standard technical notation. The change localizes the Finance workspace and the Office navigation; unrelated employee pages may still require translation.
+
+Migration: `9027_finance_due_date_inference.sql` adds only `invoice_bank_swift` and `due_date_inferred`. It does not retroactively rewrite existing invoice balances or due dates.
+
 ## Business-level Invoice duplicate detection
 
 **Invoice Number is now part of business duplicate checks**, in addition to immutable mail attachment and manual document duplicate checks. This covers incremental Microsoft 365 and Alibaba Mail, history backfill, other email ingestion and manual PDF/image uploads.
