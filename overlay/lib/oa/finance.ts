@@ -21,12 +21,12 @@ export const FINANCE_MAX_FILE=12*1024*1024;
 export const FINANCE_TYPES=new Set(["application/pdf","image/png","image/jpeg","image/webp"]);
 export type Extracted={
  seller_name:string;buyer_name:string;invoice_number:string;invoice_date:string;due_date:string;
- currency:string;total_amount:string;bank_name:string;bank_account:string;notes:string;
+ currency:string;total_amount:string;bank_name:string;bank_account:string;bank_swift:string;notes:string;
 };
 export type ParsedInvoice={
  direction:"ar"|"ap"|"unknown";partyRootId:string|null;counterpartyName:string;
  invoiceNumber:string;invoiceDate:string|null;dueDate:string|null;
- currency:string|null;amountMinor:number|null;bankName:string;bankAccount:string;
+ currency:string|null;amountMinor:number|null;bankName:string;bankAccount:string;bankSwift:string;
  bankCheck:"match"|"mismatch"|"missing"|"unverified";extractionStatus:"extracted"|"needs_manual_review";
  extractionNote:string;dueDateInferred:boolean;
 };
@@ -88,7 +88,7 @@ export async function extractInvoice(input:{entityId:string;bytes:Uint8Array;typ
  const dueDate=documentDueDate||(inferred?dueDatePlus30(invoiceDate):null);
  return {direction,partyRootId:party?.root_id||null,counterpartyName,invoiceNumber:clean(data?.invoice_number,100),
    invoiceDate,dueDate,dueDateInferred:inferred,
-   currency,amountMinor,bankName:clean(data?.bank_name,150),bankAccount:clean(data?.bank_account,150),
+   currency,amountMinor,bankName:clean(data?.bank_name,150),bankAccount:clean(data?.bank_account,150),bankSwift:clean(data?.bank_swift,80),
    bankCheck:check,extractionStatus:data?"extracted":"needs_manual_review",
    extractionNote:(reason||(!party?"Counterparty not uniquely matched to an approved record.":"")).slice(0,400)};
 }
@@ -102,8 +102,8 @@ export async function createInvoice(input:{entityId:string;documentId:string;sou
  // A possible business duplicate remains a separate, reviewable invoice and
  // keeps its original R2 document. It is NOT booked until reviewed.
  await run(
-  "INSERT INTO oa_finance_invoice(id,entity_id,direction,party_root_id,counterparty_name,invoice_number,invoice_date,due_date,currency,amount_minor,invoice_bank_account,invoice_bank_name,sender_email,source,source_email_id,source_attachment_id,document_id,bank_check,extraction_status,extraction_note,source_mail_account_id,invoice_number_key,counterparty_key,duplicate_of_invoice_id,duplicate_status,duplicate_reason,due_date_inferred) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-  [id,input.entityId,p.direction,p.partyRootId,p.counterpartyName,p.invoiceNumber,p.invoiceDate,p.dueDate,p.currency,p.amountMinor,p.bankAccount,p.bankName,
+  "INSERT INTO oa_finance_invoice(id,entity_id,direction,party_root_id,counterparty_name,invoice_number,invoice_date,due_date,currency,amount_minor,invoice_bank_account,invoice_bank_name,invoice_bank_swift,sender_email,source,source_email_id,source_attachment_id,document_id,bank_check,extraction_status,extraction_note,source_mail_account_id,invoice_number_key,counterparty_key,duplicate_of_invoice_id,duplicate_status,duplicate_reason,due_date_inferred) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+  [id,input.entityId,p.direction,p.partyRootId,p.counterpartyName,p.invoiceNumber,p.invoiceDate,p.dueDate,p.currency,p.amountMinor,p.bankAccount,p.bankName,p.bankSwift,
    mailAddress(input.sender),input.source,input.sourceEmailId||null,input.sourceAttachmentId||null,input.documentId,p.bankCheck,p.extractionStatus,p.extractionNote,input.sourceMailAccountId||null,
    fields.invoice_number_key,fields.counterparty_key,fields.duplicate_of_invoice_id,fields.duplicate_status,fields.duplicate_reason,p.dueDateInferred?1:0]
  );
