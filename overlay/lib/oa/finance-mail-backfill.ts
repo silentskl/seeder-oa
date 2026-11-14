@@ -1,11 +1,11 @@
 import {all,audit,one,run} from "./db";
 import {financeMultiEntityActive} from "./finance-entity";
-import {MailAccount,openFinanceMailClient,importFinanceMailAttachments} from "./finance-mail-sync";
+import {MailAccount,openFinanceMailClient,importFinanceMailAttachment} from "./finance-mail-sync";
 
 export type MailBackfillStatus="queued"|"running"|"paused"|"completed"|"failed"|"cancelled";
 export type MailBackfill={
  id:string;entity_id:string;account_id:string;date_from:string;date_to:string;status:MailBackfillStatus;
- page_cursor:string|null;message_offset:number;pages_processed:number;messages_scanned:number;
+ page_cursor:string|null;message_offset:number;attachment_offset:number;pages_processed:number;messages_scanned:number;
  invoices_imported:number;duplicates_skipped:number;other_skipped:number;retry_count:number;
  lease_until:string|null;next_attempt_at:string;last_error:string|null;
  created_by:string;updated_by:string;created_at:string;updated_at:string;finished_at:string|null;
@@ -122,27 +122,43 @@ export async function processMailBackfill(id:string,entityId:string){
   // One provider page is re-fetched on resume, but already-processed
   // messages are skipped by the persisted offset (and invoice unique keys).
   const page=await client.list(job.page_cursor);
-  let offset=job.message_offset,tooOld=false;
+  let offset=job.message_offset,tooOld=false,attachmentsDone=0;
   if(offset>page.messages.length)throw new Error("Mail provider pagination changed during historical sync; restart the task from the beginning");
   for(;offset<page.messages.length;offset++){
-   // Allow pause/cancel to take effect between emails, never in the middle of
-   // downloading or saving an attachment.
    const current=await one<{status:string}>("SELECT status FROM oa_finance_mail_backfill WHERE id=? AND entity_id=?",[id,entityId]);
    if(current?.status!=="running")break;
    const message=page.messages[offset];
    const timestamp=Date.parse(message.receivedAt);
-   if(Number.isFinite(timestamp)&&timestamp<startTime){
-    // Both provider lists are requested newest-first; all later pages are older.
-    tooOld=true;break;
+   if(Number.isFinite(timestamp)&&timestamp<startTime){tooOld=true;break;}
+   const withinRange=Number.isFinite(timestamp)&&timestamp>=startTime&&timestamp<endTime;
+   if(!withinRange||!message.hasAttachments){
+    // Count emails skipped because they are outside the selected range
+    // or carry no importable attachment; advance the exact message offset.
+    await run("UPDATE oa_finance_mail_backfill SET message_offset=?,attachment_offset=0,other_skipped=other_skipped+1,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='running'",
+     [offset+1,id,entityId]);
+    processed++;
+   }else{
+    const attachments=await client.attachments(message);
+    if(attachments.length>30)throw new Error("More than 30 attachments in an email");
+    let aidx=offset===job.message_offset?job.attachment_offset:0,interrupted=false;
+    if(aidx>attachments.length)throw new Error("Mail attachment list changed during historical scan; resume with a fresh task");
+    for(;aidx<attachments.length;aidx++){
+     const currentAttachment=await one<{status:string}>(
+      "SELECT status FROM oa_finance_mail_backfill WHERE id=? AND entity_id=?",[id,entityId]);
+     if(currentAttachment?.status!=="running"){interrupted=true;break;}
+     const oneAttachment=await importFinanceMailAttachment(account,client,message,attachments[aidx]);
+     // Commit progress AFTER each attachment, not after a large email. A
+     // Worker crash at most replays the last attachment, which is deduped.
+     await run("UPDATE oa_finance_mail_backfill SET attachment_offset=?,invoices_imported=invoices_imported+?,duplicates_skipped=duplicates_skipped+?,other_skipped=other_skipped+?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='running'",
+      [aidx+1,oneAttachment.imported,oneAttachment.duplicates,oneAttachment.skipped,id,entityId]);
+     attachmentsDone++;
+     if(attachmentsDone>=3||Date.now()-began>=BATCH_TIME_MS){aidx++;break;}
+    }
+    if(interrupted||aidx<attachments.length)break;
+    await run("UPDATE oa_finance_mail_backfill SET message_offset=?,attachment_offset=0,messages_scanned=messages_scanned+1,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='running'",
+     [offset+1,id,entityId]);
+    processed++;
    }
-   const counts=Number.isFinite(timestamp)&&timestamp>=startTime&&timestamp<endTime
-    ?await importFinanceMailAttachments(account,client,message)
-    :{scanned:0,imported:0,duplicates:0,skipped:1};
-   await run(
-    "UPDATE oa_finance_mail_backfill SET message_offset=?,messages_scanned=messages_scanned+?,invoices_imported=invoices_imported+?,duplicates_skipped=duplicates_skipped+?,other_skipped=other_skipped+?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='running'",
-    [offset+1,counts.scanned,counts.imported,counts.duplicates,counts.skipped,id,entityId]
-   );
-   processed++;
    if(processed>=BATCH_MAX_MESSAGES||Date.now()-began>=BATCH_TIME_MS){offset++;break;}
   }
   const finished=tooOld||offset>=page.messages.length&&!page.cursor;
@@ -150,7 +166,7 @@ export async function processMailBackfill(id:string,entityId:string){
   if(nextPage||tooOld){
    if(page.cursor&&page.cursor.length>8000)throw new Error("Mail provider continuation token exceeds safe length");
    await run(
-    "UPDATE oa_finance_mail_backfill SET page_cursor=?,message_offset=0,pages_processed=pages_processed+1,status=CASE WHEN status='running' THEN ? ELSE status END,lease_until=NULL,last_error=NULL,finished_at=CASE WHEN status='running' AND ?=1 THEN CURRENT_TIMESTAMP ELSE finished_at END,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND lease_until=?",
+    "UPDATE oa_finance_mail_backfill SET page_cursor=?,message_offset=0,attachment_offset=0,pages_processed=pages_processed+1,status=CASE WHEN status='running' THEN ? ELSE status END,lease_until=NULL,last_error=NULL,finished_at=CASE WHEN status='running' AND ?=1 THEN CURRENT_TIMESTAMP ELSE finished_at END,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND lease_until=?",
     [tooOld?null:page.cursor,finished?"completed":"queued",finished?1:0,id,entityId,lease]);
   }else{
    await run(
