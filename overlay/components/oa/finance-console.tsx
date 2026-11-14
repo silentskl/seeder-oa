@@ -238,7 +238,7 @@ export function FinanceConsole({section}:{section:Section}){
     </form>
     <p className="mt-3 text-xs text-neutral-500">{t("Resend inbound","Resend 入站邮件")}: {config.resendConfigured?t("configured","已配置"):t("not configured","未配置")}</p>
    </section></details>
-   <section className={card}><h2 className="mb-3 font-semibold">{t("Import an invoice manually","手动导入发票")}</h2>
+   <details className={card}><summary className="cursor-pointer font-semibold">{t("Import an invoice manually","手动导入发票")}</summary>
     <form className="flex flex-wrap items-center gap-2" onSubmit={e=>{e.preventDefault();const fd=new FormData(e.currentTarget),file=fd.get("file");
      if(!(file instanceof File)||!file.size)return;
      void run(async()=>{const document_id=await upload(entity,"invoice",file);await request(entity,"invoice_import",{document_id,subject:fd.get("subject")});},t("Invoice imported for review.","发票已导入待审核。"));}}>
@@ -246,7 +246,7 @@ export function FinanceConsole({section}:{section:Section}){
      <input type="file" name="file" required accept=".pdf,.jpg,.jpeg,.png,.webp" className="text-xs"/>
      <button className={btn} disabled={busy}>{t("Upload & extract","上传并识别")}</button>
     </form>
-   </section>
+   </details>
    </>}
    </>}
    {activeTab==="data"&&<>
