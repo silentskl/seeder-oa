@@ -7,7 +7,7 @@ export type FinanceBalanceRow={
 };
 function money(minor:number,currency:string){
  try{
-  const digits=new Intl.NumberFormat("en",{style:"currency",currency}).resolvedOptions().maximumFractionDigits;
+  const digits=new Intl.NumberFormat("en",{style:"currency",currency}).resolvedOptions().maximumFractionDigits ?? 2;
   return new Intl.NumberFormat("en",{style:"currency",currency}).format(minor/10**digits);
  }catch{return currency+" "+minor;}
 }
