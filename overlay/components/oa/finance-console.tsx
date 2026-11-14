@@ -161,59 +161,59 @@ export function FinanceConsole({section}:{section:Section}){
  const assignee=(assigned:string|null,action:string,id:string)=>(
   <select aria-label="Assign approving admin" className={input+" max-w-52"} value={assigned||""} disabled={busy}
     onChange={e=>{if(e.target.value)void run(()=>request(entity,action,{id,approver_id:e.target.value}),"Approver assigned.");}}>
-   <option value="">Any other admin</option>{admins.map(a=><option key={a.id} value={a.id}>{a.name||a.email}</option>)}
+   <option value="">{t("Any other admin","任意其他管理员")}</option>{admins.map(a=><option key={a.id} value={a.id}>{a.name||a.email}</option>)}
   </select>
  );
  return <div className="mx-auto max-w-7xl space-y-4 p-4 md:p-6">
-  <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-xl font-semibold">{section==="parties"?"Suppliers & Customers":"Finance · AR / AP"}</h1>
-   <p className="text-sm text-neutral-500">Entity-scoped records · administrator approval · audit trail</p></div>
+  <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-xl font-semibold">{section==="parties"?t("Suppliers & Customers","供应商与客户"):t("Finance · AR / AP","应收应付账款")}</h1>
+   <p className="text-sm text-neutral-500">{t("Company-scoped records · administrator approval · audit trail","数据按公司隔离 · 管理员审批 · 全程审计")}</p></div>
    {entities.length>1&&<select className={input+" max-w-72"} value={entity} onChange={e=>selectEntity(e.target.value)}>{entities.map(x=><option key={x.id} value={x.id}>{x.display_name}</option>)}</select>}
   </div>
-  <div role="tablist" aria-label={section==="parties"?"Suppliers and customers":"AR and AP"} className="flex gap-1 border-b border-neutral-200 pb-2 dark:border-neutral-800">
-   {(["data","config"] as const).map(t=><button key={t} type="button" role="tab" aria-selected={activeTab===t}
-    className={btn+(activeTab===t?" bg-neutral-900 text-white dark:bg-white dark:text-black":"")}
-    onClick={()=>setActiveTab(t)}>{t==="data"?"Data / 数据":"Configuration / 配置"}</button>)}
+  <div role="tablist" aria-label={section==="parties"?t("Suppliers and customers","供应商与客户"):t("AR and AP","应收应付")} className="flex gap-1 border-b border-neutral-200 pb-2 dark:border-neutral-800">
+   {(["data","config"] as const).map(tab=><button key={tab} type="button" role="tab" aria-selected={activeTab===tab}
+    className={btn+(activeTab===tab?" bg-neutral-900 text-white dark:bg-white dark:text-black":"")}
+    onClick={()=>setActiveTab(tab)}>{tab==="data"?t("Data","数据"):t("Configuration","配置")}</button>)}
   </div>
-  {error&&<div role="alert" className="rounded-md border border-red-300 p-3 text-sm text-red-700">{error}</div>}
+  {error&&<div role="alert" className="rounded-md border border-red-300 p-3 text-sm text-red-700">{financeError(lang,error)}</div>}
   {notice&&<div role="status" className="rounded-md border p-3 text-sm">{notice}</div>}
-  {loading?<p className="text-sm text-neutral-500">Loading finance records…</p>:section==="parties"?<>
+  {loading?<p className="text-sm text-neutral-500">{t("Loading finance records…","正在加载财务数据…")}</p>:section==="parties"?<>
    {activeTab==="config"&&<>
    <section className={card}>
-    <h2 className="mb-3 font-semibold">{party.root_id?"Propose a change to approved company":"Add supplier or customer"}</h2>
-     <p className="text-xs text-neutral-500">An active company administrator can approve or reject their own supplier/customer proposal. Payment/receipt proof approvals still require a different administrator.</p>
-    <p className="mb-3 text-xs text-neutral-500">New and changed bank details remain pending until a different administrator approves.</p>
+    <h2 className="mb-3 font-semibold">{party.root_id?t("Propose a change to approved company","申请修改已批准企业资料"):t("Add supplier or customer","新增供应商或客户")}</h2>
+     <p className="text-xs text-neutral-500">{t("Company administrators may approve counterparty proposals. Receipt and payment proofs require a separate reviewer.","公司管理员可以审批供应商／客户资料申请；收付款凭证仍须另一名管理员独立审批。")}</p>
+    <p className="mb-3 text-xs text-neutral-500">{t("New or updated bank details require approval before use.","新增或变更的银行信息须经审批才能生效。")}</p>
     <form className="space-y-3" onSubmit={e=>{e.preventDefault();void run(async()=>{await request(entity,"party_propose",party);setParty({...emptyParty});},"Company proposal submitted.");}}>
      <div className="grid gap-3 md:grid-cols-3">
-      <label className="text-xs">Type<select className={input+" mt-1"} value={party.party_type} onChange={e=>setParty(s=>({...s,party_type:e.target.value}))}>
-       <option value="supplier">Supplier / AP</option><option value="customer">Customer / AR</option><option value="both">Both</option></select></label>
-      {([["Company name","company_name"],["Address","address"],["Contact name","contact_name"],["Email","email"],["Telephone","phone"],["Bank name","bank_name"],["Bank account","bank_account"],["SWIFT/BIC","bank_swift"]] as const).map(([label,k])=><Field key={k} label={label} name={k} value={party[k]}
+      <label className="text-xs">{t("Type","类型")}<select className={input+" mt-1"} value={party.party_type} onChange={e=>setParty(s=>({...s,party_type:e.target.value}))}>
+       <option value="supplier">{t("Supplier","供应商")}</option><option value="customer">{t("Customer","客户")}</option><option value="both">{t("Both","两者")}</option></select></label>
+      {([[t("Company name","公司名称"),"company_name"],[t("Address","地址"),"address"],[t("Contact name","联系人"),"contact_name"],[t("Email","电子邮箱"),"email"],[t("Telephone","电话"),"phone"],[t("Bank name","银行名称"),"bank_name"],[t("Bank account","银行账号"),"bank_account"],["SWIFT/BIC","bank_swift"]] as const).map(([label,k])=><Field key={k} label={label} name={k} value={party[k]}
        type={k==="email"?"email":"text"} required={k==="company_name"} onChange={v=>setParty(s=>({...s,[k]:v}))}/>)}
-      <label className="text-xs">Approving admin (optional)<select className={input+" mt-1"} value={party.assigned_approver_user_id||""} onChange={e=>setParty(s=>({...s,assigned_approver_user_id:e.target.value}))}>
+      <label className="text-xs">{t("Approving admin (optional)","审批管理员（可选）")}<select className={input+" mt-1"} value={party.assigned_approver_user_id||""} onChange={e=>setParty(s=>({...s,assigned_approver_user_id:e.target.value}))}>
        <option value="">Any other admin</option>{admins.map(a=><option key={a.id} value={a.id}>{a.name||a.email}</option>)}</select></label>
      </div>
-     <div className="flex gap-2"><button disabled={busy} className={primary}>Submit for approval</button>{party.root_id&&<button type="button" className={btn} onClick={()=>setParty({...emptyParty})}>Cancel editing</button>}</div>
+     <div className="flex gap-2"><button disabled={busy} className={primary}>{t("Submit for approval","提交审批")}</button>{party.root_id&&<button type="button" className={btn} onClick={()=>setParty({...emptyParty})}>{t("Cancel editing","取消编辑")}</button>}</div>
     </form>
    </section>
-   <section className={card}><h2 className="mb-3 font-semibold">Pending company approvals ({pending.length})</h2>
-    {!pending.length?<p className="text-sm text-neutral-500">No pending proposals.</p>:pending.map(p=><div key={p.id} className="mb-3 rounded-lg border p-3 text-sm dark:border-neutral-800">
+   <section className={card}><h2 className="mb-3 font-semibold">{t("Pending company approvals","待审批公司资料")} ({pending.length})</h2>
+    {!pending.length?<p className="text-sm text-neutral-500">{t("No pending proposals.","暂无待审批申请。")}</p>:pending.map(p=><div key={p.id} className="mb-3 rounded-lg border p-3 text-sm dark:border-neutral-800">
      <div className="font-semibold">{p.company_name} · {p.party_type}</div>
      <p className="text-xs text-neutral-500">{p.address} · {p.contact_name} · {p.email} · {p.phone}</p>
-     <p className="mt-1 text-xs">Bank: {p.bank_name} / {p.bank_account} / {p.bank_swift}</p>
-     <p className="mb-2 text-xs text-neutral-500">Requested by {p.created_by} · {p.created_at}</p>
+     <p className="mt-1 text-xs">{t("Bank","银行")}: {p.bank_name} / {p.bank_account} / {p.bank_swift}</p>
+     <p className="mb-2 text-xs text-neutral-500">{t("Requested by","申请人")} {p.created_by} · {p.created_at}</p>
      <div className="flex flex-wrap items-center gap-2">{assignee(p.assigned_approver_user_id,"party_assign",p.id)}
-      <button className={primary} disabled={busy} onClick={()=>void run(()=>request(entity,"party_approve",{id:p.id}),"Company approved.")}>Approve</button>
-      <button className={btn} disabled={busy} onClick={()=>void run(()=>request(entity,"party_reject",{id:p.id,note:window.prompt("Rejection reason")||""}),"Company change rejected.")}>Reject</button>
+      <button className={primary} disabled={busy} onClick={()=>void run(()=>request(entity,"party_approve",{id:p.id}),"Company approved.")}>{t("Approve","批准")}</button>
+      <button className={btn} disabled={busy} onClick={()=>void run(()=>request(entity,"party_reject",{id:p.id,note:window.prompt("Rejection reason")||""}),"Company change rejected.")}>{t("Reject","拒绝")}</button>
      </div>
     </div>)}
    </section>
    </>}
    {activeTab==="data"&&<>
-   {(["supplier","customer"] as const).map(kind=><section key={kind} className={card}><h2 className="mb-3 font-semibold">Approved {kind==="supplier"?"Suppliers / 供应商":"Customers / 客户"} ({approved.filter(p=>p.party_type===kind||p.party_type==="both").length})</h2>
-    <div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead><tr className="text-xs text-neutral-500">{["Company","Type","Contact","Bank details","Manage"].map(x=><th key={x} className="p-2">{x}</th>)}</tr></thead>
+   {(["supplier","customer"] as const).map(kind=><section key={kind} className={card}><h2 className="mb-3 font-semibold">{t("Approved","已批准")} {kind==="supplier"?t("Suppliers","供应商"):t("Customers","客户")} ({approved.filter(p=>p.party_type===kind||p.party_type==="both").length})</h2>
+    <div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead><tr className="text-xs text-neutral-500">{[t("Company","公司"),t("Type","类型"),t("Contact","联系人"),t("Bank details","银行资料"),t("Manage","管理")].map(x=><th key={x} className="p-2">{x}</th>)}</tr></thead>
      <tbody>{approved.filter(p=>p.party_type===kind||p.party_type==="both").map(p=><tr key={p.id} className="border-t dark:border-neutral-800"><td className="p-2"><div className="font-semibold">{p.company_name}</div><div className="text-xs">{p.address}</div></td><td className="p-2">{p.party_type}</td>
       <td className="p-2">{p.contact_name}<div className="text-xs">{p.email} {p.phone}</div></td>
       <td className="p-2">{p.bank_name}<div className="text-xs">{p.bank_account} · {p.bank_swift}</div></td>
-      <td className="p-2"><button className={btn} onClick={()=>{setParty({party_type:p.party_type,company_name:p.company_name,address:p.address,contact_name:p.contact_name,email:p.email,phone:p.phone,bank_name:p.bank_name,bank_account:p.bank_account,bank_swift:p.bank_swift,root_id:p.root_id,assigned_approver_user_id:""});setActiveTab("config");window.scrollTo({top:0,behavior:"smooth"});}}>Propose change</button></td>
+      <td className="p-2"><button className={btn} onClick={()=>{setParty({party_type:p.party_type,company_name:p.company_name,address:p.address,contact_name:p.contact_name,email:p.email,phone:p.phone,bank_name:p.bank_name,bank_account:p.bank_account,bank_swift:p.bank_swift,root_id:p.root_id,assigned_approver_user_id:""});setActiveTab("config");window.scrollTo({top:0,behavior:"smooth"});}}>{t("Propose change","申请修改")}</button></td>
      </tr>)}</tbody></table></div>
    </section>)}
    </>}
