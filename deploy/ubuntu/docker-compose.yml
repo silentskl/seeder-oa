@@ -29,6 +29,8 @@ services:
       start_period: 90s
 
   mail-scheduler:
+    # Opt-in only AFTER DNS cutover and Cloudflare Cron is disabled.
+    profiles: [mail-sync]
     image: seeder-oa:ubuntu
     restart: unless-stopped
     depends_on:
