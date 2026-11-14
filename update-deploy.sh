@@ -104,6 +104,8 @@ CRITICAL_OA_FILES=(
   "lib/oa/env.ts"
   "lib/oa/finance.ts"
   "lib/oa/finance-duplicates.ts"
+  "lib/oa/finance-review-checks.ts"
+  "lib/oa/finance-i18n.ts"
   "lib/oa/finance-ai.ts"
   "components/oa/finance-ai-panel.tsx"
   "app/api/oa/finance/ai-settings/route.ts"
@@ -195,6 +197,7 @@ python3 "$ROOT/tests/test_finance_ai_diagnostics_migration.py"
 python3 "$ROOT/tests/test_finance_ai_reasoning_migration.py"
 python3 "$ROOT/tests/test_finance_mail_backfill_migration.py"
 python3 "$ROOT/tests/test_finance_invoice_business_dedup_migration.py"
+python3 "$ROOT/tests/test_finance_due_date_review_i18n.py"
 python3 "$ROOT/tests/test_finance_edge_fetch.py"
 echo "[DEPLOY] Synchronizing migrations from reviewed overlay..."
 mkdir -p migrations
@@ -217,7 +220,7 @@ echo "$PENDING"
 # Whitelist only migrations reviewed for this production upgrade.
 MIGRATIONS="$(printf '%s\n' "$PENDING" | grep -Eo '[0-9]{4}_[[:alnum:]_-]+\.sql' | sort -u || true)"
 if [[ -n "$MIGRATIONS" ]]; then
-  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles|9014_email_log_company|9015_entity_leave_types|9016_entity_medical_allowance|9017_entity_database_guards|9018_entity_invitations|9019_business_travel|9020_finance|9021_finance_mail_accounts|9022_finance_ai_settings|9023_finance_ai_diagnostics|9024_finance_ai_reasoning_effort|9025_finance_mail_backfill|9026_finance_invoice_business_dedup)\.sql$' || true)"
+  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles|9014_email_log_company|9015_entity_leave_types|9016_entity_medical_allowance|9017_entity_database_guards|9018_entity_invitations|9019_business_travel|9020_finance|9021_finance_mail_accounts|9022_finance_ai_settings|9023_finance_ai_diagnostics|9024_finance_ai_reasoning_effort|9025_finance_mail_backfill|9026_finance_invoice_business_dedup|9027_finance_due_date_inference)\.sql$' || true)"
   if [[ -n "$UNKNOWN" ]]; then
     echo "ERROR: unexpected pending migrations: $UNKNOWN" >&2
     exit 1
@@ -353,6 +356,12 @@ AI_TABLES="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) A
 echo "$AI_TABLES"
 if ! printf '%s\n' "$AI_TABLES" | grep -Eq '(^|[[:space:]│])1([[:space:]│]|$)'; then
   echo "ERROR: migration 9022 finance AI settings missing; refusing deployment." >&2
+  exit 1
+fi
+FINANCE_DUE_SWIFT_COLUMNS="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM pragma_table_info('oa_finance_invoice') WHERE name IN ('due_date_inferred','invoice_bank_swift');" 2>&1)" || { echo "$FINANCE_DUE_SWIFT_COLUMNS" >&2; exit 1; }
+echo "$FINANCE_DUE_SWIFT_COLUMNS"
+if ! printf '%s\n' "$FINANCE_DUE_SWIFT_COLUMNS" | grep -Eq '(^|[[:space:]│])2([[:space:]│]|$)'; then
+  echo "ERROR: migration 9027 due-date and SWIFT columns missing; refusing deployment." >&2
   exit 1
 fi
 INVOICE_DEDUP_COLUMNS="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM pragma_table_info('oa_finance_invoice') WHERE name IN ('invoice_number_key','counterparty_key','duplicate_of_invoice_id','duplicate_status','duplicate_reason','duplicate_decision_note','duplicate_decided_by','duplicate_decided_at');" 2>&1)" || { echo "$INVOICE_DEDUP_COLUMNS" >&2; exit 1; }
