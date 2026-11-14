@@ -12,6 +12,20 @@ BUCKET="${R2_BUCKET:-seeder-oa-uploads}"
 : "${AWS_SECRET_ACCESS_KEY:?Set read-only R2 S3 secret}"
 for cmd in aws npx python3; do command -v "$cmd" >/dev/null || { echo "Missing $cmd" >&2; exit 1; }; done
 [[ -f "$APP/wrangler.jsonc" ]] || { echo "Seeder app wrangler.jsonc not found at $APP" >&2; exit 1; }
+# Require the known existing production database. Never silently export a fresh
+# empty D1 binding due to a stale Wrangler configuration.
+EXPECTED_D1_ID="${EXPECTED_D1_ID:-a2113d04-54d8-4a16-b4e6-d0a1300ea341}"
+python3 - "$APP/wrangler.jsonc" "$EXPECTED_D1_ID" "$BUCKET" <<'PY'
+import re,sys
+from pathlib import Path
+raw=Path(sys.argv[1]).read_text()
+expect=sys.argv[2];bucket=sys.argv[3]
+if not re.search(r'"binding"\s*:\s*"PM_DB"',raw) or not re.search(r'"database_id"\s*:\s*"'+re.escape(expect)+'"',raw):
+    raise SystemExit("ERROR: production PM_DB binding/database_id differs; refusing export")
+if not re.search(r'"binding"\s*:\s*"UPLOADS"',raw) or not re.search(r'"bucket_name"\s*:\s*"'+re.escape(bucket)+'"',raw):
+    raise SystemExit("ERROR: production UPLOADS bucket differs; refusing export")
+PY
+
 [[ ! -e "$STAGE" ]] || { echo "Refusing to overwrite existing snapshot: $STAGE" >&2; exit 1; }
 mkdir -p "$STAGE/uploads"
 chmod 700 "$STAGE"
