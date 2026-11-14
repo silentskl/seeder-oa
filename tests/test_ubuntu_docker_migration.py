@@ -65,7 +65,7 @@ class UbuntuMigrationTests(unittest.TestCase):
  def test_missing_invoice_file_refuses_db_import(self):
   sql=self.stage/"database.sql"
   sql.write_text(sql.read_text().replace("oa/company-a/finance/invoice.pdf","oa/company-a/finance/missing.pdf"))
-  with self.assertRaisesRegex(RuntimeError,"Missing finance"):
+  with self.assertRaisesRegex(RuntimeError,"Missing oa_finance_document attachments"):
    migrator.restore(self.stage,self.root/"bad-data")
   self.assertFalse((self.root/"bad-data"/"seeder.db").exists())
  def test_production_secrets_remain_explicit(self):
