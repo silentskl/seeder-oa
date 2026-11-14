@@ -37,11 +37,11 @@ services:
       - sh
       - -ec
       - |
-        : "${OA_FINANCE_SYNC_TOKEN:?OA_FINANCE_SYNC_TOKEN is required}"
+        : "$${OA_FINANCE_SYNC_TOKEN:?OA_FINANCE_SYNC_TOKEN is required}"
         while :; do
           curl --fail --silent --show-error --max-time 110 \
             -X POST http://seeder-oa:3000/api/oa/finance/sync-job \
-            -H "x-oa-finance-sync-token: ${OA_FINANCE_SYNC_TOKEN}" \
+            -H "x-oa-finance-sync-token: $${OA_FINANCE_SYNC_TOKEN}" \
             -H "Content-Type: application/json" || true
           sleep 300
         done
