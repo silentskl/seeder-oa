@@ -317,10 +317,21 @@ export function FinanceConsole({section}:{section:Section}){
       <label className="text-xs">AR / AP<select className={input+" mt-1"} value={review.direction} onChange={e=>setReview(s=>({...s,direction:e.target.value,party_root_id:""}))}><option value="ap">AP / Payable</option><option value="ar">AR / Receivable</option></select></label>
       <label className="text-xs">Approved counterparty<select className={input+" mt-1"} value={review.party_root_id} required onChange={e=>setReview(s=>({...s,party_root_id:e.target.value}))}><option value="">Select...</option>
        {approved.filter(p=>p.party_type==="both"||p.party_type===(review.direction==="ap"?"supplier":"customer")).map(p=><option key={p.root_id} value={p.root_id}>{p.company_name}</option>)}</select></label>
-      {([["Invoice number","invoice_number"],["Invoice date","invoice_date"],["Due date","due_date"],["Currency","currency"],["Total amount","amount"],["Invoice bank account","invoice_bank_account"],["Invoice bank name","invoice_bank_name"]] as const).map(([label,k])=><Field key={k} label={label} name={k} value={review[k]} required={["invoice_number","currency","amount"].includes(k)} onChange={v=>setReview(s=>({...s,[k]:v}))}/>)}
+      {([[t("Invoice company name","发票公司名称"),"counterparty_name"],[t("Bank name","银行名称"),"invoice_bank_name"],[t("Bank account","银行账号"),"invoice_bank_account"],[t("SWIFT / BIC (USD only)","SWIFT / BIC（仅 USD 必填）"),"invoice_bank_swift"],[t("Invoice number","发票编号"),"invoice_number"],[t("Invoice date","开票日期"),"invoice_date"],[t("Due date","到期日"),"due_date"],[t("Currency","币种"),"currency"],[t("Total amount","账单金额"),"amount"]] as const).map(([label,k])=><Field key={k} label={label} name={k} value={review[k]} required={["counterparty_name","invoice_bank_name","invoice_bank_account","invoice_number","currency","amount"].includes(k)||(k==="invoice_bank_swift"&&review.currency.trim().toUpperCase()==="USD")} disabled={k==="amount"&&!reviewVerified} onChange={v=>setReview(s=>({...s,[k]:v}))}/>)}
      </div>
-     <p className="text-xs text-neutral-500">AP approval is blocked unless the beneficiary account exactly matches the currently approved supplier record. For AR, the invoice may display your own receiving account rather than the customer's; review the comparison manually.</p>
-     <button className={primary} disabled={busy}>Confirm reviewed invoice</button><button type="button" className={btn+" ml-2"} onClick={()=>setReview({...emptyReview})}>Cancel</button>
+     <div role="status" className="rounded-lg border p-3 dark:border-neutral-800">
+      <h3 className="mb-2 font-semibold">{t("Invoice vs approved counterparty","发票与已批准供应商／客户资料对照")}</h3>
+      <div className="overflow-x-auto"><table className="w-full text-left text-xs">
+       <thead><tr>{[t("Field","项目"),t("Invoice value","发票值"),t("Approved value","已批准资料"),t("Result","结果")].map(label=><th key={label} className="p-2">{label}</th>)}</tr></thead>
+       <tbody>{checks.map(x=><tr key={x.field} className={"border-t "+(x.status==="mismatch"||x.status==="missing"?"bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-200":"")}>
+        <td className="p-2">{({company_name:t("Company name","公司名称"),bank_name:t("Bank name","银行名称"),bank_account:t("Bank account","银行账号"),bank_swift:"SWIFT/BIC"} as Record<string,string>)[x.field]}</td>
+        <td className="p-2">{x.actual||"—"}</td><td className="p-2">{x.expected||"—"}</td>
+        <td className="p-2 font-semibold">{({match:t("Match","一致"),mismatch:t("Mismatch","不一致"),missing:t("Missing","缺失"),not_required:t("Not required","无需校验")} as Record<string,string>)[x.status]}</td>
+       </tr>)}</tbody>
+      </table></div>
+      <p className={"mt-2 text-sm "+(reviewVerified?"text-emerald-700 dark:text-emerald-300":"text-red-700 dark:text-red-300")}>{reviewVerified?t("All required fields match. You may confirm the amount.","全部必填资料一致，可以确认金额。"):t("Resolve every mismatch before confirming the amount. SWIFT is required only for USD.","必须先解决全部不一致项才能确认金额。只有 USD 发票要求校验 SWIFT。")}</p>
+     </div>
+     <button className={primary} disabled={busy||!reviewVerified}>{t("Confirm reviewed invoice","确认金额并审核入账")}</button><button type="button" className={btn+" ml-2"} onClick={()=>setReview({...emptyReview})}>Cancel</button>
     </form>
    </section>}
    <section className={card}><h2 className="mb-3 font-semibold">Receipt / payment proof approvals ({settlements.length})</h2>
