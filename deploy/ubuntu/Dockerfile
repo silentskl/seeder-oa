@@ -15,6 +15,8 @@ ENV NODE_ENV=production RUNTIME=node PORT=3000 HOSTNAME=0.0.0.0 \
 # Full node_modules retained: native SQLite is dynamically required at runtime.
 COPY --from=build --chown=node:node /app /app
 COPY --chown=node:node deploy/ubuntu/finance-scheduler.mjs /app/finance-scheduler.mjs
+COPY --chown=node:node deploy/ubuntu/entrypoint.sh /app/entrypoint.sh
 USER node
 EXPOSE 3000
+ENTRYPOINT ["/bin/sh", "/app/entrypoint.sh"]
 CMD ["npm","run","start:node"]
