@@ -1,0 +1,10 @@
+.env
+data/
+backups/
+exports/
+*.sqlite
+*.db
+*.db-shm
+*.db-wal
+*.sql
+*.tar.gz
