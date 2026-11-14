@@ -11,6 +11,7 @@ docker compose -f "$ROOT/docker-compose.yml" run --rm --no-deps --user root \
   --entrypoint sh seeder-oa -ec 'chown -R seeder:seeder /app/data'
 if [[ "${1:-}" == "--app-only" ]]; then
   echo "Rehearsal mode: starting application ONLY (mail scheduler disabled)."
+  docker compose -f "$ROOT/docker-compose.yml" stop finance-mail-scheduler >/dev/null 2>&1 || true
   docker compose -f "$ROOT/docker-compose.yml" up -d seeder-oa
 elif [[ "${1:-}" == "" ]]; then
   echo "Starting Ubuntu application and isolated finance mail scheduler."
