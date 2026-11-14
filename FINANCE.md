@@ -50,6 +50,23 @@ https://help.aliyun.com/zh/document_detail/3022213.html
 ### Release checks
 Migration 9021_finance_mail_accounts.sql is additive and must be applied after 9020_finance.sql. The production gate checks new tables, Entity isolation triggers, source files, and SQLite tests. Verify in staging with two Entities and two distinct provider credentials; complete the full Next.js TypeScript/build checks. This PR does not deploy workers, change MX or enable multi-company flags.
 
+## DeepSeek reasoning tokens and PDF compatibility
+
+A ModelBridge response with HTTP 200 and output_tokens=4096, reasoning_tokens=4096, output_chars=0 and finish_reason=length means the model spent the entire allowed output budget thinking and did not provide invoice JSON.
+
+- The company invoice AI settings page now includes **Reasoning effort / 推理强度**: Auto, None, Low, Medium, High.
+- **Auto** automatically sends Responses reasoning.effort=none for models named deepseek-...; it omits the setting for other models to preserve provider compatibility. You can explicitly choose a level; unsupported provider values may yield HTTP 400.
+- With Chat Completions, DeepSeek effort None sends thinking.type=disabled; other providers use the standardized reasoning_effort field if chosen.
+- This does not change the 4096-token invoice maximum or automatically retry costly calls. Save and run Test connection before attempting another invoice.
+- **Important PDF limitation:** DeepSeek's Responses API does not accept an inline PDF (input_file with base64 file_data). It supports uploaded file_id via a separate Files API. Current Seeder OA/ModelBridge has **not** verified Files API upload-to-model forwarding, so OA refuses inline PDF with a clear error **before** making a billable DeepSeek request. Select a model/provider in ModelBridge that supports inline PDF file_data (e.g. one with verified OpenAI-compatible file input support) or convert an invoice PDF to an image for a new manual import; image inputs can be handled by compatible DeepSeek vision models.
+- Changing reasoning effort does not guarantee PDF input support; distinguish transport incompatibility from thinking budget exhaustion.
+- Additive D1 schema migration **9024_finance_ai_reasoning_effort.sql**, automatically applied by the existing safe backup/update process.
+
+DeepSeek documentation:
+https://api-docs.deepseek.com/guides/thinking_mode/
+https://api-docs.deepseek.com/guides/responses_api/
+https://api-docs.deepseek.com/guides/document_parsing/
+
 ## ModelBridge AI diagnostics and re-extraction feedback
 
 - **Save AI settings** and **Test connection** show an explicit running state and a result directly beside their buttons; the test displays HTTP status, duration and output tokens.

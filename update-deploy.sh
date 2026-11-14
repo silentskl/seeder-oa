@@ -187,6 +187,7 @@ python3 "$ROOT/tests/test_finance_migration.py"
 python3 "$ROOT/tests/test_finance_mail_accounts_migration.py"
 python3 "$ROOT/tests/test_finance_ai_migration.py"
 python3 "$ROOT/tests/test_finance_ai_diagnostics_migration.py"
+python3 "$ROOT/tests/test_finance_ai_reasoning_migration.py"
 python3 "$ROOT/tests/test_finance_edge_fetch.py"
 echo "[DEPLOY] Synchronizing migrations from reviewed overlay..."
 mkdir -p migrations
@@ -209,7 +210,7 @@ echo "$PENDING"
 # Whitelist only migrations reviewed for this production upgrade.
 MIGRATIONS="$(printf '%s\n' "$PENDING" | grep -Eo '[0-9]{4}_[[:alnum:]_-]+\.sql' | sort -u || true)"
 if [[ -n "$MIGRATIONS" ]]; then
-  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles|9014_email_log_company|9015_entity_leave_types|9016_entity_medical_allowance|9017_entity_database_guards|9018_entity_invitations|9019_business_travel|9020_finance|9021_finance_mail_accounts|9022_finance_ai_settings|9023_finance_ai_diagnostics)\.sql$' || true)"
+  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles|9014_email_log_company|9015_entity_leave_types|9016_entity_medical_allowance|9017_entity_database_guards|9018_entity_invitations|9019_business_travel|9020_finance|9021_finance_mail_accounts|9022_finance_ai_settings|9023_finance_ai_diagnostics|9024_finance_ai_reasoning_effort)\.sql$' || true)"
   if [[ -n "$UNKNOWN" ]]; then
     echo "ERROR: unexpected pending migrations: $UNKNOWN" >&2
     exit 1
@@ -327,6 +328,12 @@ FINANCE_GUARDS="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT
 echo "$FINANCE_GUARDS"
 if ! printf '%s\n' "$FINANCE_GUARDS" | grep -Eq '(^|[[:space:]│])4([[:space:]│]|$)'; then
   echo "ERROR: finance cross-entity database guards missing; refusing deployment." >&2
+  exit 1
+fi
+AI_EFFORT_COLUMN="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM pragma_table_info('oa_finance_ai_settings') WHERE name='reasoning_effort';" 2>&1)" || { echo "$AI_EFFORT_COLUMN" >&2; exit 1; }
+echo "$AI_EFFORT_COLUMN"
+if ! printf '%s\n' "$AI_EFFORT_COLUMN" | grep -Eq '(^|[[:space:]│])1([[:space:]│]|$)'; then
+  echo "ERROR: migration 9024 invoice reasoning effort missing; refusing deployment." >&2
   exit 1
 fi
 AI_LOG_TABLES="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='oa_finance_ai_call_log';" 2>&1)" || { echo "$AI_LOG_TABLES" >&2; exit 1; }

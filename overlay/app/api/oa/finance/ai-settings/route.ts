@@ -7,7 +7,7 @@ import {encryptEmailSecret} from "@/lib/oa/email";
 import {getOaEnv} from "@/lib/oa/env";
 import {
  financeAiSettings,publicFinanceAiSettings,testFinanceAiConnection,recentFinanceAiCalls,FinanceAiError,
- validateFinanceAiBaseUrl,validateFinanceAiModel,validateFinanceAiProtocol
+ validateFinanceAiBaseUrl,validateFinanceAiModel,validateFinanceAiProtocol,validateFinanceAiEffort
 } from "@/lib/oa/finance-ai";
 
 export const runtime="nodejs";
@@ -50,6 +50,7 @@ export async function POST(request:NextRequest){
   const base=validateFinanceAiBaseUrl(body.base_url);
   const model=validateFinanceAiModel(body.model_name);
   const protocol=validateFinanceAiProtocol(body.protocol);
+  const effort=validateFinanceAiEffort(body.reasoning_effort??"auto");
   const enabled=body.enabled===true?1:0;
   const key=typeof body.api_key==="string"?body.api_key.trim():"";
   if(key.length>4096)throw new Error("AI API Key is too long");
@@ -57,11 +58,11 @@ export async function POST(request:NextRequest){
   if(!key&&!previous?.api_key_encrypted)return fail("AI API Key is required on first save");
   const encrypted=key?await encryptEmailSecret(key):previous!.api_key_encrypted;
   await run(
-   "INSERT INTO oa_finance_ai_settings(entity_id,base_url,model_name,protocol,api_key_encrypted,enabled,updated_by) VALUES(?,?,?,?,?,?,?) ON CONFLICT(entity_id) DO UPDATE SET base_url=excluded.base_url,model_name=excluded.model_name,protocol=excluded.protocol,api_key_encrypted=excluded.api_key_encrypted,enabled=excluded.enabled,updated_by=excluded.updated_by,updated_at=CURRENT_TIMESTAMP",
-   [entityId,base,model,protocol,encrypted,enabled,userId]
+   "INSERT INTO oa_finance_ai_settings(entity_id,base_url,model_name,protocol,reasoning_effort,api_key_encrypted,enabled,updated_by) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(entity_id) DO UPDATE SET base_url=excluded.base_url,model_name=excluded.model_name,protocol=excluded.protocol,reasoning_effort=excluded.reasoning_effort,api_key_encrypted=excluded.api_key_encrypted,enabled=excluded.enabled,updated_by=excluded.updated_by,updated_at=CURRENT_TIMESTAMP",
+   [entityId,base,model,protocol,effort,encrypted,enabled,userId]
   );
   await audit(userId,"finance.ai.settings.update","finance_ai_settings",entityId,
-   {baseUrl:base,model,protocol,enabled:!!enabled,keyRotated:!!key},entityId);
+   {baseUrl:base,model,protocol,effort,enabled:!!enabled,keyRotated:!!key},entityId);
   return NextResponse.json({ok:true,data:await publicFinanceAiSettings(entityId)});
  }catch(error){return safeFailure(error);}
 }
