@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS oa_finance_mail_backfill (
   CHECK(status IN ('queued','running','paused','completed','failed','cancelled')),
  page_cursor TEXT,
  message_offset INTEGER NOT NULL DEFAULT 0 CHECK(message_offset>=0),
+ attachment_offset INTEGER NOT NULL DEFAULT 0 CHECK(attachment_offset>=0),
  pages_processed INTEGER NOT NULL DEFAULT 0 CHECK(pages_processed>=0),
  messages_scanned INTEGER NOT NULL DEFAULT 0 CHECK(messages_scanned>=0),
  invoices_imported INTEGER NOT NULL DEFAULT 0 CHECK(invoices_imported>=0),
