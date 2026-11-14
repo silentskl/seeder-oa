@@ -139,10 +139,12 @@ sudo chown -R 1000:1000 /data/seeder-oa
 cd ~/seeder-oa/deploy/ubuntu
 docker compose --env-file .env build
 docker compose --env-file .env run --rm --no-deps app npm run db:migrate:node
-docker compose --env-file .env up -d
+docker compose --env-file .env up -d app
 docker compose --env-file .env ps
 docker compose --env-file .env logs --tail=100 app
-docker compose --env-file .env logs --tail=100 mail-scheduler
+# 确认原 Cloudflare Cron 已停、DNS 已切换且验收通过后才启动：
+docker compose --env-file .env --profile mail-sync up -d mail-scheduler
+docker compose --env-file .env --profile mail-sync logs --tail=100 mail-scheduler
 ~~~
 
 5. 使用 nginx-oa.conf.example 的反代设置、申请有效 HTTPS 证书；首先通过测试机 hosts 文件指向 Ubuntu 检查 OA 登录、原用户/权限、发票 PDF、R2 证明文件、审批、AI 识别、邮箱及历史同步。
@@ -155,10 +157,10 @@ docker compose --env-file .env logs --tail=100 mail-scheduler
 
 ~~~bash
 cd ~/seeder-oa/deploy/ubuntu
-docker compose --env-file .env stop
+docker compose --env-file .env --profile mail-sync stop
 python3 backup-local.py --data /data/seeder-oa \
   --output /data/backups/seeder-oa-$(date +%Y%m%d-%H%M%S).tar.gz
-docker compose --env-file .env up -d
+docker compose --env-file .env --profile mail-sync up -d
 ~~~
 
 建议每日异地加密备份并定期演练恢复。更新代码时：
