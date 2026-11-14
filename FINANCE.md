@@ -50,6 +50,21 @@ https://help.aliyun.com/zh/document_detail/3022213.html
 ### Release checks
 Migration 9021_finance_mail_accounts.sql is additive and must be applied after 9020_finance.sql. The production gate checks new tables, Entity isolation triggers, source files, and SQLite tests. Verify in staging with two Entities and two distinct provider credentials; complete the full Next.js TypeScript/build checks. This PR does not deploy workers, change MX or enable multi-company flags.
 
+## Business-level Invoice duplicate detection
+
+**Invoice Number is now part of business duplicate checks**, in addition to immutable mail attachment and manual document duplicate checks. This covers incremental Microsoft 365 and Alibaba Mail, history backfill, other email ingestion and manual PDF/image uploads.
+
+- The comparison matches the **same company/Entity + AR/AP direction + issuer/counterparty** (prefer approved party root, otherwise normalized company name) + **normalized Invoice Number**. NFKC/case/spacing/punctuation folding treats INV-001, inv/001 and INV 001 as equivalent. A bare Invoice No alone is not sufficient to reject an invoice.
+- A matching issuer/number with conflicting **amount, currency or invoice date** remains **Possible Duplicate** (showing conflict reason), not an automatic deletion/rejection. Missing details are also flagged for manual comparison; the original R2 file is preserved.
+- Different emails, attachment IDs, forwarded invoices, or manual re-uploads create a separate needs_review record marked Possible Duplicate with a link to the existing same-company Invoice. Exact provider message+attachment duplicates are still skipped before download.
+- Additive migration 9026_finance_invoice_business_dedup.sql scans already imported needs_review invoices for matching historical business keys. Approved/settled invoice financial statuses are not changed.
+- AI re-extraction recomputes duplicate status. Confirm reviewed invoice rechecks using the **final manually approved supplier/customer, AR/AP direction and Invoice Number**, so an AI counterparty mismatch cannot bypass deduplication.
+- Administrators can **Confirm duplicate** (explanation required; marks the redundant record rejected with original file retained) or **Clear warning** (explanation required and audited). Clearing does not bypass the hard D1 guard: same company/approved party/direction/normalized Invoice No cannot both be open, payment/receipt pending or settled.
+- The Data tab offers a Possible Duplicates filter, linked existing invoice source document, and bilingual warning. Unreviewed/rejected duplicates remain excluded from booked AR/AP balances.
+- Cross-company references are rejected in database triggers. Nothing is silently merged, deleted or approved for payment.
+
+**Boundary:** If the document has no reliable supplier/customer and no AR/AP direction, matching by bare Invoice No is unsafe. Such items need manual classification, after which final approval performs the business duplicate check. Customer aliases and different legal names are not automatically reconciled.
+
 ## Historical mailbox backfill and AR/AP ledger tabs
 
 **Finance → Configuration → Connected company mailboxes** contains a Historical email backfill panel. Company admins select an enabled mailbox and inclusive UTC start/end dates. This history scan is independent of the initial 1–30-day lookback and of the normal last_success_at checkpoint.
