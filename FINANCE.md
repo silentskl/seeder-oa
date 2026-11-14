@@ -50,6 +50,23 @@ https://help.aliyun.com/zh/document_detail/3022213.html
 ### Release checks
 Migration 9021_finance_mail_accounts.sql is additive and must be applied after 9020_finance.sql. The production gate checks new tables, Entity isolation triggers, source files, and SQLite tests. Verify in staging with two Entities and two distinct provider credentials; complete the full Next.js TypeScript/build checks. This PR does not deploy workers, change MX or enable multi-company flags.
 
+## Historical mailbox backfill and AR/AP ledger tabs
+
+**Finance → Configuration → Connected company mailboxes** contains a Historical email backfill panel. Company admins select an enabled mailbox and inclusive UTC start/end dates. This history scan is independent of the initial 1–30-day lookback and of the normal last_success_at checkpoint.
+
+- Start creates a durable per-company D1 job (migration 9025_finance_mail_backfill.sql); it does not delete existing invoices or reset incremental checkpoints. One active, queued or paused job per mailbox is allowed.
+- The existing OA_FINANCE_SYNC_TOKEN and /api/oa/finance/sync-job scheduled polling advance the next due job in bounded batches. The admin can use Run next batch for immediate progress; no new API credentials are necessary. Progress persists both a provider continuation token and a page offset.
+- Microsoft Graph requests date-filtered mail in descending received order. Alibaba Mail pages are traversed in descending order with a local date filter. Check provider ordering and pagination on a staging mailbox for exhaustive backfills.
+- Progress shows page count, scanned relevant messages, imported invoice attachments, duplicates skipped, errors and status. Pause/Resume/Cancel are available and will not delete already imported invoices.
+- Historic and incremental runs share the same mailbox lock, and the attachment deduplication key remains (entity_id,source_email_id,source_attachment_id). Imported invoices are not auto-approved.
+- Transient failures retry with a delay, then move to Failed for an administrator-controlled Resume. Backfills may take many scheduled runs. The public admin API never exposes raw provider continuation URLs, secrets, or invoice contents.
+
+**Finance → AR/AP** has two top-level tabs: Data and Configuration. Data shows separate AR, AP and Unclassified views, with confirmed balances aggregated across all approved invoices rather than the limited table page. Balances are company scoped and never add different currencies together. Only invoices in open, settlement_pending or settled are booked. Outstanding means open plus settlement_pending; a submitted receipt/payment proof remains outstanding until independently approved. Settled denotes fully received (AR) or fully paid (AP); partial settlement is not supported in the present release. Configuration contains Invoice AI, direct mailboxes and history backfill, legacy Resend and manual import.
+
+**Suppliers & Customers** also has Data and Configuration tabs. Data shows approved suppliers and customers separately (a party configured as both appears in both). Configuration contains proposals, edits, and approvals. Proposed bank changes remain pending until explicitly approved.
+
+For manual Wrangler commands, first change into /Users/sklang/Documents/work/seeder-oa/seeder-oa-app, which owns the production PM_DB binding. Do NOT create a new database to resolve a missing binding error. The update workflow performs build checks and exports a production D1 backup before applying migration 9025.
+
 ## DeepSeek reasoning tokens and PDF compatibility
 
 A ModelBridge response with HTTP 200 and output_tokens=4096, reasoning_tokens=4096, output_chars=0 and finish_reason=length means the model spent the entire allowed output budget thinking and did not provide invoice JSON.

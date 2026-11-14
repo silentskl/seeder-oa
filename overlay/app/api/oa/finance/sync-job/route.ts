@@ -1,6 +1,7 @@
 import {NextRequest,NextResponse} from "next/server";
 import {getOaEnv} from "@/lib/oa/env";
 import {dueMailAccounts,syncMailAccount} from "@/lib/oa/finance-mail-sync";
+import {dueMailBackfills,processMailBackfill} from "@/lib/oa/finance-mail-backfill";
 export const runtime="nodejs";
 function failure(status:number){return NextResponse.json({ok:false,error:status===401?"Unauthorized":"Finance sync not configured"},{status});}
 async function equalKey(a:string,b:string){
@@ -15,6 +16,19 @@ export async function POST(request:NextRequest){
  if(!secret||secret.length<32)return failure(503);
  const provided=request.headers.get("x-oa-finance-sync-token")||"";
  if(!provided||!await equalKey(provided,secret))return failure(401);
+ // One durable history batch per invocation. Each run saves a continuation
+ // checkpoint; incremental sync remains separate and keeps its last_success_at.
+ const backfills=await dueMailBackfills(1);
+ const historyResults:Array<{id:string;status:string;processed:number}>=[];
+ for(const job of backfills){
+  try{
+   const result=await processMailBackfill(job.id,job.entity_id);
+   historyResults.push({id:job.id,status:result.status,processed:result.processed});
+  }catch(error){
+   console.error("Finance backfill scheduler failed",{jobId:job.id,error:error instanceof Error?error.name:"unknown"});
+   historyResults.push({id:job.id,status:"error",processed:0});
+  }
+ }
  const accounts=await dueMailAccounts(6);
  const results:Array<{accountId:string;entityId:string;status:"success"|"error";imported?:number}>=[];
  for(const account of accounts){
@@ -26,5 +40,5 @@ export async function POST(request:NextRequest){
    results.push({accountId:account.id,entityId:account.entity_id,status:"error"});
   }
  }
- return NextResponse.json({ok:true,processedAccounts:results.length,results});
+ return NextResponse.json({ok:true,processedAccounts:results.length,results,processedBackfills:historyResults});
 }

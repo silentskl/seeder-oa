@@ -1,5 +1,6 @@
 "use client";
 import {FormEvent,useCallback,useEffect,useRef,useState,type ReactNode} from "react";
+import {FinanceMailBackfillPanel} from "./finance-mail-backfill";
 
 type Provider="microsoft365"|"alibaba_mail";
 type Mailbox={id:string;entity_id:string;address:string;display_name:string;provider:Provider;tenant_id:string;client_id:string;api_base:string;folder_id:string;active:number;credential_configured:boolean;sync_interval_minutes:number;initial_lookback_days:number;last_success_at:string|null;last_attempt_at:string|null;last_error:string|null;};
@@ -112,6 +113,7 @@ export function MailAccountsPanel({entityId}:{entityId:string}){
     {editing&&<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.active} onChange={e=>patch({active:e.target.checked})}/>Enable scheduled synchronization</label>}
     <button className={primary} disabled={busy||!hasKey}>{editing?"Save mailbox settings":"Add connection (disabled)"}</button>
    </form>
+   <FinanceMailBackfillPanel entityId={entityId} accounts={accounts}/>
    <details className="mt-4 border-t pt-3 dark:border-neutral-800"><summary className="cursor-pointer text-sm font-semibold">Recent synchronization history</summary>
     <div className="mt-2 overflow-x-auto"><table className="min-w-full text-left text-xs"><thead><tr>{["Mailbox","Started","Result","Scanned","Imported","Duplicates","Error"].map(x=><th className="p-2" key={x}>{x}</th>)}</tr></thead><tbody>{logs.map((l,i)=><tr key={i} className="border-t dark:border-neutral-800"><td className="p-2">{accounts.find(a=>a.id===l.account_id)?.address||l.account_id}</td><td className="p-2">{l.started_at}</td><td className="p-2">{l.status}</td><td className="p-2">{l.scanned_count}</td><td className="p-2">{l.imported_count}</td><td className="p-2">{l.duplicate_count}</td><td className="p-2">{l.error_text||""}</td></tr>)}</tbody></table></div>
    </details>
