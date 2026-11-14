@@ -46,6 +46,29 @@ UPDATE oa_finance_invoice AS i
         OR (i.counterparty_key<>'' AND i.counterparty_key=j.counterparty_key))
    );
 
+-- Historical candidates also receive the same conflict classification as new imports.
+-- UPDATE ... FROM is supported by D1's SQLite dialect.
+UPDATE oa_finance_invoice AS i
+ SET duplicate_reason=CASE
+  WHEN i.amount_minor IS NOT NULL AND j.amount_minor IS NOT NULL
+   AND i.currency IS NOT NULL AND j.currency IS NOT NULL
+   AND (i.amount_minor<>j.amount_minor OR i.currency<>j.currency)
+   AND i.invoice_date IS NOT NULL AND j.invoice_date IS NOT NULL
+   AND i.invoice_date<>j.invoice_date THEN 'amount_and_date_conflict'
+  WHEN i.amount_minor IS NOT NULL AND j.amount_minor IS NOT NULL
+   AND i.currency IS NOT NULL AND j.currency IS NOT NULL
+   AND (i.amount_minor<>j.amount_minor OR i.currency<>j.currency) THEN 'amount_conflict'
+  WHEN i.invoice_date IS NOT NULL AND j.invoice_date IS NOT NULL
+   AND i.invoice_date<>j.invoice_date THEN 'date_conflict'
+  WHEN i.amount_minor IS NULL OR j.amount_minor IS NULL
+   OR i.currency IS NULL OR j.currency IS NULL
+   OR i.invoice_date IS NULL OR j.invoice_date IS NULL THEN 'details_missing'
+  ELSE 'same_fields'
+ END
+ FROM oa_finance_invoice AS j
+ WHERE i.duplicate_of_invoice_id=j.id AND i.entity_id=j.entity_id
+  AND i.duplicate_status='possible' AND i.duplicate_reason='legacy_same_number_party';
+
 CREATE INDEX IF NOT EXISTS oa_finance_invoice_duplicate_queue
  ON oa_finance_invoice(entity_id,duplicate_status,status,created_at DESC);
 
