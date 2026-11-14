@@ -160,7 +160,7 @@ export function FinanceConsole({section}:{section:Section}){
  const shownInvoices=invoices.filter(i=>i.direction===directionFilter&&(statusFilter==="all"||(statusFilter==="possible_duplicate"?i.duplicate_status==="possible":i.status===statusFilter)));
  const assignee=(assigned:string|null,action:string,id:string)=>(
   <select aria-label="Assign approving admin" className={input+" max-w-52"} value={assigned||""} disabled={busy}
-    onChange={e=>{if(e.target.value)void run(()=>request(entity,action,{id,approver_id:e.target.value}),"Approver assigned.");}}>
+    onChange={e=>{if(e.target.value)void run(()=>request(entity,action,{id,approver_id:e.target.value}),t("Approver assigned.","已指派审批人。"));}}>
    <option value="">{t("Any other admin","任意其他管理员")}</option>{admins.map(a=><option key={a.id} value={a.id}>{a.name||a.email}</option>)}
   </select>
  );
@@ -182,7 +182,7 @@ export function FinanceConsole({section}:{section:Section}){
     <h2 className="mb-3 font-semibold">{party.root_id?t("Propose a change to approved company","申请修改已批准企业资料"):t("Add supplier or customer","新增供应商或客户")}</h2>
      <p className="text-xs text-neutral-500">{t("Company administrators may approve counterparty proposals. Receipt and payment proofs require a separate reviewer.","公司管理员可以审批供应商／客户资料申请；收付款凭证仍须另一名管理员独立审批。")}</p>
     <p className="mb-3 text-xs text-neutral-500">{t("New or updated bank details require approval before use.","新增或变更的银行信息须经审批才能生效。")}</p>
-    <form className="space-y-3" onSubmit={e=>{e.preventDefault();void run(async()=>{await request(entity,"party_propose",party);setParty({...emptyParty});},"Company proposal submitted.");}}>
+    <form className="space-y-3" onSubmit={e=>{e.preventDefault();void run(async()=>{await request(entity,"party_propose",party);setParty({...emptyParty});},t("Company proposal submitted.","公司资料申请已提交。"));}}>
      <div className="grid gap-3 md:grid-cols-3">
       <label className="text-xs">{t("Type","类型")}<select className={input+" mt-1"} value={party.party_type} onChange={e=>setParty(s=>({...s,party_type:e.target.value}))}>
        <option value="supplier">{t("Supplier","供应商")}</option><option value="customer">{t("Customer","客户")}</option><option value="both">{t("Both","两者")}</option></select></label>
@@ -201,8 +201,8 @@ export function FinanceConsole({section}:{section:Section}){
      <p className="mt-1 text-xs">{t("Bank","银行")}: {p.bank_name} / {p.bank_account} / {p.bank_swift}</p>
      <p className="mb-2 text-xs text-neutral-500">{t("Requested by","申请人")} {p.created_by} · {p.created_at}</p>
      <div className="flex flex-wrap items-center gap-2">{assignee(p.assigned_approver_user_id,"party_assign",p.id)}
-      <button className={primary} disabled={busy} onClick={()=>void run(()=>request(entity,"party_approve",{id:p.id}),"Company approved.")}>{t("Approve","批准")}</button>
-      <button className={btn} disabled={busy} onClick={()=>void run(()=>request(entity,"party_reject",{id:p.id,note:window.prompt("Rejection reason")||""}),"Company change rejected.")}>{t("Reject","拒绝")}</button>
+      <button className={primary} disabled={busy} onClick={()=>void run(()=>request(entity,"party_approve",{id:p.id}),t("Company approved.","公司资料已批准。"))}>{t("Approve","批准")}</button>
+      <button className={btn} disabled={busy} onClick={()=>void run(()=>request(entity,"party_reject",{id:p.id,note:window.prompt(t("Rejection reason","拒绝原因"))||""}),t("Company change rejected.","公司资料变更已拒绝。"))}>{t("Reject","拒绝")}</button>
      </div>
     </div>)}
    </section>
@@ -230,7 +230,7 @@ export function FinanceConsole({section}:{section:Section}){
    <section className="mt-3">
     <h2 className="text-sm font-semibold">{t("Resend mailbox configuration","Resend 邮箱配置")}</h2>
     <p className="mb-3 mt-1 text-xs text-neutral-500">{t("Use Resend Inbound or forward to a receiving address. The webhook must point to /api/oa/finance/inbound. Imported invoices require review.","可使用 Resend 入站邮件或转发邮箱，回调地址为 /api/oa/finance/inbound。导入发票仍需人工审核。")}</p>
-    <form className="flex flex-wrap items-end gap-2" onSubmit={e=>{e.preventDefault();void run(()=>request(entity,"set_mailbox",{address:mailbox,receive_address:receiveAddress}),"Finance mailbox saved.");}}>
+    <form className="flex flex-wrap items-end gap-2" onSubmit={e=>{e.preventDefault();void run(()=>request(entity,"set_mailbox",{address:mailbox,receive_address:receiveAddress}),t("Finance mailbox saved.","财务邮箱已保存。"));}}>
      <div className="min-w-64 flex-1"><Field label={t("Incoming invoice mailbox","发票接收邮箱")} name="mailbox" value={mailbox} type="email" required onChange={setMailbox}/></div>
      <div className="min-w-64 flex-1"><Field label={t("Actual Resend receiving address (if forwarded)","Resend 接收地址（如转发）")} name="receive_address" value={receiveAddress} type="email" onChange={setReceiveAddress}/></div>
      <button className={btn} disabled={busy}>{t("Save mailbox","保存邮箱")}</button>
@@ -240,7 +240,7 @@ export function FinanceConsole({section}:{section:Section}){
    <section className={card}><h2 className="mb-3 font-semibold">{t("Import an invoice manually","手动导入发票")}</h2>
     <form className="flex flex-wrap items-center gap-2" onSubmit={e=>{e.preventDefault();const fd=new FormData(e.currentTarget),file=fd.get("file");
      if(!(file instanceof File)||!file.size)return;
-     void run(async()=>{const document_id=await upload(entity,"invoice",file);await request(entity,"invoice_import",{document_id,subject:fd.get("subject")});},"Invoice imported for review.");}}>
+     void run(async()=>{const document_id=await upload(entity,"invoice",file);await request(entity,"invoice_import",{document_id,subject:fd.get("subject")});},t("Invoice imported for review.","发票已导入待审核。"));}}>
      <input className={input+" max-w-72"} name="subject" placeholder={t("Invoice subject (optional)","发票主题（可选）")}/>
      <input type="file" name="file" required accept=".pdf,.jpg,.jpeg,.png,.webp" className="text-xs"/>
      <button className={btn} disabled={busy}>{t("Upload & extract","上传并识别")}</button>
@@ -284,38 +284,38 @@ export function FinanceConsole({section}:{section:Section}){
         <div className="font-medium">{t("Latest AI","最近 AI 调用")}: {i.last_ai_outcome} · HTTP {i.last_ai_http_status??"—"} · {i.last_ai_response_status||"—"}</div>
         <div>{t("Output tokens","输出 Token")}: {i.last_ai_output_tokens??"—"} · {t("Reasoning tokens","推理 Token")}: {i.last_ai_reasoning_tokens??"—"} · {t("Reason","原因")}: {i.last_ai_finish_reason||"—"}</div>
         <div>{t("Response shape","响应格式")}: {i.last_ai_output_types||"—"}</div>
-        {i.last_ai_request_id&&<div>Request ID: {i.last_ai_request_id}</div>}
+        {i.last_ai_request_id&&<div>{t("Request ID","请求 ID")}: {i.last_ai_request_id}</div>}
        </div>}
       </td>
       <td className="space-y-2 p-2">{i.status==="needs_review"?<>
        {i.duplicate_status==="possible"&&<div className="flex flex-col gap-1">
         <button type="button" className={btn+" border-amber-400"} disabled={busy} onClick={()=>{
-         const note=window.prompt("Reason this is a duplicate invoice (required):");
+         const note=window.prompt(t("Reason this invoice is a duplicate (required):","请填写确认重复的原因（必填）："));
          if(note===null)return;
-         void run(()=>request(entity,"invoice_duplicate_confirm",{id:i.id,note}),"Duplicate confirmed and excluded from AR/AP.");
-        }}>Confirm duplicate / 确认重复</button>
+         void run(()=>request(entity,"invoice_duplicate_confirm",{id:i.id,note}),t("Duplicate confirmed and excluded from AR/AP.","重复发票已确认，不计入应收应付。"));
+        }}>{t("Confirm duplicate","确认重复")}</button>
         <button type="button" className={btn} disabled={busy} onClick={()=>{
-         const note=window.prompt("Explain why this is a DIFFERENT invoice (at least 8 characters):");
+         const note=window.prompt(t("Why is this a distinct invoice? (at least 8 characters):","请说明为何不是同一张发票（至少 8 个字）："));
          if(note===null)return;
-         void run(()=>request(entity,"invoice_duplicate_dismiss",{id:i.id,note}),"Duplicate warning cleared. Complete invoice review.");
-        }}>Clear warning / 排除重复</button>
+         void run(()=>request(entity,"invoice_duplicate_dismiss",{id:i.id,note}),t("Duplicate warning cleared. Complete invoice review.","疑似重复提示已排除，请继续审核发票。"));
+        }}>{t("Clear warning","排除重复")}</button>
        </div>}
        <button className={btn} disabled={busy} onClick={()=>setReview({id:i.id,direction:i.direction==="unknown"?"ap":i.direction,party_root_id:i.party_root_id||"",counterparty_name:i.counterparty_name||"",invoice_number:i.invoice_number||"",invoice_date:i.invoice_date||"",due_date:i.due_date||"",currency:i.currency||"SGD",amount:major(i.amount_minor,i.currency),invoice_bank_account:i.invoice_bank_account||"",invoice_bank_name:i.invoice_bank_name||"",invoice_bank_swift:i.invoice_bank_swift||""})}>{t("Review","审核")}</button>
-       <button className={btn} disabled={busy} onClick={()=>void run(async()=>{try{const result=await request(entity,"invoice_reextract",{id:i.id});setReview({...emptyReview});return result;}finally{window.dispatchEvent(new Event("finance-ai-call-updated"));}},"AI re-extraction completed; verify the fields before confirming.")}>{busy?t("Processing…","处理中…"):t("Re-extract AI","重新 AI 识别")}</button>
-       <button className={btn} disabled={busy} onClick={()=>void run(()=>request(entity,"invoice_reject",{id:i.id}),"Invoice rejected.")}>Reject</button>
+       <button className={btn} disabled={busy} onClick={()=>void run(async()=>{try{const result=await request(entity,"invoice_reextract",{id:i.id});setReview({...emptyReview});return result;}finally{window.dispatchEvent(new Event("finance-ai-call-updated"));}},t("AI re-extraction completed; verify fields before confirming.","AI 重新识别已完成，请核对资料后再确认。"))}>{busy?t("Processing…","处理中…"):t("Re-extract AI","重新 AI 识别")}</button>
+       <button className={btn} disabled={busy} onClick={()=>void run(()=>request(entity,"invoice_reject",{id:i.id}),t("Invoice rejected.","发票已拒绝。"))}>Reject</button>
       </>:i.status==="open"?<ProofForm entity={entity} invoice={i} busy={busy} run={run}/>:null}</td>
      </tr>)}</tbody></table></div>
     {hasMoreInvoices&&<div className="mt-3 flex items-center justify-between gap-2">
-     <p className="text-xs text-neutral-500">Showing recently imported invoices. Use Load older invoices to inspect the rest; balance cards always include all approved invoices.</p>
+     <p className="text-xs text-neutral-500">{t("Showing recent invoices. Load older records as needed; balances always cover all approved invoices.","当前显示近期导入的发票。可继续加载历史记录；余额统计始终包含全部已批准发票。")}</p>
      <button type="button" className={btn} disabled={busy} onClick={()=>void loadMoreInvoices()}>{t("Load older invoices","加载更早发票")}</button>
     </div>}
    </section>
-   {review.id&&<section className={card}><h2 className="mb-3 font-semibold">Review Invoice · {review.invoice_number||review.id}</h2>
-    {invoices.find(i=>i.id===review.id)?.duplicate_status==="possible"&&<p role="alert" className="rounded-md border border-amber-400 p-3 text-sm text-amber-900 dark:text-amber-300">Possible duplicate: compare original documents and use Confirm duplicate or Clear warning before approving this invoice.</p>}
-    <form className="space-y-3" onSubmit={e=>{e.preventDefault();void run(async()=>{await request(entity,"invoice_review",review);setReview({...emptyReview});},"Invoice reviewed and opened.");}}>
+   {review.id&&<section className={card}><h2 className="mb-3 font-semibold">{t("Review invoice","审核发票")} · {review.invoice_number||review.id}</h2>
+    {invoices.find(i=>i.id===review.id)?.duplicate_status==="possible"&&<p role="alert" className="rounded-md border border-amber-400 p-3 text-sm text-amber-900 dark:text-amber-300">{t("Possible duplicate: compare the originals and resolve the warning before approving.","发现疑似重复发票：请先对照原件并处理重复提示，再批准入账。")}</p>}
+    <form className="space-y-3" onSubmit={e=>{e.preventDefault();void run(async()=>{await request(entity,"invoice_review",review);setReview({...emptyReview});},t("Invoice reviewed and opened.","发票审核通过，已计入待结清账款。"));}}>
      <div className="grid gap-3 sm:grid-cols-3">
-      <label className="text-xs">AR / AP<select className={input+" mt-1"} value={review.direction} onChange={e=>setReview(s=>({...s,direction:e.target.value,party_root_id:""}))}><option value="ap">AP / Payable</option><option value="ar">AR / Receivable</option></select></label>
-      <label className="text-xs">Approved counterparty<select className={input+" mt-1"} value={review.party_root_id} required onChange={e=>setReview(s=>({...s,party_root_id:e.target.value}))}><option value="">Select...</option>
+      <label className="text-xs">AR / AP<select className={input+" mt-1"} value={review.direction} onChange={e=>setReview(s=>({...s,direction:e.target.value,party_root_id:""}))}><option value="ap">{t("AP / Payable","应付账款")}</option><option value="ar">{t("AR / Receivable","应收账款")}</option></select></label>
+      <label className="text-xs">{t("Approved counterparty","已批准的往来单位")}<select className={input+" mt-1"} value={review.party_root_id} required onChange={e=>setReview(s=>({...s,party_root_id:e.target.value}))}><option value="">{t("Select...","请选择…")}</option>
        {approved.filter(p=>p.party_type==="both"||p.party_type===(review.direction==="ap"?"supplier":"customer")).map(p=><option key={p.root_id} value={p.root_id}>{p.company_name}</option>)}</select></label>
       {([[t("Invoice company name","发票公司名称"),"counterparty_name"],[t("Bank name","银行名称"),"invoice_bank_name"],[t("Bank account","银行账号"),"invoice_bank_account"],[t("SWIFT / BIC (USD only)","SWIFT / BIC（仅 USD 必填）"),"invoice_bank_swift"],[t("Invoice number","发票编号"),"invoice_number"],[t("Invoice date","开票日期"),"invoice_date"],[t("Due date","到期日"),"due_date"],[t("Currency","币种"),"currency"],[t("Total amount","账单金额"),"amount"]] as const).map(([label,k])=><Field key={k} label={label} name={k} value={review[k]} required={["counterparty_name","invoice_bank_name","invoice_bank_account","invoice_number","currency","amount"].includes(k)||(k==="invoice_bank_swift"&&review.currency.trim().toUpperCase()==="USD")} disabled={k==="amount"&&!reviewVerified} onChange={v=>setReview(s=>({...s,[k]:v}))}/>)}
      </div>
@@ -331,18 +331,18 @@ export function FinanceConsole({section}:{section:Section}){
       </table></div>
       <p className={"mt-2 text-sm "+(reviewVerified?"text-emerald-700 dark:text-emerald-300":"text-red-700 dark:text-red-300")}>{reviewVerified?t("All required fields match. You may confirm the amount.","全部必填资料一致，可以确认金额。"):t("Resolve every mismatch before confirming the amount. SWIFT is required only for USD.","必须先解决全部不一致项才能确认金额。只有 USD 发票要求校验 SWIFT。")}</p>
      </div>
-     <button className={primary} disabled={busy||!reviewVerified}>{t("Confirm reviewed invoice","确认金额并审核入账")}</button><button type="button" className={btn+" ml-2"} onClick={()=>setReview({...emptyReview})}>Cancel</button>
+     <button className={primary} disabled={busy||!reviewVerified}>{t("Confirm reviewed invoice","确认金额并审核入账")}</button><button type="button" className={btn+" ml-2"} onClick={()=>setReview({...emptyReview})}>{t("Cancel","取消")}</button>
     </form>
    </section>}
-   <section className={card}><h2 className="mb-3 font-semibold">Receipt / payment proof approvals ({settlements.length})</h2>
-    <div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead><tr>{["Invoice","Type / Amount","Evidence","Approval","Action"].map(x=><th key={x} className="p-2 text-xs text-neutral-500">{x}</th>)}</tr></thead><tbody>
+   <section className={card}><h2 className="mb-3 font-semibold">{t("Receipt / payment proof approvals","收付款凭证审核")} ({settlements.length})</h2>
+    <div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead><tr>{[t("Invoice","发票"),t("Type / Amount","类型与金额"),t("Evidence","凭证"),t("Approval","审核"),t("Action","操作")].map(x=><th key={x} className="p-2 text-xs text-neutral-500">{x}</th>)}</tr></thead><tbody>
      {settlements.map(s=><tr key={s.id} className="border-t align-top dark:border-neutral-800"><td className="p-2">{s.invoice_number||s.invoice_id}</td><td className="p-2">{String(s.direction).toUpperCase()} · {amount(s.amount_minor,s.currency)}</td>
-      <td className="p-2"><a className="underline" href={fileUrl(entity,s.document_id)}>{s.proof_name||"Bank proof"}</a></td>
+      <td className="p-2"><a className="underline" href={fileUrl(entity,s.document_id)}>{s.proof_name||t("Bank proof","银行凭证")}</a></td>
       <td className="p-2">{s.status}<div className="text-xs text-neutral-500">{s.decided_at||s.submitted_at}</div></td>
       <td className="p-2">{s.status==="pending"?<div className="flex flex-wrap gap-2">
        {assignee(s.approver_user_id,"settlement_assign",s.id)}
-       <button className={primary} disabled={busy} onClick={()=>void run(()=>request(entity,"settlement_approve",{id:s.id}),s.direction==="ar"?"Receipt confirmed; invoice marked received.":"Payment confirmed; invoice marked paid.")}>Approve {s.direction==="ar"?"receipt":"payment"}</button>
-       <button className={btn} disabled={busy} onClick={()=>void run(()=>request(entity,"settlement_reject",{id:s.id,note:window.prompt("Rejection note")||""}),"Bank proof rejected.")}>Reject</button>
+       <button className={primary} disabled={busy} onClick={()=>void run(()=>request(entity,"settlement_approve",{id:s.id}),s.direction==="ar"?t("Receipt confirmed; invoice marked received.","收款已确认，发票已标记为已收款。"):t("Payment confirmed; invoice marked paid.","付款已确认，发票已标记为已付款。"))}>{t("Approve","批准")} {s.direction==="ar"?t("receipt","收款"):t("payment","付款")}</button>
+       <button className={btn} disabled={busy} onClick={()=>void run(()=>request(entity,"settlement_reject",{id:s.id,note:window.prompt(t("Rejection note","拒绝说明"))||""}),t("Bank proof rejected.","银行凭证已拒绝。"))}>Reject</button>
       </div>:null}</td>
      </tr>)}</tbody></table></div>
    </section>
