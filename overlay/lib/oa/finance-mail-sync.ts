@@ -11,7 +11,7 @@ export type MailAccount={
  last_success_at:string|null;last_error:string|null;sync_lock_until:string|null;
 };
 export type MailMessage={id:string;subject:string;sender:string;body:string;receivedAt:string;hasAttachments:boolean};
-type MailAttachment={id:string;name:string;contentType:string;size:number;inline:boolean};
+export type MailAttachment={id:string;name:string;contentType:string;size:number;inline:boolean};
 export type MailClient={
  list:(cursor:string|null)=>Promise<{messages:MailMessage[];cursor:string|null}>;
  attachments:(message:MailMessage)=>Promise<MailAttachment[]>;
@@ -176,6 +176,32 @@ function alibabaClient(account:MailAccount,token:string,history?:{from:string;to
  };
 }
 // Shared importer. Immutable provider IDs and unique invoice keys make replay safe.
+// Import one attachment per durable checkpoint. This is shared by incremental
+// sync and historical backfill so invoice IDs and deduplication never diverge.
+export async function importFinanceMailAttachment(
+ account:MailAccount,client:MailClient,message:MailMessage,attachment:MailAttachment
+){
+ const counts={imported:0,duplicates:0,skipped:0};
+ if(!FINANCE_TYPES.has(attachment.contentType)||attachment.size>FINANCE_MAX_FILE){
+  counts.skipped=1;return counts;
+ }
+ const sourceEmailId=account.id+":"+message.id;
+ const existing=await one(
+  "SELECT id FROM oa_finance_invoice WHERE entity_id=? AND source_email_id=? AND source_attachment_id=?",
+  [account.entity_id,sourceEmailId,attachment.id]
+ );
+ if(existing){counts.duplicates=1;return counts;}
+ const bytes=await client.download(message,attachment);
+ const doc=await storeFinanceDocument({entityId:account.entity_id,purpose:"invoice",name:attachment.name,type:attachment.contentType,bytes});
+ const parsed=await extractInvoice({entityId:account.entity_id,bytes,type:attachment.contentType,name:attachment.name,
+  subject:message.subject,body:message.body,sender:message.sender});
+ const id=await createInvoice({entityId:account.entity_id,documentId:doc,source:"email",
+  sourceEmailId,sourceAttachmentId:attachment.id,sender:message.sender,parsed,sourceMailAccountId:account.id});
+ await audit(null,"finance.invoice.provider_import","finance_invoice",id,
+  {accountId:account.id,provider:account.provider,sourceEmailId,attachmentId:attachment.id,extraction:parsed.extractionStatus},account.entity_id);
+ counts.imported=1;
+ return counts;
+}
 export async function importFinanceMailAttachments(account:MailAccount,client:MailClient,message:MailMessage){
  const counts={scanned:0,imported:0,duplicates:0,skipped:0};
  if(!message.hasAttachments)return counts;
@@ -183,22 +209,8 @@ export async function importFinanceMailAttachments(account:MailAccount,client:Ma
  const attachments=await client.attachments(message);
  if(attachments.length>30)throw new Error("More than 30 attachments in an email");
  for(const attachment of attachments){
-  if(!FINANCE_TYPES.has(attachment.contentType)||attachment.size>FINANCE_MAX_FILE){
-   counts.skipped++;continue;
-  }
-  const sourceEmailId=account.id+":"+message.id;
-  const existing=await one("SELECT id FROM oa_finance_invoice WHERE entity_id=? AND source_email_id=? AND source_attachment_id=?",
-   [account.entity_id,sourceEmailId,attachment.id]);
-  if(existing){counts.duplicates++;continue;}
-  const bytes=await client.download(message,attachment);
-  const doc=await storeFinanceDocument({entityId:account.entity_id,purpose:"invoice",name:attachment.name,type:attachment.contentType,bytes});
-  const parsed=await extractInvoice({entityId:account.entity_id,bytes,type:attachment.contentType,name:attachment.name,
-   subject:message.subject,body:message.body,sender:message.sender});
-  const id=await createInvoice({entityId:account.entity_id,documentId:doc,source:"email",
-   sourceEmailId,sourceAttachmentId:attachment.id,sender:message.sender,parsed,sourceMailAccountId:account.id});
-  await audit(null,"finance.invoice.provider_import","finance_invoice",id,
-   {accountId:account.id,provider:account.provider,sourceEmailId,attachmentId:attachment.id,extraction:parsed.extractionStatus},account.entity_id);
-  counts.imported++;
+  const item=await importFinanceMailAttachment(account,client,message,attachment);
+  counts.imported+=item.imported;counts.duplicates+=item.duplicates;counts.skipped+=item.skipped;
  }
  return counts;
 }
