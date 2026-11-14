@@ -51,7 +51,7 @@ export function MailAccountsPanel({entityId,lang}:{entityId:string;lang:FinanceL
  const patch=(values:Partial<typeof defaults>)=>setForm(s=>({...s,...values}));
  async function doWork(task:()=>Promise<unknown>,success:string){
   setBusy(true);setError("");setNotice("");
-  try{const result=await task();await load();setNotice(success+(result&&typeof result==="object"&&"imported" in result?" Imported "+String((result as any).imported)+" invoice(s).":""));}
+  try{const result=await task();await load();setNotice(success+(result&&typeof result==="object"&&"imported" in result?" "+t("Imported","已导入")+" "+String((result as any).imported)+" "+t("invoice(s).","张发票。"):""));}
   catch(e){setError(e instanceof Error?e.message:String(e));}
   finally{setBusy(false);}
  }
