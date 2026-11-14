@@ -26,7 +26,10 @@ async function adminAssignee(entity:string,userId:string,proposer:string,allowPa
 }
 function withAccess(e:unknown){
  if(e instanceof EntityAccessError)return fail(e.message,e.status);
- const msg=errorText(e);if(/^(Invalid|Missing|Select|Invoice|Bank|Cannot|Assignee|Only|This|Party|Settlement|Duplicate|No |A |Proof|Enable|AI extraction|PDF invoice)/.test(msg))return fail(msg,409);
+ const msg=errorText(e);
+ if(msg.includes("duplicate normalized invoice number for approved counterparty"))
+  return fail("Duplicate normalized invoice number already booked for this company and counterparty.",409);
+ if(/^(Invalid|Missing|Select|Invoice|Bank|Cannot|Assignee|Only|This|Party|Settlement|Duplicate|No |A |Proof|Enable|AI extraction|PDF invoice)/.test(msg))return fail(msg,409);
  console.error("OA finance operation failed",e);
  return fail("Finance operation failed",500);
 }
@@ -216,6 +219,13 @@ export async function POST(request:NextRequest){
    const dismissed=!!duplicate&&prev.duplicate_status==="dismissed"&&
     prev.duplicate_of_invoice_id===duplicate.id&&prev.invoice_number_key===d.invoice_number_key&&
     prev.direction===direction;
+   if(duplicate&&dismissed&&["open","settlement_pending","settled"].includes(duplicate.status)){
+    const booked=await one<{party_root_id:string|null}>(
+     "SELECT party_root_id FROM oa_finance_invoice WHERE id=? AND entity_id=?",
+     [duplicate.id,entity]);
+    if(booked?.party_root_id===root)
+     return fail("Duplicate invoice number is already booked for this counterparty. Clearing a warning cannot open the same invoice twice.",409);
+   }
    if(duplicate&&!dismissed){
     await run(
      "UPDATE oa_finance_invoice SET invoice_number_key=?,counterparty_key=?,duplicate_of_invoice_id=?,duplicate_status='possible',duplicate_reason=?,duplicate_decision_note='',duplicate_decided_by=NULL,duplicate_decided_at=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='needs_review'",
