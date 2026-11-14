@@ -63,6 +63,7 @@ export function FinanceMailBackfillPanel({entityId,accounts}:{entityId:string;ac
   <p className="mb-3 mt-1 text-xs text-neutral-500">
    Choose an inclusive UTC date range. Jobs run in durable batches with per-mailbox locking and duplicate detection.
    Normal incremental synchronization and its successful checkpoint are not reset.
+   Exact repeats are skipped; business-level possible duplicate invoices are imported into review with a warning and do not count toward booked balances.
   </p>
   <div className="grid gap-3 sm:grid-cols-3">
    <label className="text-xs font-medium">Mailbox
@@ -86,7 +87,7 @@ export function FinanceMailBackfillPanel({entityId,accounts}:{entityId:string;ac
   {error&&<p role="alert" className="mt-3 rounded-md border border-red-300 p-2 text-sm text-red-700 dark:text-red-300">{error}</p>}
   {notice&&<p role="status" className="mt-3 rounded-md border p-2 text-sm">{notice}</p>}
   <div className="mt-4 overflow-x-auto"><table className="min-w-full text-left text-xs">
-   <thead><tr>{["Mailbox / Dates","State","Pages","Scanned","File offset","Imported","Duplicates","Skipped","Last error","Actions"].map(x=><th key={x} className="p-2">{x}</th>)}</tr></thead>
+   <thead><tr>{["Mailbox / Dates","State","Pages","Scanned","File offset","Imported","Exact repeats","Skipped","Last error","Actions"].map(x=><th key={x} className="p-2">{x}</th>)}</tr></thead>
    <tbody>{jobs.map(job=><tr key={job.id} className="border-t align-top dark:border-neutral-800">
     <td className="p-2">{accounts.find(a=>a.id===job.account_id)?.address||job.account_id}
      <div className="text-neutral-500">{job.date_from} – {job.date_to}</div></td>
