@@ -14,6 +14,15 @@ const entity=read("lib/oa/entity.ts");
 const invites=read("app/api/oa/invitations/route.ts");
 const invitePage=read("components/oa/entity-invite.tsx");
 const auth=read("lib/auth.ts");
+// A delegated OA super administrator can manage an Entity; all other users
+// must pass server-side active membership validation for role="admin".
+const scopedAdminGuard=/async function managePermission\(userId:string,entityId:string\)\{\s*if\(await isOaSuperAdmin\(userId\)\)return;\s*await requireEntityAccess\(userId,entityId,\["admin"\]\);\s*\}/.test(manage);
+const guardedEntityActions=["updateEntity","setMember","listMembers"].every(action=>{
+  const at=manage.indexOf('if(action==="'+action+'"){');
+  if(at<0)return false;
+  return /^if\(action==="[^"]+"\)\{\s*if\(!entityId\)return fail\("entityId is required"\);\s*await managePermission\(viewer\.id,entityId\);/.test(manage.slice(at));
+});
+
 const tests=[
  ["Switcher remounts workspace to clear stale tenant data",/OaWorkspace key=\{entityId\}/.test(ui)],
  ["Business GET sends selected entity",/\/api\/oa\?resource=\$\{encodeURIComponent\(resource\)\}&entity_id=\$\{encodeURIComponent\(selectedOaEntityId\)\}/.test(ui)],
@@ -28,7 +37,7 @@ const tests=[
  ["Entity creation requires platform admin",/if\(!platformAdmin\)return fail\("Forbidden",403\)/.test(manage)],
  ["Entity creation uses D1 transactional batch",/await db\.batch\(\[/.test(manage)],
  ["Entity management guarded by disabled-by-default feature flag",/if\(!enabled\(\) && action!=="listMembers"\)return fail\("Multi-Entity management is disabled/.test(manage)],
- ["Membership changes require entity admin",/await managePermission\(viewer\.id,viewer\.role,entityId\)/.test(manage)],
+ ["Entity management actions require scoped Entity admin or OA super admin",scopedAdminGuard&&guardedEntityActions],
  ["Entity membership role changes protect last admin",/Cannot remove the final Entity admin/.test(manage)],
  ["PDF resolves server-side company membership",/resolveBusinessEntityAccess\(viewer\.id,request\.nextUrl\.searchParams\.get\("entity_id"\)\)/.test(pdf)],
  ["PDF lookup filters by company",/WHERE p\.id=\? AND p\.entity_id=\?/.test(pdf)],
