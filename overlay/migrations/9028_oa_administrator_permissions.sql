@@ -28,3 +28,22 @@ CREATE TABLE IF NOT EXISTS oa_entity_permission (
 );
 CREATE INDEX IF NOT EXISTS oa_entity_permission_user
  ON oa_entity_permission(user_id,permission,entity_id);
+
+-- Guard the actual sign-in identity, not just the OA permission row.
+-- The original owner cannot be renamed, have their email/role changed or be deleted.
+CREATE TRIGGER IF NOT EXISTS oa_founder_user_immutable
+ BEFORE UPDATE OF name,email,role ON user
+ WHEN OLD.id=(SELECT user_id FROM oa_platform_administrator WHERE level='founder')
+ BEGIN SELECT RAISE(ABORT,'original super administrator identity is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS oa_founder_user_no_delete
+ BEFORE DELETE ON user
+ WHEN OLD.id=(SELECT user_id FROM oa_platform_administrator WHERE level='founder')
+ BEGIN SELECT RAISE(ABORT,'original super administrator identity is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS oa_founder_member_no_update
+ BEFORE UPDATE ON oa_entity_member
+ WHEN OLD.user_id=(SELECT user_id FROM oa_platform_administrator WHERE level='founder')
+ BEGIN SELECT RAISE(ABORT,'original super administrator membership is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS oa_founder_member_no_delete
+ BEFORE DELETE ON oa_entity_member
+ WHEN OLD.user_id=(SELECT user_id FROM oa_platform_administrator WHERE level='founder')
+ BEGIN SELECT RAISE(ABORT,'original super administrator membership is immutable'); END;
