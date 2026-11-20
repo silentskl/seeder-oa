@@ -115,6 +115,7 @@ function EntityManagement({reload}:{reload:()=>Promise<void>}){
   const [data,setData]=useState<{manageable:ManageEntity[];platformAdmin:boolean;multiEntityEnabled:boolean}|null>(null);
   const [selected,setSelected]=useState("");
   const [members,setMembers]=useState<any[]>([]);
+  const [protectedUserId,setProtectedUserId]=useState<string|null>(null);
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
   const refresh=useCallback(async()=>{
@@ -132,7 +133,7 @@ function EntityManagement({reload}:{reload:()=>Promise<void>}){
   async function loadMembers(id:string){
     setSelected(id);setError("");
     if(!id)return;
-    try{const d=await entityRequest("listMembers",{entityId:id});setMembers(d.members||[])}
+    try{const d=await entityRequest("listMembers",{entityId:id});setMembers(d.members||[]);setProtectedUserId(d.protectedUserId||null)}
     catch(e){setError(e instanceof Error?e.message:String(e))}
   }
   if(!data)return <div className="p-4">{error?<ErrorBox message={error}/>: "Loading companies…"}</div>;
@@ -163,17 +164,17 @@ function EntityManagement({reload}:{reload:()=>Promise<void>}){
       </form>
       <h3 className="font-medium">Members</h3>
       <div className="mt-2 grid gap-2 text-sm">{members.map(m=><div key={m.user_id} className="flex flex-wrap items-center justify-between gap-2 border-b py-2">
-        <span>{m.name||m.email} · {m.role}{m.active===0?" (inactive)":""}</span>
+        <span>{m.name||m.email} · {m.role}{m.active===0?" (inactive)":""}{m.user_id===protectedUserId?" · Original super administrator (protected)":""}</span>
         <div className="flex flex-wrap gap-2">
-          <select aria-label={"Role for "+(m.name||m.email)} className={field} defaultValue={m.role} id={"role-"+m.user_id} disabled={!data.multiEntityEnabled}>
+          <select aria-label={"Role for "+(m.name||m.email)} className={field} defaultValue={m.role} id={"role-"+m.user_id} disabled={!data.multiEntityEnabled||m.user_id===protectedUserId}>
             <option value="employee">Employee</option><option value="manager">Manager</option><option value="admin">Entity Admin</option>
           </select>
-          <button type="button" className={button} disabled={!data.multiEntityEnabled} onClick={()=>void operate(async()=>{
+          <button type="button" className={button} disabled={!data.multiEntityEnabled||m.user_id===protectedUserId} onClick={()=>void operate(async()=>{
             const role=(document.getElementById("role-"+m.user_id) as HTMLSelectElement)?.value||m.role;
             await entityRequest("setMember",{entityId:selected,userId:m.user_id,role,active:m.active===1});
             await loadMembers(selected);
           })}>Save</button>
-          <button type="button" className={secondary} disabled={!data.multiEntityEnabled} onClick={()=>void operate(async()=>{
+          <button type="button" className={secondary} disabled={!data.multiEntityEnabled||m.user_id===protectedUserId} onClick={()=>void operate(async()=>{
             await entityRequest("setMember",{entityId:selected,userId:m.user_id,role:m.role,active:m.active!==1});
             await loadMembers(selected);
           })}>{m.active===1?"Deactivate":"Reactivate"}</button>
