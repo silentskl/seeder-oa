@@ -1,5 +1,6 @@
 import { all, one } from "./db";
 import { getOaEnv } from "./env";
+import {isOaSuperAdmin} from "./admin-permissions";
 
 export const LEGACY_ENTITY_ID = "legacy-primary";
 export type EntityRole = "admin" | "manager" | "employee";
@@ -19,6 +20,11 @@ export async function requireEntityAccess(
   allowedRoles:readonly EntityRole[]=["admin","manager","employee"],
 ):Promise<EntityAccess> {
   if (!userId || !entityId || !allowedRoles.length) throw new EntityAccessError(403);
+  if(await isOaSuperAdmin(userId)){
+    const entity=await one<{id:string}>("SELECT id FROM oa_entity WHERE id=? AND active=1",[entityId]);
+    if(!entity || !allowedRoles.includes("admin"))throw new EntityAccessError(403);
+    return {entityId,userId,role:"admin"};
+  }
   const row=await one<{entity_id:string;role:EntityRole}>(`
     SELECT m.entity_id,m.role FROM oa_entity_member m
     JOIN oa_entity e ON e.id=m.entity_id
@@ -31,6 +37,8 @@ export async function requireEntityAccess(
 /** Lists only active memberships; does not authorize access to any OA record. */
 export async function listMyEntities(userId:string) {
   if(!userId) return [];
+  if(getOaEnv().multiEntityBusinessEnabled && await isOaSuperAdmin(userId))
+    return all<{id:string;display_name:string;role:EntityRole}>("SELECT id,display_name,'admin' AS role FROM oa_entity WHERE active=1 ORDER BY display_name,id");
   return all<{id:string;display_name:string;role:EntityRole}>(`
     SELECT e.id,e.display_name,m.role FROM oa_entity_member m
     JOIN oa_entity e ON e.id=m.entity_id

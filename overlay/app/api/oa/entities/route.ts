@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getViewer, isAdminTier } from "@/lib/auth-server";
+import { getViewer } from "@/lib/auth-server";
+import {isOaSuperAdmin,founderId} from "@/lib/oa/admin-permissions";
 import { all, one, run, audit } from "@/lib/oa/db";
 import { EntityAccessError, listMyEntities, requireEntityAccess } from "@/lib/oa/entity";
 import { getOaEnv } from "@/lib/oa/env";
@@ -11,8 +12,8 @@ const clean=(x:unknown,max=200)=>String(x??"").trim().slice(0,max);
 type Role="admin"|"manager"|"employee";
 const roles=new Set<Role>(["admin","manager","employee"]);
 
-async function managePermission(userId:string,role:Parameters<typeof isAdminTier>[0],entityId:string){
-  if(isAdminTier(role))return;
+async function managePermission(userId:string,entityId:string){
+  if(await isOaSuperAdmin(userId))return;
   await requireEntityAccess(userId,entityId,["admin"]);
 }
 function enabled(){return getOaEnv().multiEntityBusinessEnabled}
@@ -22,7 +23,7 @@ export async function GET(request:NextRequest){
   const memberships=await listMyEntities(viewer.id);
   if(request.nextUrl.searchParams.get("scope")!=="manage")
     return ok({entities:memberships,multiEntityEnabled:enabled()});
-  const platformAdmin=isAdminTier(viewer.role);
+  const platformAdmin=await isOaSuperAdmin(viewer.id);
   const ids=platformAdmin
     ? await all<{id:string;display_name:string;legal_name:string;active:number}>(`SELECT id,display_name,legal_name,active FROM oa_entity ORDER BY display_name`)
     : await all<{id:string;display_name:string;legal_name:string;active:number}>(`SELECT e.id,e.display_name,e.legal_name,e.active FROM oa_entity e JOIN oa_entity_member m ON m.entity_id=e.id WHERE m.user_id=? AND m.role='admin' AND m.active=1 ORDER BY e.display_name`,[viewer.id]);
@@ -35,7 +36,7 @@ export async function POST(request:NextRequest){
   try{data=await request.json()}catch{return fail("Invalid JSON")}
   const action=clean(data.action,40),entityId=clean(data.entityId,100);
   if(!enabled() && action!=="listMembers")return fail("Multi-Entity management is disabled until isolation acceptance",403);
-  const platformAdmin=isAdminTier(viewer.role);
+  const platformAdmin=await isOaSuperAdmin(viewer.id);
   try{
     if(action==="createEntity"){
       if(!platformAdmin)return fail("Forbidden",403);
@@ -64,7 +65,7 @@ export async function POST(request:NextRequest){
     }
     if(action==="updateEntity"){
       if(!entityId)return fail("entityId is required");
-      await managePermission(viewer.id,viewer.role,entityId);
+      await managePermission(viewer.id,entityId);
       const name=clean(data.displayName);
       if(!name)return fail("displayName is required");
       const result=await run(`UPDATE oa_entity SET display_name=? WHERE id=?`,[name,entityId]);
@@ -75,7 +76,7 @@ export async function POST(request:NextRequest){
     }
     if(action==="setMember"){
       if(!entityId)return fail("entityId is required");
-      await managePermission(viewer.id,viewer.role,entityId);
+      await managePermission(viewer.id,entityId);
       if(!await one(`SELECT id FROM oa_entity WHERE id=? AND active=1`,[entityId]))return fail("Entity not found",404);
       let userId=clean(data.userId,200);
       const userEmail=clean(data.userEmail,320);
@@ -86,6 +87,7 @@ export async function POST(request:NextRequest){
         userId=user.id;
       }
       if(!userId||!roles.has(role))return fail("Valid user and role required");
+      if(userId===await founderId())return fail("Original super administrator cannot be changed",403);
       if(!await one(`SELECT id FROM user WHERE id=?`,[userId]))return fail("User not found",404);
       const isActive=data.active!==false;
       const existing=await one<{role:string;active:number}>(`SELECT role,active FROM oa_entity_member WHERE entity_id=? AND user_id=?`,[entityId,userId]);
@@ -99,9 +101,9 @@ export async function POST(request:NextRequest){
     }
     if(action==="listMembers"){
       if(!entityId)return fail("entityId is required");
-      await managePermission(viewer.id,viewer.role,entityId);
+      await managePermission(viewer.id,entityId);
       const members=await all(`SELECT m.user_id,u.name,u.email,m.role,m.active FROM oa_entity_member m JOIN user u ON u.id=m.user_id WHERE m.entity_id=? ORDER BY u.name,u.email`,[entityId]);
-      return ok({members});
+      return ok({members,protectedUserId:await founderId()});
     }
     return fail("Unsupported action",404);
   }catch(e){

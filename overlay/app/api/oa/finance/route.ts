@@ -1,4 +1,5 @@
 import {resolveFinanceEntityAccess} from "@/lib/oa/finance-entity";
+import {canManageParties,isOaSuperAdmin} from "@/lib/oa/admin-permissions";
 import {NextRequest,NextResponse} from "next/server";
 import {getViewer} from "@/lib/auth-server";
 import {all,audit,one,run} from "@/lib/oa/db";
@@ -19,9 +20,12 @@ function validDate(v:unknown){const s=clean(v,10);if(s&&!/^\d{4}-\d{2}-\d{2}$/.t
 function partyType(v:unknown){const s=clean(v,12);if(!["supplier","customer","both"].includes(s))throw new Error("Invalid supplier/customer type");return s;}
 async function adminAssignee(entity:string,userId:string,proposer:string,allowPartySelfAssignment=false){
  const member=await one<{user_id:string}>("SELECT user_id FROM oa_entity_member WHERE entity_id=? AND user_id=? AND role='admin' AND active=1",[entity,userId]);
+ const allowed=allowPartySelfAssignment
+  ? await canManageParties(userId,entity,!!member)
+  : !!member || await isOaSuperAdmin(userId);
  // A company administrator may approve their OWN supplier/customer proposal.
  // Payment/receipt proof submissions retain the independent-admin requirement.
- if(!member||(userId===proposer&&!allowPartySelfAssignment))
+ if(!allowed||(userId===proposer&&!allowPartySelfAssignment))
   throw new Error(allowPartySelfAssignment?"Assignee must be an active Entity admin":"Assignee must be an active different Entity admin");
  return userId;
 }
@@ -42,8 +46,10 @@ async function accessFor(req:NextRequest,entity:unknown){
 export async function GET(request:NextRequest){
  try{
   const {access,entity}=await accessFor(request,request.nextUrl.searchParams.get("entity_id"));
-  if(access.role!=="admin")return fail("Forbidden",403);
   const view=clean(request.nextUrl.searchParams.get("view"),30);
+  const partyManager=await canManageParties(access.userId,entity,access.role==="admin");
+  if(access.role!=="admin" && !(partyManager&&(view==="parties"||view==="config")))
+   return fail("Forbidden",403);
   if(view==="parties")return ok(await all<any>("SELECT * FROM oa_finance_party WHERE entity_id=? ORDER BY created_at DESC,id DESC LIMIT 300",[entity]));
   if(view==="balances")return ok(await all<any>(
    "SELECT direction,currency,status,COUNT(*) AS invoice_count,COALESCE(SUM(amount_minor),0) AS amount_minor FROM oa_finance_invoice WHERE entity_id=? AND direction IN ('ar','ap') AND currency IS NOT NULL AND amount_minor>0 AND status IN ('open','settlement_pending','settled') GROUP BY direction,currency,status ORDER BY direction,currency,status",
@@ -57,6 +63,11 @@ export async function GET(request:NextRequest){
   }
   if(view==="settlements")return ok(await all<any>("SELECT s.*,i.invoice_number,i.direction,i.currency,i.amount_minor,i.counterparty_name,d.original_name AS proof_name FROM oa_finance_settlement s JOIN oa_finance_invoice i ON i.id=s.invoice_id AND i.entity_id=s.entity_id JOIN oa_finance_document d ON d.id=s.document_id AND d.entity_id=s.entity_id WHERE s.entity_id=? ORDER BY s.submitted_at DESC,s.id DESC LIMIT 300",[entity]));
   if(view==="config"){
+   if(access.role!=="admin"){
+    const approvers=await all<{id:string;name:string;email:string}>(
+     "SELECT u.id,u.name,u.email FROM user u WHERE EXISTS(SELECT 1 FROM oa_entity_member m WHERE m.entity_id=? AND m.user_id=u.id AND m.active=1 AND m.role='admin') OR EXISTS(SELECT 1 FROM oa_entity_permission p JOIN oa_entity_member m ON m.entity_id=p.entity_id AND m.user_id=p.user_id AND m.active=1 WHERE p.entity_id=? AND p.user_id=u.id AND p.permission='finance.parties.manage') ORDER BY u.name,u.email",[entity,entity]);
+    return ok({approvers,mailbox:"",receiveAddress:"",aiConfigured:false,resendConfigured:false});
+   }
    const mailbox=await one<{address:string;receive_address:string}>("SELECT address,receive_address FROM oa_finance_mailbox WHERE entity_id=?",[entity]);
    const approvers=await all<{id:string;name:string;email:string}>("SELECT u.id,u.name,u.email FROM oa_entity_member m JOIN user u ON u.id=m.user_id WHERE m.entity_id=? AND m.active=1 AND m.role='admin' ORDER BY u.name,u.email",[entity]);
    const ai=await publicFinanceAiSettings(entity);
@@ -70,6 +81,9 @@ export async function POST(request:NextRequest){
   const body=await request.json() as Record<string,any>;
   const {viewer,access,entity}=await accessFor(request,body.entity_id);
   const action=clean(body.action,40);
+  if(action.startsWith("party_")){
+   if(!await canManageParties(viewer.id,entity,access.role==="admin"))return fail("Forbidden",403);
+  }else if(access.role!=="admin")return fail("Forbidden",403);
   if(action==="party_propose"){
    const name=clean(body.company_name,250);
    if(!name)throw new Error("Missing company name");
@@ -87,7 +101,6 @@ export async function POST(request:NextRequest){
    await audit(viewer.id,"finance.party.propose","finance_party",id,{root,type,change:!!current,assignee:assignee||null},entity);
    return ok({id,root_id:root,status:"pending"},201);
   }
-  if(access.role!=="admin")return fail("Forbidden",403);
   if(action==="set_mailbox"){
    const address=checkEmail(body.address);
    if(!/^payable@[^@]+$/.test(address))throw new Error("Invalid mailbox: use payable@your-company-domain");

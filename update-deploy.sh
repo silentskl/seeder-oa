@@ -89,6 +89,10 @@ fi
 # A partial overlay can leave old unsecured endpoints in production.
 CRITICAL_OA_FILES=(
   "app/api/oa/route.ts"
+  "app/api/oa/administrators/route.ts"
+  "app/(oa)/admin/oa/access/page.tsx"
+  "components/oa/administrator-access.tsx"
+  "lib/oa/admin-permissions.ts"
   "app/api/oa/entities/route.ts"
   "app/api/oa/invitations/route.ts"
   "app/(auth)/oa-invite/page.tsx"
@@ -198,6 +202,7 @@ python3 "$ROOT/tests/test_finance_ai_reasoning_migration.py"
 python3 "$ROOT/tests/test_finance_mail_backfill_migration.py"
 python3 "$ROOT/tests/test_finance_invoice_business_dedup_migration.py"
 python3 "$ROOT/tests/test_finance_due_date_review_i18n.py"
+python3 "$ROOT/tests/test_admin_permissions_migration.py"
 python3 "$ROOT/tests/test_ubuntu_docker_migration.py"
 python3 "$ROOT/tests/test_oa_invite_auth_patcher.py"
 python3 "$ROOT/tests/test_finance_edge_fetch.py"
@@ -222,7 +227,7 @@ echo "$PENDING"
 # Whitelist only migrations reviewed for this production upgrade.
 MIGRATIONS="$(printf '%s\n' "$PENDING" | grep -Eo '[0-9]{4}_[[:alnum:]_-]+\.sql' | sort -u || true)"
 if [[ -n "$MIGRATIONS" ]]; then
-  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles|9014_email_log_company|9015_entity_leave_types|9016_entity_medical_allowance|9017_entity_database_guards|9018_entity_invitations|9019_business_travel|9020_finance|9021_finance_mail_accounts|9022_finance_ai_settings|9023_finance_ai_diagnostics|9024_finance_ai_reasoning_effort|9025_finance_mail_backfill|9026_finance_invoice_business_dedup|9027_finance_due_date_inference)\.sql$' || true)"
+  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles|9014_email_log_company|9015_entity_leave_types|9016_entity_medical_allowance|9017_entity_database_guards|9018_entity_invitations|9019_business_travel|9020_finance|9021_finance_mail_accounts|9022_finance_ai_settings|9023_finance_ai_diagnostics|9024_finance_ai_reasoning_effort|9025_finance_mail_backfill|9026_finance_invoice_business_dedup|9027_finance_due_date_inference|9028_oa_administrator_permissions)\.sql$' || true)"
   if [[ -n "$UNKNOWN" ]]; then
     echo "ERROR: unexpected pending migrations: $UNKNOWN" >&2
     exit 1
@@ -247,6 +252,13 @@ if [[ -n "$MIGRATIONS" ]]; then
   fi
 else
   echo "[DEPLOY] No pending migrations; backup and migration skipped."
+fi
+# Administrator schema and original-owner guards are mandatory for this release.
+OA_ADMIN_SCHEMA_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('oa_platform_administrator','oa_entity_permission'))+(SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN ('oa_founder_no_update','oa_founder_no_delete','oa_founder_user_immutable','oa_founder_user_no_delete','oa_founder_member_no_update','oa_founder_member_no_delete')) AS n;" 2>&1)" || { echo "$OA_ADMIN_SCHEMA_CHECK" >&2; exit 1; }
+echo "$OA_ADMIN_SCHEMA_CHECK"
+if ! printf '%s\n' "$OA_ADMIN_SCHEMA_CHECK" | grep -Eq '(^|[[:space:]│])8([[:space:]│]|$)'; then
+  echo "ERROR: OA administrator permissions or original-owner guards missing; refusing deployment." >&2
+  exit 1
 fi
 # Phase-1 registry must exist before publishing any code that imports entity helpers.
 REGISTRY_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM oa_entity WHERE id='legacy-primary';" 2>&1)" || { echo "$REGISTRY_CHECK" >&2; exit 1; }

@@ -1,5 +1,6 @@
 import { NextRequest,NextResponse } from "next/server";
-import { getViewer,isAdminTier } from "@/lib/auth-server";
+import { getViewer } from "@/lib/auth-server";
+import {isOaSuperAdmin,founderId} from "@/lib/oa/admin-permissions";
 import { all,audit,one,run } from "@/lib/oa/db";
 import { requireEntityAccess,EntityAccessError } from "@/lib/oa/entity";
 import { getOaEnv } from "@/lib/oa/env";
@@ -16,8 +17,8 @@ async function tokenHash(token:string){
   return Array.from(new Uint8Array(digest),x=>x.toString(16).padStart(2,"0")).join("");
 }
 function active(){return getOaEnv().multiEntityBusinessEnabled}
-async function permission(user:{id:string;role:Parameters<typeof isAdminTier>[0]},entityId:string){
-  if(isAdminTier(user.role))return;
+async function permission(user:{id:string},entityId:string){
+  if(await isOaSuperAdmin(user.id))return;
   await requireEntityAccess(user.id,entityId,["admin"]);
 }
 
@@ -47,6 +48,7 @@ export async function POST(request:NextRequest){
   try{body=await request.json()}catch{return fail("Invalid JSON")}
   const action=clean(body.action,50);
   if(action==="accept"){
+    if(viewer.id===await founderId())return fail("Original super administrator cannot be changed",403);
     const token=clean(body.token,256);
     if(!/^[0-9a-f]{64}$/.test(token))return fail("Invalid invitation",400);
     const hash=await tokenHash(token);
@@ -80,6 +82,8 @@ export async function POST(request:NextRequest){
   if(action!=="create")return fail("Unknown action",404);
   const email=clean(body.email,320).toLowerCase(),role=clean(body.role,25);
   if(!validEmail(email)||!["employee","manager","admin"].includes(role))return fail("Valid email and role required");
+  const protectedAccount=await one<{id:string}>("SELECT id FROM user WHERE lower(email)=?",[email]);
+  if(protectedAccount?.id===await founderId())return fail("Original super administrator cannot be changed",403);
   if(!await one(`SELECT id FROM oa_entity WHERE id=? AND active=1`,[entityId]))return fail("Company not found",404);
   const existing=await one(`SELECT 1 FROM oa_entity_member m JOIN user u ON u.id=m.user_id WHERE m.entity_id=? AND lower(u.email)=? AND m.active=1`,[entityId,email]);
   if(existing)return fail("User already belongs to this company",409);

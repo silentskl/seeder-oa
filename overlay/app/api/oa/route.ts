@@ -4,6 +4,7 @@ import { all, audit, one, run, settings } from "@/lib/oa/db";
 import { getFxQuote } from "@/lib/oa/fx";
 import { getOaEnv } from "@/lib/oa/env";
 import { EntityAccessError, LEGACY_ENTITY_ID, entitySqlLiteral, resolveBusinessEntityAccess } from "@/lib/oa/entity";
+import {founderId} from "@/lib/oa/admin-permissions";
 import { businessDays } from "@/lib/oa/leave";
 import { COMMON_CURRENCIES, convertMinor, formatMoney, majorToMinor, normalizeCurrency } from "@/lib/oa/money";
 import { approveCurrentStep, cancelApprovalWorkflow, canActOnStep, createApprovalWorkflow, ensureSubmittedWorkflows, getApprovalSteps, getPendingStep, normalizeApprovalFlow, rejectCurrentStep } from "@/lib/oa/approval";
@@ -457,6 +458,7 @@ export async function POST(request: NextRequest) {
     if (action === "updateEmployee") {
       if (!admin) return fail("Forbidden", 403);
       const userId = text(body.userId, 200); if (!userId) return fail("userId is required");
+      if(userId===await founderId())return fail("Original super administrator profile is protected",403);
       const member=await one<{user_id:string}>(`SELECT user_id FROM oa_entity_member WHERE entity_id=? AND user_id=? AND active=1`,[companyId,userId]);
       if(!member)return fail("Employee is not enrolled in this Entity",404);
       await ensureEmployee(userId,companyId);

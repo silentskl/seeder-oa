@@ -105,9 +105,9 @@ export function FinanceConsole({section}:{section:Section}){
   let active=true;
   (async()=>{
    const res=await fetch("/api/oa/finance/entities",{cache:"no-store"});const json=await res.json();
-   const available:Row[]=json?.data?.entities||[];
+   const available:Row[]=section==="parties"?(json?.data?.entities||[]):(json?.data?.financeEntities||[]);
    const enabled=!!json?.data?.multiEntityEnabled;
-   const shown=available.filter(x=>x.role==="admin"&&(enabled||x.id==="legacy-primary"));
+   const shown=available.filter(x=>(x.role==="admin"||(section==="parties"&&x.role==="parties_admin"))&&(enabled||x.id==="legacy-primary"));
    if(!active)return;
    setEntities(shown);
    const saved=window.sessionStorage.getItem("oa.selectedEntity");
