@@ -7,30 +7,29 @@ export const PARTY_PERMISSION="finance.parties.manage" as const;
 /** Provision the first authentic owner for fresh databases migrated before sign-up.
  * Never select an arbitrary later administrator, and never change an existing founder.
  */
-export async function platformRole(userId:string):Promise<PlatformRole|null>{
- if(!userId)return null;
- const existing=await one<{level:PlatformRole}>(
-  "SELECT level FROM oa_platform_administrator WHERE user_id=?",[userId]);
- if(existing)return existing.level;
- const founder=await one<{user_id:string}>(
+export async function founderId():Promise<string|null>{
+ const current=await one<{user_id:string}>(
   "SELECT user_id FROM oa_platform_administrator WHERE level='founder'");
- if(founder)return null;
- const firstOwner=await one<{id:string}>(
+ if(current)return current.user_id;
+ // The initial account might have registered after the migration ran.
+ const first=await one<{id:string}>(
   "SELECT id FROM user WHERE role='owner' AND id<>'vcs-bot' ORDER BY rowid LIMIT 1");
- if(firstOwner?.id!==userId)return null;
- await run("INSERT OR IGNORE INTO oa_platform_administrator(user_id,level) VALUES(?,'founder')",[userId]);
- const verified=await one<{level:PlatformRole}>(
-  "SELECT level FROM oa_platform_administrator WHERE user_id=?",[userId]);
- return verified?.level==="founder"?"founder":null;
+ if(!first)return null;
+ await run("INSERT OR IGNORE INTO oa_platform_administrator(user_id,level) VALUES(?,'founder')",[first.id]);
+ const committed=await one<{user_id:string}>(
+  "SELECT user_id FROM oa_platform_administrator WHERE level='founder'");
+ return committed?.user_id||null;
 }
 
+export async function platformRole(userId:string):Promise<PlatformRole|null>{
+ if(!userId)return null;
+ await founderId();
+ const existing=await one<{level:PlatformRole}>(
+  "SELECT level FROM oa_platform_administrator WHERE user_id=?",[userId]);
+ return existing?.level||null;
+}
 export async function isOaSuperAdmin(userId:string){
  return (await platformRole(userId))!==null;
-}
-export async function founderId():Promise<string|null>{
- const row=await one<{user_id:string}>(
-  "SELECT user_id FROM oa_platform_administrator WHERE level='founder'");
- return row?.user_id||null;
 }
 
 export async function canManageParties(userId:string,entityId:string,entityAdmin=false){
