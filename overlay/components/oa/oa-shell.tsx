@@ -13,6 +13,8 @@ type Props = {
   isAdmin: boolean;
   isManager: boolean;
   isFinanceAdmin: boolean;
+  isPartyAdmin: boolean;
+  isSuperAdmin: boolean;
 };
 
 const employeeNav = [
@@ -39,12 +41,12 @@ function NavLink({href,label}:{href:string;label:string}) {
   return <Link href={href} className={`block rounded-lg px-3 py-2 text-sm transition ${active?"bg-neutral-900 font-medium text-white dark:bg-white dark:text-neutral-900":"text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-300 dark:hover:bg-neutral-900 dark:hover:text-white"}`}>{label}</Link>;
 }
 
-export function OaShell({children,userName,userEmail,isAdmin,isManager,isFinanceAdmin}:Props) {
+export function OaShell({children,userName,userEmail,isAdmin,isManager,isFinanceAdmin,isPartyAdmin,isSuperAdmin}:Props) {
   const pathname = usePathname();
   const adminMode = pathname.startsWith("/admin/oa");
   const [lang,setLang]=useFinanceLanguage();
   const t=(en:string,zh:string)=>financeTr(lang,en,zh);
-  const navLabels:Record<string,string>={"/oa":"概览","/oa/leave":"请假","/oa/travel":"差旅","/oa/expenses":"报销","/oa/payslips":"工资单","/admin/oa":"管理概览","/admin/oa/approvals":"审批","/admin/oa/employees":"员工","/admin/oa/payroll":"薪资管理","/admin/oa/parties":"供应商与客户","/admin/oa/finance":"应收应付账款","/admin/oa/settings":"设置"};
+  const navLabels:Record<string,string>={"/oa":"概览","/oa/leave":"请假","/oa/travel":"差旅","/oa/expenses":"报销","/oa/payslips":"工资单","/admin/oa":"管理概览","/admin/oa/approvals":"审批","/admin/oa/employees":"员工","/admin/oa/payroll":"薪资管理","/admin/oa/parties":"供应商与客户","/admin/oa/finance":"应收应付账款","/admin/oa/settings":"设置","/admin/oa/access":"账号与权限"};
   return <div className="min-h-dvh bg-neutral-50 text-neutral-950 dark:bg-neutral-950 dark:text-neutral-100 md:flex">
     <aside className="border-b border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950 md:sticky md:top-0 md:h-dvh md:w-64 md:shrink-0 md:border-b-0 md:border-r">
       <div className="mb-5">
@@ -58,7 +60,9 @@ export function OaShell({children,userName,userEmail,isAdmin,isManager,isFinance
       </div>}
       <nav className="space-y-1">
         {(adminMode && isAdmin ? adminNav : employeeNav).map(([href,label])=><NavLink key={href} href={href} label={t(label,navLabels[href]||label)}/>)}
-        {!isAdmin&&isFinanceAdmin&&<><NavLink href="/admin/oa/parties" label={t("Suppliers & Customers","供应商与客户")}/><NavLink href="/admin/oa/finance" label={t("Finance · AR/AP","应收应付账款")}/></>}
+        {!isAdmin&&isPartyAdmin&&<NavLink href="/admin/oa/parties" label={t("Suppliers & Customers","供应商与客户")}/>}
+        {!isAdmin&&isFinanceAdmin&&<NavLink href="/admin/oa/finance" label={t("Finance · AR/AP","应收应付账款")}/>}
+        {isSuperAdmin&&<NavLink href="/admin/oa/access" label={t("Accounts & Permissions","账号与权限")}/>} 
         {!adminMode && isManager ? <NavLink href="/oa/approvals" label={t("Approvals","审批")}/> : null}
       </nav>
       <div className="mt-5 border-t border-neutral-200 px-3 pt-4 dark:border-neutral-800">
