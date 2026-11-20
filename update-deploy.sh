@@ -227,7 +227,7 @@ echo "$PENDING"
 # Whitelist only migrations reviewed for this production upgrade.
 MIGRATIONS="$(printf '%s\n' "$PENDING" | grep -Eo '[0-9]{4}_[[:alnum:]_-]+\.sql' | sort -u || true)"
 if [[ -n "$MIGRATIONS" ]]; then
-  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles|9014_email_log_company|9015_entity_leave_types|9016_entity_medical_allowance|9017_entity_database_guards|9018_entity_invitations|9019_business_travel|9020_finance|9021_finance_mail_accounts|9022_finance_ai_settings|9023_finance_ai_diagnostics|9024_finance_ai_reasoning_effort|9025_finance_mail_backfill|9026_finance_invoice_business_dedup|9027_finance_due_date_inference|9028_oa_administrator_permissions)\.sql || true)"
+  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles|9014_email_log_company|9015_entity_leave_types|9016_entity_medical_allowance|9017_entity_database_guards|9018_entity_invitations|9019_business_travel|9020_finance|9021_finance_mail_accounts|9022_finance_ai_settings|9023_finance_ai_diagnostics|9024_finance_ai_reasoning_effort|9025_finance_mail_backfill|9026_finance_invoice_business_dedup|9027_finance_due_date_inference|9028_oa_administrator_permissions)\.sql$' || true)"
   if [[ -n "$UNKNOWN" ]]; then
     echo "ERROR: unexpected pending migrations: $UNKNOWN" >&2
     exit 1
