@@ -256,7 +256,7 @@ fi
 # New administrator table and original-owner guards are mandatory for this release.
 OA_ADMIN_SCHEMA_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('oa_platform_administrator','oa_entity_permission'))+(SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN ('oa_founder_no_update','oa_founder_no_delete','oa_founder_user_immutable','oa_founder_user_no_delete','oa_founder_member_no_update','oa_founder_member_no_delete')) AS n;" 2>&1)" || { echo "$OA_ADMIN_SCHEMA_CHECK" >&2; exit 1; }
 echo "$OA_ADMIN_SCHEMA_CHECK"
-if ! printf '%s\\n' "$OA_ADMIN_SCHEMA_CHECK" | grep -Eq '(^|[[:space:]│])8([[:space:]│]|$)'; then
+if ! printf '%s\n' "$OA_ADMIN_SCHEMA_CHECK" | grep -Eq '(^|[[:space:]│])8([[:space:]│]|$)'; then
   echo "ERROR: OA administrator permissions or original-owner guards missing; refusing deployment." >&2
   exit 1
 fi
