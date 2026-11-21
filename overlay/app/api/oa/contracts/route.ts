@@ -4,7 +4,7 @@ import {audit,all,one,run} from "@/lib/oa/db";
 import {getOaEnv} from "@/lib/oa/env";
 import {EntityAccessError} from "@/lib/oa/entity";
 import {resolveFinanceEntityAccess} from "@/lib/oa/finance-entity";
-import {canManageParties} from "@/lib/oa/admin-permissions";
+import {canAccessContracts,CONTRACT_VIEW_PERMISSION,CONTRACT_UPLOAD_PERMISSION,ContractPermission} from "@/lib/oa/admin-permissions";
 import {FINANCE_MAX_FILE,FINANCE_TYPES,isFinanceDocumentType,safeFileName} from "@/lib/oa/finance";
 
 export const runtime="nodejs";
@@ -19,10 +19,10 @@ function date(v:unknown){
   throw new Error("Invalid contract date");
  return text;
 }
-async function authorize(userId:string,requested:unknown){
+async function authorize(userId:string,requested:unknown,permission:ContractPermission){
  const access=await resolveFinanceEntityAccess(userId,requested);
- if(!await canManageParties(userId,access.entityId,access.role==="admin"))
-   throw new EntityAccessError(403,"Forbidden");
+ if(!await canAccessContracts(userId,access.entityId,permission))
+   throw new EntityAccessError(403,"Contract permission required");
  return access.entityId;
 }
 function handleError(error:unknown,operation:string){
@@ -35,27 +35,33 @@ function handleError(error:unknown,operation:string){
 export async function GET(request:NextRequest){
  const viewer=await getViewer();if(!viewer)return fail("Unauthorized",401);
  try{
-  const entity=await authorize(viewer.id,request.nextUrl.searchParams.get("entity_id"));
+  const access=await resolveFinanceEntityAccess(viewer.id,request.nextUrl.searchParams.get("entity_id"));
+  const entity=access.entityId;
+  const [canView,canUpload]=await Promise.all([
+   canAccessContracts(viewer.id,entity,CONTRACT_VIEW_PERMISSION),
+   canAccessContracts(viewer.id,entity,CONTRACT_UPLOAD_PERMISSION)
+  ]);
+  if(!canView&&!canUpload)return fail("Contract permission required",403);
   const offset=Number(request.nextUrl.searchParams.get("offset")||0);
   if(!Number.isSafeInteger(offset)||offset<0||offset>1000000)return fail("Invalid offset");
   const [parties,rows]=await Promise.all([
    all<{root_id:string;party_type:string;company_name:string}>(`SELECT root_id,party_type,company_name FROM oa_finance_party
     WHERE entity_id=? AND status='approved' ORDER BY company_name,root_id`,[entity]),
-   all(`SELECT c.id,c.entity_id,c.party_root_id,c.party_role,c.title,c.contract_number,
+   canView?all(`SELECT c.id,c.entity_id,c.party_root_id,c.party_role,c.title,c.contract_number,
     c.effective_date,c.expiry_date,c.notes,c.original_name,c.content_type,c.size_bytes,
     c.uploaded_by,c.created_at,COALESCE(p.company_name,c.party_name_at_upload) AS party_name
     FROM oa_contract c LEFT JOIN oa_finance_party p
      ON p.entity_id=c.entity_id AND p.root_id=c.party_root_id AND p.status='approved'
-    WHERE c.entity_id=? ORDER BY c.created_at DESC,c.id DESC LIMIT 101 OFFSET ?`,[entity,offset])
+    WHERE c.entity_id=? ORDER BY c.created_at DESC,c.id DESC LIMIT 101 OFFSET ?`,[entity,offset]):Promise.resolve([])
   ]);
-  return ok({parties,contracts:rows.slice(0,100),nextOffset:rows.length>100?offset+100:null});
+  return ok({parties,contracts:rows.slice(0,100),nextOffset:canView&&rows.length>100?offset+100:null,canView,canUpload});
  }catch(error){return handleError(error,"list");}
 }
 export async function POST(request:NextRequest){
  const viewer=await getViewer();if(!viewer)return fail("Unauthorized",401);
  try{
   const form=await request.formData();
-  const entity=await authorize(viewer.id,form.get("entity_id"));
+  const entity=await authorize(viewer.id,form.get("entity_id"),CONTRACT_UPLOAD_PERMISSION);
   const partyRootId=clean(form.get("party_root_id"),100);
   const partyRole=clean(form.get("party_role"),12);
   if(!partyRootId||!(partyRole==="supplier"||partyRole==="customer"))
