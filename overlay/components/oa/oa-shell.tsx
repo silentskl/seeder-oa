@@ -14,6 +14,7 @@ type Props = {
   isManager: boolean;
   isFinanceAdmin: boolean;
   isPartyAdmin: boolean;
+  isContractAdmin: boolean;
   isSuperAdmin: boolean;
 };
 
@@ -31,7 +32,6 @@ const adminNav = [
   ["/admin/oa/employees", "Employees"],
   ["/admin/oa/payroll", "Payroll"],
   ["/admin/oa/parties", "Suppliers & Customers"],
-  ["/admin/oa/contracts", "Contracts"],
   ["/admin/oa/finance", "Finance · AR/AP"],
   ["/admin/oa/settings", "Settings"],
 ] as const;
@@ -42,7 +42,7 @@ function NavLink({href,label}:{href:string;label:string}) {
   return <Link href={href} className={`block rounded-lg px-3 py-2 text-sm transition ${active?"bg-neutral-900 font-medium text-white dark:bg-white dark:text-neutral-900":"text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-300 dark:hover:bg-neutral-900 dark:hover:text-white"}`}>{label}</Link>;
 }
 
-export function OaShell({children,userName,userEmail,isAdmin,isManager,isFinanceAdmin,isPartyAdmin,isSuperAdmin}:Props) {
+export function OaShell({children,userName,userEmail,isAdmin,isManager,isFinanceAdmin,isPartyAdmin,isContractAdmin,isSuperAdmin}:Props) {
   const pathname = usePathname();
   const adminMode = pathname.startsWith("/admin/oa");
   const [lang,setLang]=useFinanceLanguage();
@@ -61,7 +61,8 @@ export function OaShell({children,userName,userEmail,isAdmin,isManager,isFinance
       </div>}
       <nav className="space-y-1">
         {(adminMode && isAdmin ? adminNav : employeeNav).map(([href,label])=><NavLink key={href} href={href} label={t(label,navLabels[href]||label)}/>)}
-        {!isAdmin&&isPartyAdmin&&<><NavLink href="/admin/oa/parties" label={t("Suppliers & Customers","供应商与客户")}/><NavLink href="/admin/oa/contracts" label={t("Contracts","合同管理")}/></>}
+        {!isAdmin&&isPartyAdmin&&<NavLink href="/admin/oa/parties" label={t("Suppliers & Customers","供应商与客户")}/>}
+        {isContractAdmin&&<NavLink href="/admin/oa/contracts" label={t("Contracts","合同管理")}/>}
         {!isAdmin&&isFinanceAdmin&&<NavLink href="/admin/oa/finance" label={t("Finance · AR/AP","应收应付账款")}/>}
         {isSuperAdmin&&<NavLink href="/admin/oa/access" label={t("Accounts & Permissions","账号与权限")}/>} 
         {!adminMode && isManager ? <NavLink href="/oa/approvals" label={t("Approvals","审批")}/> : null}

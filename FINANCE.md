@@ -186,22 +186,29 @@ name at upload time is retained for historical display. The contract library
 supports supplier/customer filters, search, pagination, inline viewing and
 download. Documents are private; there are no public R2 or filesystem URLs.
 
-Entity administrators and users granted `finance.parties.manage` in **Accounts
-& Permissions** can upload and view contracts for their permitted Entity.
-Permission checks apply to both document uploads and document reads; access
-does not give those users invoice, payment or settlement approval rights.
+**Contract access requires an explicit OA super-administrator grant.**
+In **Accounts & Permissions**, super administrators grant or revoke two independent,
+per-Entity capabilities: `contracts.view` (list, preview and download) and
+`contracts.upload` (upload and associate a new contract). Super administrators
+have both capabilities automatically. Entity administrators and users with
+`finance.parties.manage` do **not** inherit contract access.
+A user granted only upload cannot read existing contracts; a viewer cannot upload.
+Both capabilities are checked server-side on each request and require an active
+Entity membership. These permissions do not confer invoice, payment, settlement,
+supplier/customer administration or payroll rights.
 Cross-Entity access still respects the existing finance multi-Entity feature
 flags. Upload validation checks the approved party, party role, content type,
 file signature and size before writing. Database triggers independently reject
 wrong-Entity or wrong-role counterparty associations.
 
-**Deploy:** Migration `9029_oa_contract_management.sql` is additive and must
+**Deploy:** Migrations `9029_oa_contract_management.sql` and `9030_oa_contract_permissions.sql` are additive and must
 be applied before publishing the corresponding Worker. The Cloudflare
-`update-deploy.sh` flow backs up D1, whitelists/applies 9029 and checks the
-contract table/triggers before deployment. The Ubuntu Docker Node entrypoint
+`update-deploy.sh` flow backs up D1, whitelists/applies 9029/9030 and checks the
+contract table, grant table and security triggers before deployment. The Ubuntu Docker Node entrypoint
 runs pending migrations at container start, so always back up local SQLite
 and uploads before rebuilding. Run
-`python3 tests/test_contracts_migration.py` and
+`python3 tests/test_contracts_migration.py`,
+`python3 tests/test_contract_permissions_migration.py` and
 `node scripts/check-contracts-security.mjs ./seeder-oa-app` plus the
 complete Next.js build and a live two-Entity authorization test.
 

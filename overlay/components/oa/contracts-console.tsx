@@ -2,14 +2,14 @@
 import {FormEvent,useCallback,useEffect,useRef,useState} from "react";
 import {financeTr,useFinanceLanguage} from "@/lib/oa/finance-i18n";
 
-type Entity={id:string;display_name:string;role:string};
+type Entity={id:string;display_name:string;canView:number;canUpload:number};
 type Party={root_id:string;party_type:"supplier"|"customer"|"both";company_name:string};
 type Contract={
  id:string;party_root_id:string;party_role:"supplier"|"customer";party_name:string;
  title:string;contract_number:string;effective_date:string|null;expiry_date:string|null;
  notes:string;original_name:string;size_bytes:number;created_at:string;
 };
-type Page={parties:Party[];contracts:Contract[];nextOffset:number|null};
+type Page={parties:Party[];contracts:Contract[];nextOffset:number|null;canView:boolean;canUpload:boolean};
 const input="w-full rounded-md border border-neutral-300 bg-white p-2 text-sm text-neutral-950 dark:border-neutral-700 dark:bg-neutral-950 dark:text-white";
 const button="rounded-lg border border-neutral-300 px-3 py-2 text-sm font-medium hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-900";
 const primary=button+" bg-neutral-900 text-white hover:bg-neutral-700 dark:bg-white dark:text-neutral-950";
@@ -33,6 +33,7 @@ export function ContractsConsole(){
  const [parties,setParties]=useState<Party[]>([]);
  const [contracts,setContracts]=useState<Contract[]>([]);
  const [nextOffset,setNextOffset]=useState<number|null>(null);
+ const [canView,setCanView]=useState(false),[canUpload,setCanUpload]=useState(false);
  const [role,setRole]=useState<"supplier"|"customer">("supplier");
  const [partyId,setPartyId]=useState("");
  const [filter,setFilter]=useState<"all"|"supplier"|"customer">("all");
@@ -46,6 +47,7 @@ export function ContractsConsole(){
   const data=await getJSON<Page>(url);
   if(selected.current!==id)return;
   setParties(data.parties);
+  setCanView(data.canView);setCanUpload(data.canUpload);
   setContracts(previous=>offset===0?data.contracts:[
    ...previous,...data.contracts.filter(c=>!previous.some(old=>old.id===c.id))
   ]);
@@ -54,9 +56,9 @@ export function ContractsConsole(){
  useEffect(()=>{
   let active=true;
   (async()=>{
-   const r=await getJSON<{entities:Entity[];multiEntityEnabled:boolean}>("/api/oa/finance/entities");
+   const r=await getJSON<{entities:Entity[]}>("/api/oa/contracts/entities");
    if(!active)return;
-   const available=(r.entities||[]).filter(e=>e.role==="admin"||e.role==="parties_admin");
+   const available=(r.entities||[]).filter(e=>!!e.canView||!!e.canUpload);
    setEntities(available);
    const stored=window.sessionStorage.getItem("oa.selectedEntity");
    const id=available.find(e=>e.id===stored)?.id||available[0]?.id||"";
@@ -68,14 +70,14 @@ export function ContractsConsole(){
  },[load]);
  function changeEntity(id:string){
   selected.current=id;setEntity(id);setPartyId("");setContracts([]);setParties([]);
-  setNextOffset(null);setError("");setNotice("");setLoading(true);
+  setNextOffset(null);setCanView(false);setCanUpload(false);setError("");setNotice("");setLoading(true);
   window.sessionStorage.setItem("oa.selectedEntity",id);
   void load(id).catch(e=>{if(selected.current===id)setError(String(e));})
    .finally(()=>{if(selected.current===id)setLoading(false);});
  }
  async function upload(event:FormEvent<HTMLFormElement>){
   event.preventDefault();
-  if(busy||!entity)return;
+  if(busy||!entity||!canUpload)return;
   const form=event.currentTarget;
   const fields=new FormData(form);
   fields.set("entity_id",entity);fields.set("party_role",role);fields.set("party_root_id",partyId);
@@ -91,7 +93,7 @@ export function ContractsConsole(){
   finally{setBusy(false);}
  }
  async function more(){
-  if(nextOffset===null||busy||!entity)return;
+  if(nextOffset===null||busy||!entity||!canView)return;
   const id=entity;
   setBusy(true);setError("");
   try{await load(id,nextOffset);}catch(e){setError(e instanceof Error?e.message:String(e));}
@@ -103,7 +105,7 @@ export function ContractsConsole(){
  return <div className="mx-auto max-w-7xl space-y-4 p-4 md:p-6">
   <div>
    <h1 className="text-xl font-semibold">{t("Contract Management","合同管理")}</h1>
-   <p className="mt-1 text-sm text-neutral-500">{t("Upload and view contracts linked to an approved supplier or customer. Files are private to authorized company managers.","上传及查看关联已批准供应商／客户的合同，文件仅对有权限的公司管理员开放。")}</p>
+   <p className="mt-1 text-sm text-neutral-500">{t("Upload and view contracts linked to an approved supplier or customer. Viewing and uploading require separate permissions granted by a super administrator.","上传及查看关联已批准供应商／客户的合同，查阅和上传必须由超级管理员分别授权。")}</p>
   </div>
   {entities.length>1&&<label className="block max-w-md text-sm font-medium">{t("Company / Entity","所属公司 / Entity")}
    <select className={input+" mt-1"} value={entity} disabled={busy} onChange={e=>changeEntity(e.target.value)}>
@@ -113,7 +115,7 @@ export function ContractsConsole(){
   {error&&<p role="alert" className="rounded-md border border-red-200 p-3 text-sm text-red-700 dark:text-red-300">{error}</p>}
   {notice&&<p role="status" className="text-sm text-emerald-700 dark:text-emerald-300">{notice}</p>}
   {loading?<p className="text-sm text-neutral-500">{t("Loading contracts…","正在加载合同…")}</p>:!entity?<p className="text-sm text-neutral-500">{t("No permitted company found.","没有可管理的公司。")}</p>:<>
-   <section className={card}>
+   {canUpload&&<section className={card}>
     <h2 className="mb-3 font-semibold">{t("Upload contract","上传合同")}</h2>
     <form onSubmit={e=>void upload(e)} className="grid gap-3 md:grid-cols-2">
      <label className="text-sm">{t("Counterparty category","合同对方类型")}
@@ -138,8 +140,8 @@ export function ContractsConsole(){
      {!choices.length&&<p className="text-xs text-amber-700 md:col-span-2">{t("Approve a supplier/customer before attaching a contract.","请先在供应商与客户管理中审批对应的往来单位。")}</p>}
      <div className="md:col-span-2"><button type="submit" className={primary} disabled={busy||!partyId}>{busy?t("Uploading…","上传中…"):t("Upload & link contract","上传并关联合同")}</button></div>
     </form>
-   </section>
-   <section className={card}>
+   </section>}
+   {canView&&<section className={card}>
     <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
      <h2 className="font-semibold">{t("Contract library","合同列表")} ({contracts.length}{nextOffset!==null?"+":""})</h2>
      <div className="flex flex-wrap gap-2">
@@ -172,7 +174,7 @@ export function ContractsConsole(){
      {!shown.length&&<p className="p-4 text-sm text-neutral-500">{t("No matching contracts.","暂无符合条件的合同。")}</p>}
     </div>
     {nextOffset!==null&&<button type="button" className={button+" mt-3"} disabled={busy} onClick={()=>void more()}>{t("Load more contracts","加载更多合同")}</button>}
-   </section>
+   </section>}
   </>}
  </div>;
 }
