@@ -26,7 +26,7 @@ const checks=[
     &&permissions.includes("m.active=1")&&permissions.includes("e.active=1")],
  ["Listing requires a contract grant and only reveals documents to viewers",
   upload.includes("if(!canView&&!canUpload)return fail(")
-    &&upload.includes("canView?all(")&&upload.includes("canUpload?all(")
+    &&upload.includes("canView?all(")&&upload.includes("canUpload?all<")
     &&upload.includes("canAccessContracts(viewer.id,entity,CONTRACT_VIEW_PERMISSION)")
     &&upload.includes("canAccessContracts(viewer.id,entity,CONTRACT_UPLOAD_PERMISSION)")],
  ["Uploads require the separate contract-upload permission",
