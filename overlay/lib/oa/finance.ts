@@ -30,7 +30,7 @@ export type ParsedInvoice={
  bankCheck:"match"|"mismatch"|"missing"|"unverified";extractionStatus:"extracted"|"needs_manual_review";
  extractionNote:string;dueDateInferred:boolean;
 };
-function isInvoiceDocumentType(contentType:string,bytes:Uint8Array){
+export function isFinanceDocumentType(contentType:string,bytes:Uint8Array){
  if(!FINANCE_TYPES.has(contentType))return false;
  if(contentType==="application/pdf")return bytes.length>4&&bytes[0]===37&&bytes[1]===80&&bytes[2]===68&&bytes[3]===70;
  if(contentType==="image/png")return bytes[0]===137&&bytes[1]===80&&bytes[2]===78&&bytes[3]===71;
@@ -39,7 +39,7 @@ function isInvoiceDocumentType(contentType:string,bytes:Uint8Array){
  return false;
 }
 export async function storeFinanceDocument(input:{entityId:string;purpose:"invoice"|"settlement";name:string;type:string;bytes:Uint8Array;uploadedBy?:string|null}){
- if(!input.bytes.length||input.bytes.length>FINANCE_MAX_FILE||!isInvoiceDocumentType(input.type,input.bytes))
+ if(!input.bytes.length||input.bytes.length>FINANCE_MAX_FILE||!isFinanceDocumentType(input.type,input.bytes))
    throw new Error("Only PDF/JPEG/PNG/WebP up to 12 MB with valid file signatures are accepted");
  const id=crypto.randomUUID(),name=safeFileName(input.name);
  const key="oa/"+input.entityId+"/finance/"+input.purpose+"/"+id+"-"+name;
