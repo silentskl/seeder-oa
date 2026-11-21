@@ -10,3 +10,14 @@ CREATE TABLE IF NOT EXISTS oa_contract_permission (
 );
 CREATE INDEX IF NOT EXISTS oa_contract_permission_user
  ON oa_contract_permission(user_id,entity_id,permission);
+
+-- Reject unauthorized direct inserts or changes to a delegated contract grant.
+-- Demoting a grantor later does not invalidate a previously reviewed grant.
+CREATE TRIGGER IF NOT EXISTS oa_contract_grant_super_insert
+ BEFORE INSERT ON oa_contract_permission
+ WHEN NOT EXISTS(SELECT 1 FROM oa_platform_administrator a WHERE a.user_id=NEW.granted_by)
+ BEGIN SELECT RAISE(ABORT,'contract privileges require super administrator authorization'); END;
+CREATE TRIGGER IF NOT EXISTS oa_contract_grant_super_update
+ BEFORE UPDATE ON oa_contract_permission
+ WHEN NOT EXISTS(SELECT 1 FROM oa_platform_administrator a WHERE a.user_id=NEW.granted_by)
+ BEGIN SELECT RAISE(ABORT,'contract privileges require super administrator authorization'); END;
