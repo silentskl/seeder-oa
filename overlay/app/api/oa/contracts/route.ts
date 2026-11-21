@@ -45,8 +45,8 @@ export async function GET(request:NextRequest){
   const offset=Number(request.nextUrl.searchParams.get("offset")||0);
   if(!Number.isSafeInteger(offset)||offset<0||offset>1000000)return fail("Invalid offset");
   const [parties,rows]=await Promise.all([
-   all<{root_id:string;party_type:string;company_name:string}>(`SELECT root_id,party_type,company_name FROM oa_finance_party
-    WHERE entity_id=? AND status='approved' ORDER BY company_name,root_id`,[entity]),
+   canUpload?all<{root_id:string;party_type:string;company_name:string}>(`SELECT root_id,party_type,company_name FROM oa_finance_party
+    WHERE entity_id=? AND status='approved' ORDER BY company_name,root_id`,[entity]):Promise.resolve([]),
    canView?all(`SELECT c.id,c.entity_id,c.party_root_id,c.party_role,c.title,c.contract_number,
     c.effective_date,c.expiry_date,c.notes,c.original_name,c.content_type,c.size_bytes,
     c.uploaded_by,c.created_at,COALESCE(p.company_name,c.party_name_at_upload) AS party_name
