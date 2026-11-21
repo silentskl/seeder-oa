@@ -22,9 +22,12 @@ export async function GET(request:NextRequest,context:{params:Promise<{id:string
   const object=await getOaEnv().uploads.get(contract.r2_key);
   if(!object)return fail("Contract file missing",404);
   const attachment=request.nextUrl.searchParams.get("download")==="1";
+  const name=safeFileName(contract.original_name);
+  const asciiName=name.replace(/[^\x20-\x7e]/g,"_").replace(/["\\]/g,"_")||"contract";
+  const disposition=(attachment?"attachment":"inline")+"; filename=\""+asciiName+"\"; filename*=UTF-8''"+encodeURIComponent(name);
   const headers=new Headers({
    "content-type":contract.content_type,
-   "content-disposition":(attachment?"attachment":"inline")+'; filename="'+safeFileName(contract.original_name)+'"',
+   "content-disposition":disposition,
    "cache-control":"private, no-store",
    "x-content-type-options":"nosniff",
    "referrer-policy":"no-referrer",
