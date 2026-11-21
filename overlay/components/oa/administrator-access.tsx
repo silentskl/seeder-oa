@@ -94,7 +94,7 @@ export function AdministratorAccess(){
    </section>
    <section className={card}>
     <h2 className="font-semibold">{t("Contracts · Super administrator authorization","合同管理 · 超级管理员授权")}</h2>
-    <p className="mt-1 text-xs text-neutral-500">{t("Contract viewing/downloading and uploading require separate explicit grants from a super administrator, scoped to an Entity. Supplier/customer administration does not include contract access.","查阅／下载合同与上传合同必须由超级管理员按 Entity 分别授权。供应商／客户管理权限不会自动附带合同权限。")}</p>
+    <p className="mt-1 text-xs text-neutral-500">{t("Contract viewing/downloading and uploading require separate explicit grants from a super administrator, scoped to an Entity and an existing active member. Supplier/customer administration does not include contract access.","查阅／下载合同与上传合同必须由超级管理员按 Entity 分别授权。授权对象必须已是该 Entity 的有效成员。供应商／客户管理权限不会自动附带合同权限。")}</p>
     <form className="mt-3 grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]" onSubmit={(e:FormEvent<HTMLFormElement>)=>{
      e.preventDefault();
      void act("setContractPermission",{email:contractEmail,entityId:entity,permission:contractPermission,enabled:true}).then(()=>setContractEmail(""));
