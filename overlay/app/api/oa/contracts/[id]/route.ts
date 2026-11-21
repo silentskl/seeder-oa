@@ -4,7 +4,7 @@ import {one} from "@/lib/oa/db";
 import {getOaEnv} from "@/lib/oa/env";
 import {EntityAccessError} from "@/lib/oa/entity";
 import {resolveFinanceEntityAccess} from "@/lib/oa/finance-entity";
-import {canManageParties} from "@/lib/oa/admin-permissions";
+import {canAccessContracts,CONTRACT_VIEW_PERMISSION} from "@/lib/oa/admin-permissions";
 import {safeFileName} from "@/lib/oa/finance";
 
 export const runtime="nodejs";
@@ -13,7 +13,7 @@ export async function GET(request:NextRequest,context:{params:Promise<{id:string
  const viewer=await getViewer();if(!viewer)return fail("Unauthorized",401);
  try{
   const access=await resolveFinanceEntityAccess(viewer.id,request.nextUrl.searchParams.get("entity_id"));
-  if(!await canManageParties(viewer.id,access.entityId,access.role==="admin"))
+  if(!await canAccessContracts(viewer.id,access.entityId,CONTRACT_VIEW_PERMISSION))
    return fail("Forbidden",403);
   const {id}=await context.params;
   const contract=await one<{r2_key:string;original_name:string;content_type:string;size_bytes:number}>(`
