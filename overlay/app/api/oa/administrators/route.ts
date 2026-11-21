@@ -59,13 +59,10 @@ export async function POST(request:NextRequest){
    if(!entity)return fail("Entity not found",404);
    const member=await one<{active:number}>(
     "SELECT active FROM oa_entity_member WHERE entity_id=? AND user_id=?",[entityId,user.id]);
-   if(member?.active===0)return fail("Inactive Entity membership must be reactivated separately",409);
+   if(!member||member.active!==1)return fail("Account must have an active Entity membership before contract authorization",409);
    if(enabled){
-    const db=getOaEnv().db;
-    const writes=[];
-    if(!member)writes.push(db.prepare("INSERT INTO oa_entity_member(entity_id,user_id,role,active) VALUES(?,?,'employee',1)").bind(entityId,user.id));
-    writes.push(db.prepare("INSERT INTO oa_contract_permission(entity_id,user_id,permission,granted_by) VALUES(?,?,?,?) ON CONFLICT(entity_id,user_id,permission) DO UPDATE SET granted_by=excluded.granted_by,created_at=CURRENT_TIMESTAMP").bind(entityId,user.id,permission,a.userId));
-    await db.batch(writes);
+    // A contract grant never silently enrolls a user into unrelated OA/HR access.
+    await run("INSERT INTO oa_contract_permission(entity_id,user_id,permission,granted_by) VALUES(?,?,?,?) ON CONFLICT(entity_id,user_id,permission) DO UPDATE SET granted_by=excluded.granted_by,created_at=CURRENT_TIMESTAMP",[entityId,user.id,permission,a.userId]);
    }else{
     await run("DELETE FROM oa_contract_permission WHERE entity_id=? AND user_id=? AND permission=?",[entityId,user.id,permission]);
    }
