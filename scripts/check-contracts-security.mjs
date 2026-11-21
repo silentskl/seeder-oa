@@ -13,6 +13,7 @@ const checks=[
  ["Both contract API methods validate membership and party permission",upload.includes("resolveFinanceEntityAccess(userId,requested)")&&upload.includes('canManageParties(userId,access.entityId,access.role==="admin")')&&upload.includes("authorize(viewer.id,request.nextUrl.searchParams.get")&&upload.includes("authorize(viewer.id,form.get")],
  ["Document view uses same Entity and party-level authorization",view.includes("resolveFinanceEntityAccess(viewer.id")&&view.includes("canManageParties(viewer.id,access.entityId")&&view.includes("WHERE id=? AND entity_id=?")],
  ["Documents stay private and resist MIME sniffing",view.includes('"cache-control":"private, no-store"')&&view.includes('"x-content-type-options":"nosniff"')],
+ ["UTF-8 document filenames use a safe ASCII fallback and RFC 5987",view.includes("filename*=UTF-8")&&view.includes("asciiName=name.replace")],
  ["Upload validates an approved same-Entity party and allowed category",upload.includes("WHERE entity_id=? AND root_id=? AND status='approved'")&&upload.includes("party_type=? OR party_type='both'")],
  ["Upload validates file size, MIME and magic bytes",upload.includes("FINANCE_MAX_FILE")&&upload.includes("FINANCE_TYPES.has(type)")&&upload.includes("isFinanceDocumentType(type,bytes)")],
  ["Failed database insert deletes the uploaded object",upload.includes("uploads.delete(key)")],
