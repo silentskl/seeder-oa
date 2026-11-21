@@ -4,7 +4,7 @@ import {audit,all,one,run} from "@/lib/oa/db";
 import {getOaEnv} from "@/lib/oa/env";
 import {EntityAccessError} from "@/lib/oa/entity";
 import {resolveFinanceEntityAccess} from "@/lib/oa/finance-entity";
-import {canAccessContracts,CONTRACT_VIEW_PERMISSION,CONTRACT_UPLOAD_PERMISSION,ContractPermission} from "@/lib/oa/admin-permissions";
+import {canAccessContracts,CONTRACT_VIEW_PERMISSION,CONTRACT_UPLOAD_PERMISSION,type ContractPermission} from "@/lib/oa/admin-permissions";
 import {FINANCE_MAX_FILE,FINANCE_TYPES,isFinanceDocumentType,safeFileName} from "@/lib/oa/finance";
 
 export const runtime="nodejs";
