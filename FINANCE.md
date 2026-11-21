@@ -173,3 +173,38 @@ No bank-transfer initiation, bank ownership verification or bank-statement recon
 
 ## Verification
 Run python3 tests/test_finance_migration.py, node tests/check-ts-syntax.cjs overlay, Next.js tsc --noEmit and npm run build inside the complete Seeder application. Production deployment script verifies all five new tables and four Entity guard triggers after D1 migration and before publishing. Merging code does not deploy production.
+
+## Supplier/customer contract management (migration 9029)
+
+Open **Admin → Contracts** (`/admin/oa/contracts`). Select an Entity and an *approved*
+supplier or customer, then enter a contract title and optionally a contract
+number, effective/expiry dates and notes. Upload one PDF/JPEG/PNG/WebP (maximum
+12 MB) per record; create multiple records for multiple contract files. Contract
+records stay linked to the stable `oa_finance_party.root_id`, so approving a new
+version of supplier/customer information does not break existing links. The
+name at upload time is retained for historical display. The contract library
+supports supplier/customer filters, search, pagination, inline viewing and
+download. Documents are private; there are no public R2 or filesystem URLs.
+
+Entity administrators and users granted `finance.parties.manage` in **Accounts
+& Permissions** can upload and view contracts for their permitted Entity.
+Permission checks apply to both document uploads and document reads; access
+does not give those users invoice, payment or settlement approval rights.
+Cross-Entity access still respects the existing finance multi-Entity feature
+flags. Upload validation checks the approved party, party role, content type,
+file signature and size before writing. Database triggers independently reject
+wrong-Entity or wrong-role counterparty associations.
+
+**Deploy:** Migration `9029_oa_contract_management.sql` is additive and must
+be applied before publishing the corresponding Worker. The Cloudflare
+`update-deploy.sh` flow backs up D1, whitelists/applies 9029 and checks the
+contract table/triggers before deployment. The Ubuntu Docker Node entrypoint
+runs pending migrations at container start, so always back up local SQLite
+and uploads before rebuilding. Run
+`python3 tests/test_contracts_migration.py` and
+`node scripts/check-contracts-security.mjs ./seeder-oa-app` plus the
+complete Next.js build and a live two-Entity authorization test.
+
+Current scope: contract record creation, immutable attachment storage, list,
+view and download. Editing, deletion, version replacement, signing workflows
+and expiry reminders are not included.
