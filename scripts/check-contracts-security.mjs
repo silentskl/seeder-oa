@@ -26,7 +26,8 @@ const checks=[
     &&permissions.includes("m.active=1")&&permissions.includes("e.active=1")],
  ["Listing requires a contract grant and only reveals documents to viewers",
   upload.includes("if(!canView&&!canUpload)return fail(")
-    &&upload.includes("canView?all(")&&upload.includes("canAccessContracts(viewer.id,entity,CONTRACT_VIEW_PERMISSION)")
+    &&upload.includes("canView?all(")&&upload.includes("canUpload?all(")
+    &&upload.includes("canAccessContracts(viewer.id,entity,CONTRACT_VIEW_PERMISSION)")
     &&upload.includes("canAccessContracts(viewer.id,entity,CONTRACT_UPLOAD_PERMISSION)")],
  ["Uploads require the separate contract-upload permission",
   upload.includes('authorize(viewer.id,form.get("entity_id"),CONTRACT_UPLOAD_PERMISSION)')],
@@ -47,7 +48,8 @@ const checks=[
   grants.includes("if(!await isOaSuperAdmin(viewer.id))")
     &&grants.includes('if(action==="setContractPermission")')
     &&grants.includes("INSERT INTO oa_contract_permission")
-    &&grants.includes("DELETE FROM oa_contract_permission")],
+    &&grants.includes("DELETE FROM oa_contract_permission")
+    &&grants.includes("if(!member||member.active!==1)return fail(")],
  ["Super admin UI has two separately revocable contract permissions",
   accessUi.includes('value="contracts.view"')&&accessUi.includes('value="contracts.upload"')
     &&accessUi.includes('snapshot.contractGrants')],
