@@ -5,7 +5,7 @@ import {financeTr,useFinanceLanguage} from "@/lib/oa/finance-i18n";
 type Super={user_id:string;name:string;email:string;level:"founder"|"super_admin"};
 type Grant={entity_id:string;display_name:string;user_id:string;name:string;email:string;permission:string};
 type Entity={id:string;display_name:string};
-type Snapshot={supers:Super[];grants:Grant[];entities:Entity[];founderId:string|null;currentUserId:string};
+type Snapshot={supers:Super[];grants:Grant[];contractGrants:Grant[];entities:Entity[];founderId:string|null;currentUserId:string};
 const field="w-full rounded-md border border-neutral-300 bg-white p-2 text-sm text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-white";
 const btn="rounded-md border border-neutral-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-neutral-700";
 const primary="rounded-md bg-neutral-900 px-3 py-2 text-sm text-white disabled:opacity-50 dark:bg-white dark:text-neutral-900";
@@ -24,6 +24,8 @@ export function AdministratorAccess(){
  const [snapshot,setSnapshot]=useState<Snapshot|null>(null);
  const [superEmail,setSuperEmail]=useState("");
  const [partyEmail,setPartyEmail]=useState("");
+ const [contractEmail,setContractEmail]=useState("");
+ const [contractPermission,setContractPermission]=useState<"contracts.view"|"contracts.upload">("contracts.view");
  const [entity,setEntity]=useState("");
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState("");
@@ -45,7 +47,7 @@ export function AdministratorAccess(){
  const founder=snapshot?.supers.find(u=>u.user_id===snapshot.founderId);
  return <main className="mx-auto max-w-6xl space-y-5 p-4 md:p-6">
   <div><h1 className="text-xl font-semibold">{t("Accounts & permissions","账号与权限")}</h1>
-   <p className="mt-1 text-sm text-neutral-500">{t("Manage scoped supplier/customer administrators and additional super administrators. All changes are audited.","配置指定 Entity 的供应商/客户管理员和额外超级管理员，所有变更保留审计记录。")}</p>
+   <p className="mt-1 text-sm text-neutral-500">{t("Manage Entity-scoped supplier/customer and contract permissions, plus super administrators. All changes are audited.","按 Entity 配置供应商/客户与合同查看/上传权限，以及额外超级管理员。所有变更保留审计记录。")}</p>
   </div>
   {error&&<p role="alert" className="rounded-md border border-red-400 p-3 text-sm text-red-700">{error}</p>}
   {notice&&<p role="status" className="rounded-md border p-3 text-sm">{notice}</p>}
@@ -88,6 +90,36 @@ export function AdministratorAccess(){
       </tr>)}</tbody>
      </table>
      {!snapshot.grants.length&&<p className="p-3 text-sm text-neutral-500">{t("No ordinary administrator grants yet.","暂无普通管理员授权。")}</p>}
+    </div>
+   </section>
+   <section className={card}>
+    <h2 className="font-semibold">{t("Contracts · Super administrator authorization","合同管理 · 超级管理员授权")}</h2>
+    <p className="mt-1 text-xs text-neutral-500">{t("Contract viewing/downloading and uploading require separate explicit grants from a super administrator, scoped to an Entity. Supplier/customer administration does not include contract access.","查阅／下载合同与上传合同必须由超级管理员按 Entity 分别授权。供应商／客户管理权限不会自动附带合同权限。")}</p>
+    <form className="mt-3 grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]" onSubmit={(e:FormEvent<HTMLFormElement>)=>{
+     e.preventDefault();
+     void act("setContractPermission",{email:contractEmail,entityId:entity,permission:contractPermission,enabled:true}).then(()=>setContractEmail(""));
+    }}>
+     <input type="email" className={field} required placeholder={t("Existing account email","现有账号邮箱")} value={contractEmail} onChange={e=>setContractEmail(e.target.value)}/>
+     <select className={field} aria-label={t("Contract Entity","合同所属公司")} required value={entity} onChange={e=>setEntity(e.target.value)}>
+      {snapshot.entities.map(e=><option key={e.id} value={e.id}>{e.display_name}</option>)}
+     </select>
+     <select className={field} aria-label={t("Contract permission","合同权限")} value={contractPermission} onChange={e=>setContractPermission(e.target.value as "contracts.view"|"contracts.upload")}>
+      <option value="contracts.view">{t("View / download","查阅 / 下载")}</option>
+      <option value="contracts.upload">{t("Upload","上传")}</option>
+     </select>
+     <button className={primary} disabled={busy||!entity}>{t("Grant contract access","授予合同权限")}</button>
+    </form>
+    <div className="mt-4 overflow-x-auto">
+     <table className="w-full text-left text-sm">
+      <thead><tr className="border-b dark:border-neutral-800"><th className="p-2">{t("Account","账号")}</th><th className="p-2">Entity</th><th className="p-2">{t("Contract privilege","合同权限")}</th><th className="p-2"></th></tr></thead>
+      <tbody>{(snapshot.contractGrants||[]).map(g=><tr key={g.entity_id+g.user_id+g.permission} className="border-b dark:border-neutral-800">
+       <td className="p-2">{g.name||g.email}<div className="text-xs text-neutral-500">{g.email}</div></td>
+       <td className="p-2">{g.display_name}</td>
+       <td className="p-2">{g.permission==="contracts.upload"?t("Upload","上传"):t("View / download","查阅 / 下载")}</td>
+       <td className="p-2"><button className={btn} disabled={busy||g.user_id===snapshot.founderId} onClick={()=>void act("setContractPermission",{email:g.email,entityId:g.entity_id,permission:g.permission,enabled:false})}>{t("Revoke","撤销")}</button></td>
+      </tr>)}</tbody>
+     </table>
+     {!(snapshot.contractGrants||[]).length&&<p className="p-3 text-sm text-neutral-500">{t("No delegated contract permissions.","暂无委派的合同权限。")}</p>}
     </div>
    </section>
   </>}
