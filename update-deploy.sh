@@ -162,6 +162,8 @@ echo "[DEPLOY] Checking Phase 2B entity isolation source invariants..."
 node "$ROOT/scripts/check-phase2b-isolation.mjs" "$APP"
 echo "[DEPLOY] Checking Phase 3/4 company controls and direct-download isolation..."
 node "$ROOT/scripts/check-phase34-release.mjs" "$APP"
+echo "[OA] Checking contract source permissions and private file handling..."
+node "$ROOT/scripts/check-contracts-security.mjs" "$APP"
 # Do not enable unverified multi-company business access on production.
 # An existing Worker environment secret/variable must also be reviewed manually;
 # this check protects the tracked deployment config and current shell.
