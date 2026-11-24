@@ -39,6 +39,7 @@ function settlementDecisionBlock(row:{status:string;invoice_status:string;submit
 function withAccess(e:unknown){
  if(e instanceof EntityAccessError)return fail(e.message,e.status);
  const msg=errorText(e);
+ if(/Invalid settlement amount or invoice state|Invalid settlement decision or remaining balance/.test(msg))return fail("Settlement amount or invoice state changed; refresh and retry",409);
  if(msg.includes("duplicate normalized invoice number for approved counterparty"))
   return fail("Duplicate normalized invoice number already booked for this company and counterparty.",409);
  if(/^(Invalid|Missing|Select|Invoice|Bank|Cannot|Assignee|Only|This|Party|Settlement|Duplicate|No |A |Proof|Enable|AI extraction|PDF invoice)/.test(msg))return fail(msg,409);
@@ -59,17 +60,17 @@ export async function GET(request:NextRequest){
    return fail("Forbidden",403);
   if(view==="parties")return ok(await all<any>("SELECT * FROM oa_finance_party WHERE entity_id=? ORDER BY created_at DESC,id DESC LIMIT 300",[entity]));
   if(view==="balances")return ok(await all<any>(
-   "SELECT direction,currency,status,COUNT(*) AS invoice_count,COALESCE(SUM(amount_minor),0) AS amount_minor FROM oa_finance_invoice WHERE entity_id=? AND direction IN ('ar','ap') AND currency IS NOT NULL AND amount_minor>0 AND status IN ('open','settlement_pending','settled') GROUP BY direction,currency,status ORDER BY direction,currency,status",
+   "SELECT i.direction,i.currency,COUNT(*) AS invoice_count,SUM(i.amount_minor) AS amount_minor,SUM(t.paid_minor) AS paid_minor,SUM(t.pending_minor) AS pending_minor,SUM(i.amount_minor-t.paid_minor) AS remaining_minor,SUM(CASE WHEN i.amount_minor>t.paid_minor THEN 1 ELSE 0 END) AS outstanding_count,SUM(CASE WHEN t.pending_minor>0 THEN 1 ELSE 0 END) AS pending_count,SUM(CASE WHEN t.paid_minor>0 THEN 1 ELSE 0 END) AS paid_count FROM oa_finance_invoice i JOIN oa_finance_settlement_totals t ON t.entity_id=i.entity_id AND t.invoice_id=i.id WHERE i.entity_id=? AND i.direction IN ('ar','ap') AND i.currency IS NOT NULL AND i.amount_minor>0 AND i.status IN ('open','settlement_pending','settled') GROUP BY i.direction,i.currency ORDER BY i.direction,i.currency",
    [entity]
   ));
   if(view==="invoices"){
    const offset=Number(request.nextUrl.searchParams.get("offset")||0);
    if(!Number.isSafeInteger(offset)||offset<0||offset>1000000)return fail("Invalid invoice page offset");
-   const rows=await all<any>("SELECT i.*,dup.invoice_number AS duplicate_of_number,dup.status AS duplicate_of_status,dup.document_id AS duplicate_of_document_id,p.company_name AS approved_party_name,p.bank_account AS approved_bank_account,d.original_name AS document_name,a.address AS source_mailbox,a.provider AS source_provider,l.outcome AS last_ai_outcome,l.http_status AS last_ai_http_status,l.response_status AS last_ai_response_status,l.finish_reason AS last_ai_finish_reason,l.output_tokens AS last_ai_output_tokens,l.reasoning_tokens AS last_ai_reasoning_tokens,l.output_types AS last_ai_output_types,l.request_id AS last_ai_request_id,l.created_at AS last_ai_at FROM oa_finance_invoice i LEFT JOIN oa_finance_invoice dup ON dup.id=i.duplicate_of_invoice_id AND dup.entity_id=i.entity_id LEFT JOIN oa_finance_party p ON p.entity_id=i.entity_id AND p.root_id=i.party_root_id AND p.status='approved' LEFT JOIN oa_finance_document d ON d.id=i.document_id AND d.entity_id=i.entity_id LEFT JOIN oa_finance_mail_account a ON a.id=i.source_mail_account_id AND a.entity_id=i.entity_id LEFT JOIN oa_finance_ai_call_log l ON l.id=(SELECT d.id FROM oa_finance_ai_call_log d WHERE d.entity_id=i.entity_id AND d.invoice_id=i.id ORDER BY d.created_at DESC,d.id DESC LIMIT 1) WHERE i.entity_id=? ORDER BY i.created_at DESC,i.id DESC LIMIT 300 OFFSET ?",[entity,offset]);
+   const rows=await all<any>("SELECT i.*,t.paid_minor,t.pending_minor,CASE WHEN i.amount_minor IS NULL THEN NULL ELSE i.amount_minor-t.paid_minor END AS remaining_minor,dup.invoice_number AS duplicate_of_number,dup.status AS duplicate_of_status,dup.document_id AS duplicate_of_document_id,p.company_name AS approved_party_name,p.bank_account AS approved_bank_account,d.original_name AS document_name,a.address AS source_mailbox,a.provider AS source_provider,l.outcome AS last_ai_outcome,l.http_status AS last_ai_http_status,l.response_status AS last_ai_response_status,l.finish_reason AS last_ai_finish_reason,l.output_tokens AS last_ai_output_tokens,l.reasoning_tokens AS last_ai_reasoning_tokens,l.output_types AS last_ai_output_types,l.request_id AS last_ai_request_id,l.created_at AS last_ai_at FROM oa_finance_invoice i JOIN oa_finance_settlement_totals t ON t.entity_id=i.entity_id AND t.invoice_id=i.id LEFT JOIN oa_finance_invoice dup ON dup.id=i.duplicate_of_invoice_id AND dup.entity_id=i.entity_id LEFT JOIN oa_finance_party p ON p.entity_id=i.entity_id AND p.root_id=i.party_root_id AND p.status='approved' LEFT JOIN oa_finance_document d ON d.id=i.document_id AND d.entity_id=i.entity_id LEFT JOIN oa_finance_mail_account a ON a.id=i.source_mail_account_id AND a.entity_id=i.entity_id LEFT JOIN oa_finance_ai_call_log l ON l.id=(SELECT d.id FROM oa_finance_ai_call_log d WHERE d.entity_id=i.entity_id AND d.invoice_id=i.id ORDER BY d.created_at DESC,d.id DESC LIMIT 1) WHERE i.entity_id=? ORDER BY i.created_at DESC,i.id DESC LIMIT 300 OFFSET ?",[entity,offset]);
    return ok(rows.map(i=>{const expected=normalizedBank(i.approved_bank_account),received=normalizedBank(i.invoice_bank_account);return {...i,bank_check:!i.approved_bank_account?"unverified":!expected||!received?"missing":expected===received?"match":"mismatch",approved_bank_account:undefined};}));
   }
   if(view==="settlements"){
-   const rows=await all<any>("SELECT s.*,i.invoice_number,i.direction,i.currency,i.amount_minor,i.counterparty_name,i.status AS invoice_status,d.original_name AS proof_name,u.name AS submitter_name,u.email AS submitter_email FROM oa_finance_settlement s JOIN oa_finance_invoice i ON i.id=s.invoice_id AND i.entity_id=s.entity_id JOIN oa_finance_document d ON d.id=s.document_id AND d.entity_id=s.entity_id LEFT JOIN user u ON u.id=s.submitted_by WHERE s.entity_id=? ORDER BY s.submitted_at DESC,s.id DESC LIMIT 300",[entity]);
+   const rows=await all<any>("SELECT s.*,i.invoice_number,i.direction,i.currency,i.amount_minor AS invoice_amount_minor,i.counterparty_name,i.status AS invoice_status,d.original_name AS proof_name,u.name AS submitter_name,u.email AS submitter_email FROM oa_finance_settlement s JOIN oa_finance_invoice i ON i.id=s.invoice_id AND i.entity_id=s.entity_id JOIN oa_finance_document d ON d.id=s.document_id AND d.entity_id=s.entity_id LEFT JOIN user u ON u.id=s.submitted_by WHERE s.entity_id=? ORDER BY s.submitted_at DESC,s.id DESC LIMIT 300",[entity]);
    const superAdmin=await isOaSuperAdmin(access.userId);
    return ok(rows.map(s=>({...s,decision_block_reason:settlementDecisionBlock(s,access.userId,superAdmin),self_review_allowed:superAdmin&&s.submitted_by===access.userId})));
   }
@@ -296,19 +297,22 @@ export async function POST(request:NextRequest){
   }
   if(action==="settlement_submit"){
    const invoiceId=clean(body.invoice_id,80),documentId=clean(body.document_id,80);
-   const invoice=await one<any>("SELECT * FROM oa_finance_invoice WHERE entity_id=? AND id=? AND status='open'",[entity,invoiceId]);
+   const invoice=await one<any>("SELECT i.*,i.amount_minor-t.paid_minor AS remaining_minor FROM oa_finance_invoice i JOIN oa_finance_settlement_totals t ON t.entity_id=i.entity_id AND t.invoice_id=i.id WHERE i.entity_id=? AND i.id=? AND i.status='open'",[entity,invoiceId]);
    const doc=await one<any>("SELECT id FROM oa_finance_document WHERE entity_id=? AND id=? AND purpose='settlement'",[entity,documentId]);
    if(!invoice||!doc)throw new Error("Invoice must be open and receipt/payment proof must be uploaded");
+   const rawAmount=String(body.amount??"").trim();
+   if(!/^\d+(?:\.\d+)?$/.test(rawAmount))return fail("Invalid settlement amount",400);
+   const digits=new Intl.NumberFormat("en",{style:"currency",currency:invoice.currency}).resolvedOptions().maximumFractionDigits??2;
+   if((rawAmount.split(".")[1]||"").length>digits)return fail("Invalid settlement amount precision",400);
+   const amountMinor=majorToMinor(rawAmount,invoice.currency);
+   if(amountMinor<=0||amountMinor>invoice.remaining_minor)return fail("Settlement amount must be positive and no greater than remaining balance",409);
    if(invoice.direction==="ap"&&await bankCheck(entity,invoice.party_root_id,invoice.invoice_bank_account)!=="match")
      throw new Error("Bank account changed: supplier payment requires re-verification");
-   const id=crypto.randomUUID(),db=getOaEnv().db,assignee=clean(body.approver_id,80);
+   const id=crypto.randomUUID(),assignee=clean(body.approver_id,80);
    if(assignee)await adminAssignee(entity,assignee,viewer.id);
-   const result=await db.batch([
-    db.prepare("INSERT INTO oa_finance_settlement(id,entity_id,invoice_id,document_id,submitted_by,approver_user_id) VALUES(?,?,?,?,?,?)").bind(id,entity,invoiceId,documentId,viewer.id,assignee||null),
-    db.prepare("UPDATE oa_finance_invoice SET status='settlement_pending',updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='open'").bind(invoiceId,entity)
-   ]);
-   if(result[1].meta?.changes!==1)throw new Error("Invoice was changed during proof submission");
-   await audit(viewer.id,"finance.settlement.submit","finance_settlement",id,{invoiceId,documentId,assignee:assignee||null},entity);
+   // Database triggers reserve the balance and change invoice state atomically.
+   await run("INSERT INTO oa_finance_settlement(id,entity_id,invoice_id,document_id,submitted_by,approver_user_id,amount_minor) VALUES(?,?,?,?,?,?,?)",[id,entity,invoiceId,documentId,viewer.id,assignee||null,amountMinor]);
+   await audit(viewer.id,"finance.settlement.submit","finance_settlement",id,{invoiceId,documentId,assignee:assignee||null,amountMinor,currency:invoice.currency},entity);
    return ok({id,status:"pending"},201);
   }
   if(action==="settlement_assign"){
@@ -328,14 +332,13 @@ export async function POST(request:NextRequest){
    if(blocked==="assigned_other")return fail("Assigned administrator only",403);
    if(action==="settlement_approve"&&row.direction==="ap"&&await bankCheck(entity,row.party_root_id,row.invoice_bank_account)!=="match")
      throw new Error("Bank account mismatch: settlement approval blocked");
-   const db=getOaEnv().db,note=clean(body.note,1000),approve=action==="settlement_approve";
-   const result=await db.batch([
-    db.prepare("UPDATE oa_finance_settlement SET status=?,decided_by=?,decided_at=CURRENT_TIMESTAMP,note=? WHERE id=? AND entity_id=? AND status='pending'").bind(approve?"approved":"rejected",viewer.id,note||null,id,entity),
-    db.prepare("UPDATE oa_finance_invoice SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='settlement_pending'").bind(approve?"settled":"open",row.invoice_id,entity)
-   ]);
-   if(result[0].meta?.changes!==1||result[1].meta?.changes!==1)throw new Error("Settlement approval conflict");
-   await audit(viewer.id,approve?"finance.settlement.approve":"finance.settlement.reject","finance_settlement",id,{invoiceId:row.invoice_id,note,submittedBy:row.submitted_by,selfReviewed:row.submitted_by===viewer.id,superAdmin},entity);
-   return ok({status:approve?"approved":"rejected",invoice_status:approve?"settled":"open"});
+   const note=clean(body.note,1000),approve=action==="settlement_approve";
+   // Assignment is rechecked in the write; the database updates the invoice atomically.
+   const result=await run("UPDATE oa_finance_settlement SET status=?,decided_by=?,decided_at=CURRENT_TIMESTAMP,note=? WHERE id=? AND entity_id=? AND status='pending' AND (approver_user_id IS NULL OR approver_user_id=?)",[approve?"approved":"rejected",viewer.id,note||null,id,entity,viewer.id]);
+   if(result.meta?.changes!==1)throw new Error("Settlement approval conflict");
+   const current=await one<any>("SELECT i.status,t.paid_minor,i.amount_minor-t.paid_minor AS remaining_minor FROM oa_finance_invoice i JOIN oa_finance_settlement_totals t ON t.entity_id=i.entity_id AND t.invoice_id=i.id WHERE i.id=? AND i.entity_id=?",[row.invoice_id,entity]);
+   await audit(viewer.id,approve?"finance.settlement.approve":"finance.settlement.reject","finance_settlement",id,{invoiceId:row.invoice_id,note,submittedBy:row.submitted_by,selfReviewed:row.submitted_by===viewer.id,superAdmin,amountMinor:row.amount_minor,remainingMinor:current?.remaining_minor},entity);
+   return ok({status:approve?"approved":"rejected",invoice_status:current?.status,paid_minor:current?.paid_minor,remaining_minor:current?.remaining_minor});
   }
   return fail("Unknown finance action",404);
  }catch(e){if(errorText(e)==="UNAUTHORIZED")return fail("Unauthorized",401);return withAccess(e);}
