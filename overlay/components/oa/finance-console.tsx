@@ -87,6 +87,7 @@ export function FinanceConsole({section}:{section:Section}){
  const [party,setParty]=useState<Row>({...emptyParty}),[review,setReview]=useState<Row>({...emptyReview});
  const [mailbox,setMailbox]=useState(""),[receiveAddress,setReceiveAddress]=useState(""),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true);
  const [error,setError]=useState(""),[notice,setNotice]=useState("");
+ const [settlementFeedback,setSettlementFeedback]=useState<{id:string;error:string}|null>(null);
  const [directionFilter,setDirectionFilter]=useState("ar");
  const [uploadProgress,setUploadProgress]=useState("");
  const load=useCallback(async(id:string)=>{
@@ -156,6 +157,7 @@ export function FinanceConsole({section}:{section:Section}){
   }finally{setUploadProgress("");setBusy(false);}
  }
  function selectEntity(id:string){
+  setSettlementFeedback(null);
   selectedEntity.current=id;requestVersion.current++;
   setEntity(id);setLoading(true);setError("");setParty({...emptyParty});setReview({...emptyReview});setActiveTab("data");setConfigTab("mailboxes");setInvoices([]);setInvoiceOffset(0);setHasMoreInvoices(false);
   window.sessionStorage.setItem("oa.selectedEntity",id);
@@ -183,10 +185,20 @@ export function FinanceConsole({section}:{section:Section}){
  const checks=invoiceReviewChecks({counterparty_name:review.counterparty_name,invoice_bank_name:review.invoice_bank_name,invoice_bank_account:review.invoice_bank_account,invoice_bank_swift:review.invoice_bank_swift,currency:review.currency},approvedParty);
  const reviewVerified=!!approvedParty&&invoiceReviewVerified(checks);
  const shownInvoices=invoices.filter(i=>i.direction===directionFilter&&(statusFilter==="all"||(statusFilter==="possible_duplicate"?i.duplicate_status==="possible":i.status===statusFilter)));
- const assignee=(assigned:string|null,action:string,id:string)=>(
+ async function decideSettlement(s:Row,approve:boolean){
+  if(busy||s.decision_block_reason)return;
+  const note=approve?"":window.prompt(t("Rejection note","拒绝说明"));
+  if(note===null)return;
+  setSettlementFeedback(null);
+  await run(async()=>{
+   try{await request(entity,approve?"settlement_approve":"settlement_reject",{id:s.id,note});}
+   catch(e){setSettlementFeedback({id:s.id,error:e instanceof Error?e.message:String(e)});throw e;}
+  },approve?(s.direction==="ar"?t("Receipt confirmed; invoice marked received.","收款已确认，发票已标记为已收款。"):t("Payment confirmed; invoice marked paid.","付款已确认，发票已标记为已付款。")):t("Bank proof rejected.","银行凭证已拒绝。"));
+ }
+ const assignee=(assigned:string|null,action:string,id:string,excludedUser?:string)=>(
   <select aria-label="Assign approving admin" className={input+" max-w-52"} value={assigned||""} disabled={busy}
     onChange={e=>{if(e.target.value)void run(()=>request(entity,action,{id,approver_id:e.target.value}),t("Approver assigned.","已指派审批人。"));}}>
-   <option value="">{t("Any other admin","任意其他管理员")}</option>{admins.map(a=><option key={a.id} value={a.id}>{a.name||a.email}</option>)}
+   <option value="">{t("Any other admin","任意其他管理员")}</option>{admins.filter(a=>a.id!==excludedUser).map(a=><option key={a.id} value={a.id}>{a.name||a.email}</option>)}
   </select>
  );
  return <div className="mx-auto max-w-7xl space-y-4 p-4 md:p-6">
@@ -363,11 +375,15 @@ export function FinanceConsole({section}:{section:Section}){
     <div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead><tr>{[t("Invoice","发票"),t("Type / Amount","类型与金额"),t("Evidence","凭证"),t("Approval","审核"),t("Action","操作")].map(x=><th key={x} className="p-2 text-xs text-neutral-500">{x}</th>)}</tr></thead><tbody>
      {settlements.map(s=><tr key={s.id} className="border-t align-top dark:border-neutral-800"><td className="p-2">{s.invoice_number||s.invoice_id}</td><td className="p-2">{String(s.direction).toUpperCase()} · {amount(s.amount_minor,s.currency)}</td>
       <td className="p-2"><a className="underline" href={fileUrl(entity,s.document_id)}>{s.proof_name||t("Bank proof","银行凭证")}</a></td>
-      <td className="p-2">{s.status}<div className="text-xs text-neutral-500">{s.decided_at||s.submitted_at}</div></td>
-      <td className="p-2">{s.status==="pending"?<div className="flex flex-wrap gap-2">
-       {assignee(s.approver_user_id,"settlement_assign",s.id)}
-       <button className={primary} disabled={busy} onClick={()=>void run(()=>request(entity,"settlement_approve",{id:s.id}),s.direction==="ar"?t("Receipt confirmed; invoice marked received.","收款已确认，发票已标记为已收款。"):t("Payment confirmed; invoice marked paid.","付款已确认，发票已标记为已付款。"))}>{t("Approve","批准")} {s.direction==="ar"?t("receipt","收款"):t("payment","付款")}</button>
-       <button className={btn} disabled={busy} onClick={()=>void run(()=>request(entity,"settlement_reject",{id:s.id,note:window.prompt(t("Rejection note","拒绝说明"))||""}),t("Bank proof rejected.","银行凭证已拒绝。"))}>Reject</button>
+      <td className="p-2">{s.status==="pending"?t("Pending","待审核"):s.status==="approved"?t("Approved","已批准"):s.status==="rejected"?t("Rejected","已拒绝"):s.status}<div className="text-xs text-neutral-500">{s.decided_at||s.submitted_at}</div><div className="text-xs text-neutral-500">{t("Submitted by","提交人")}: {s.submitter_name||s.submitter_email||s.submitted_by}</div></td>
+      <td className="p-2">{s.status==="pending"?<div className="space-y-2">
+       <div className="flex flex-wrap gap-2">
+        {assignee(s.approver_user_id,"settlement_assign",s.id,s.submitted_by)}
+        <button type="button" className={primary} disabled={busy||!!s.decision_block_reason} onClick={()=>void decideSettlement(s,true)}>{t("Approve","批准")} {s.direction==="ar"?t("receipt","收款"):t("payment","付款")}</button>
+        <button type="button" className={btn} disabled={busy||!!s.decision_block_reason} onClick={()=>void decideSettlement(s,false)}>{t("Reject","拒绝")}</button>
+       </div>
+       {s.decision_block_reason&&<p className="text-xs text-amber-700 dark:text-amber-300">{s.decision_block_reason==="own_submission"?t("You submitted this proof. Another administrator must approve it.","此凭证由当前账号提交，须由另一名管理员审核。"):s.decision_block_reason==="assigned_other"?t("Only the assigned administrator may review this proof.","此凭证已指派给其他管理员，仅指定审批人可审核。"):t("The invoice is no longer awaiting settlement approval.","关联发票不再处于待核销审核状态。")}</p>}
+       {settlementFeedback?.id===s.id&&<p role="alert" className="text-sm text-red-700 dark:text-red-300">{financeError(lang,settlementFeedback.error)}</p>}
       </div>:null}</td>
      </tr>)}</tbody></table></div>
    </section>
