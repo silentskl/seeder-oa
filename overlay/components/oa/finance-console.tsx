@@ -36,14 +36,16 @@ async function request(entityId:string,action:string,data:Record<string,unknown>
  if(!res.ok||!json?.ok)throw new Error(json?.error||"Finance HTTP "+res.status);
  return json.data;
 }
+let financeReadSequence=0;
+const freshRead=()=> "&_fresh="+Date.now()+"-"+(++financeReadSequence);
 async function fetchView(entityId:string,view:string){
- const res=await fetch("/api/oa/finance?entity_id="+encodeURIComponent(entityId)+"&view="+encodeURIComponent(view),{cache:"no-store"});
+ const res=await fetch("/api/oa/finance?entity_id="+encodeURIComponent(entityId)+"&view="+encodeURIComponent(view)+freshRead(),{cache:"no-store"});
  const json=await res.json().catch(()=>null);
  if(!res.ok||!json?.ok)throw new Error(json?.error||"Unable to load "+view);
  return json.data;
 }
 async function fetchInvoicePage(entityId:string,offset:number){
- const res=await fetch("/api/oa/finance?entity_id="+encodeURIComponent(entityId)+"&view=invoices&offset="+encodeURIComponent(String(offset)),{cache:"no-store"});
+ const res=await fetch("/api/oa/finance?entity_id="+encodeURIComponent(entityId)+"&view=invoices&offset="+encodeURIComponent(String(offset))+freshRead(),{cache:"no-store"});
  const result=await res.json().catch(()=>null);
  if(!res.ok||!result?.ok)throw new Error(result?.error||"Unable to load invoice page");
  return result.data as Row[];
@@ -90,21 +92,37 @@ export function FinanceConsole({section}:{section:Section}){
  const [party,setParty]=useState<Row>({...emptyParty}),[review,setReview]=useState<Row>({...emptyReview});
  const [mailbox,setMailbox]=useState(""),[receiveAddress,setReceiveAddress]=useState(""),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true);
  const [error,setError]=useState(""),[notice,setNotice]=useState("");
+ const [refreshWarning,setRefreshWarning]=useState(false);
  const [settlementFeedback,setSettlementFeedback]=useState<{id:string;error:string}|null>(null);
  const [directionFilter,setDirectionFilter]=useState("ar");
  const [uploadProgress,setUploadProgress]=useState("");
  const load=useCallback(async(id:string)=>{
   if(id!==selectedEntity.current)return;
   const seq=++requestVersion.current;
-  if(section==="parties"){
-   const [p,c]=await Promise.all([fetchView(id,"parties"),fetchView(id,"config")]);
-   if(seq!==requestVersion.current||id!==selectedEntity.current)return;
-   setParties(p);setConfig(c);
-   return;
+  const isCurrent=()=>seq===requestVersion.current&&id===selectedEntity.current;
+  // Each view refreshes independently. A failed mailbox/config request must
+  // not prevent invoice, settlement or balance data from updating.
+  async function refresh<T>(fetcher:()=>Promise<T>,apply:(value:T)=>void){
+   let last:unknown;
+   for(let attempt=0;attempt<2;attempt++){
+    if(!isCurrent())return true;
+    try{const value=await fetcher();if(isCurrent())apply(value);return true;}
+    catch(e){last=e;}
+   }
+   console.warn("Finance view refresh failed",last);
+   return false;
   }
-  const [p,i,s,c,b]=await Promise.all([fetchView(id,"parties"),fetchInvoicePage(id,0),fetchView(id,"settlements"),fetchView(id,"config"),fetchView(id,"balances")]);
-  if(seq!==requestVersion.current||id!==selectedEntity.current)return;
-  setParties(p);setInvoices(i);setInvoiceOffset(i.length);setHasMoreInvoices(i.length===300);setSettlements(s);setBalances(b);setConfig(c);setMailbox(c.mailbox||"");setReceiveAddress(c.receiveAddress||c.mailbox||"");
+  const jobs=[
+   refresh(()=>fetchView(id,"parties"),setParties),
+   refresh(()=>fetchView(id,"config"),c=>{setConfig(c);if(section!=="parties"){setMailbox(c.mailbox||"");setReceiveAddress(c.receiveAddress||c.mailbox||"");}})
+  ];
+  if(section!=="parties")jobs.push(
+   refresh(()=>fetchInvoicePage(id,0),i=>{setInvoices(i);setInvoiceOffset(i.length);setHasMoreInvoices(i.length===300);}),
+   refresh(()=>fetchView(id,"settlements"),setSettlements),
+   refresh(()=>fetchView(id,"balances"),setBalances)
+  );
+  const results=await Promise.all(jobs);
+  if(isCurrent())setRefreshWarning(results.some(success=>!success));
  },[section]);
  useEffect(()=>{
   let active=true;
@@ -126,13 +144,13 @@ export function FinanceConsole({section}:{section:Section}){
  async function run(task:()=>Promise<any>,message:string){
   const company=entity;
   setBusy(true);setError("");setNotice("");
-  try{await task();setNotice(message);}
-  catch(e){setError(e instanceof Error?e.message:String(e));}
+  try{await task();if(selectedEntity.current===company)setNotice(message);}
+  catch(e){if(selectedEntity.current===company)setError(e instanceof Error?e.message:String(e));}
   finally{
    // Refresh even on error so failed re-extractions replace the old stored note
    // with the latest diagnostic result from the server.
    try{await load(company);}
-   catch(e){setError(e instanceof Error?e.message:String(e));}
+   catch(e){if(selectedEntity.current===company)setRefreshWarning(true);}
    setBusy(false);
   }
  }
@@ -160,9 +178,9 @@ export function FinanceConsole({section}:{section:Section}){
   }finally{setUploadProgress("");setBusy(false);}
  }
  function selectEntity(id:string){
-  setSettlementFeedback(null);
+  setSettlementFeedback(null);setRefreshWarning(false);
   selectedEntity.current=id;requestVersion.current++;
-  setEntity(id);setLoading(true);setError("");setParty({...emptyParty});setReview({...emptyReview});setActiveTab("data");setConfigTab("mailboxes");setInvoices([]);setInvoiceOffset(0);setHasMoreInvoices(false);
+  setEntity(id);setLoading(true);setError("");setNotice("");setParty({...emptyParty});setReview({...emptyReview});setActiveTab("data");setConfigTab("mailboxes");setParties([]);setInvoices([]);setSettlements([]);setBalances([]);setConfig({});setInvoiceOffset(0);setHasMoreInvoices(false);
   window.sessionStorage.setItem("oa.selectedEntity",id);
   void load(id).catch(e=>setError(String(e))).finally(()=>setLoading(false));
  }
@@ -194,7 +212,14 @@ export function FinanceConsole({section}:{section:Section}){
   if(note===null)return;
   setSettlementFeedback(null);
   await run(async()=>{
-   try{await request(entity,approve?"settlement_approve":"settlement_reject",{id:s.id,note});}
+   try{
+    const result=await request(entity,approve?"settlement_approve":"settlement_reject",{id:s.id,note});
+    // Apply confirmed server state immediately, then run() reloads all views.
+    if(selectedEntity.current===entity){
+     setSettlements(prev=>prev.map(row=>row.id===s.id?{...row,status:result.status,decided_at:result.decided_at,invoice_status:result.invoice_status,decision_block_reason:"not_pending",self_review_allowed:false}:row));
+     if(result.invoice_status)setInvoices(prev=>prev.map(row=>row.id===s.invoice_id?{...row,status:result.invoice_status,paid_minor:result.paid_minor,pending_minor:result.pending_minor,remaining_minor:result.remaining_minor}:row));
+    }
+   }
    catch(e){setSettlementFeedback({id:s.id,error:e instanceof Error?e.message:String(e)});throw e;}
   },approve?(s.direction==="ar"?t("Receipt confirmed; invoice balance updated.","本次收款已确认，发票余额已更新。"):t("Payment confirmed; invoice balance updated.","本次付款已确认，发票余额已更新。")):t("Bank proof rejected.","银行凭证已拒绝。"));
  }
@@ -216,6 +241,7 @@ export function FinanceConsole({section}:{section:Section}){
   </div>
   {error&&<div role="alert" className="whitespace-pre-wrap rounded-md border border-red-300 p-3 text-sm text-red-700 dark:text-red-300">{financeError(lang,error)}</div>}
   {notice&&<div role="status" className="rounded-md border p-3 text-sm">{notice}</div>}
+  {refreshWarning&&<div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-amber-400 p-3 text-sm text-amber-800 dark:text-amber-200">{t("Some views could not be refreshed. The action result is separate; retry loading the latest data.","部分数据暂未刷新，操作结果不受影响。请重试加载最新数据。")}<button type="button" className={btn} disabled={busy} onClick={()=>{setBusy(true);void load(entity).finally(()=>setBusy(false));}}>{t("Refresh data","刷新数据")}</button></div>}
   {loading?<p className="text-sm text-neutral-500">{t("Loading finance records…","正在加载财务数据…")}</p>:section==="parties"?<>
    {activeTab==="config"&&<>
    <section className={card}>

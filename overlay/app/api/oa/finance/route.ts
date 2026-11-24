@@ -12,8 +12,10 @@ import {invoiceReviewChecks,invoiceReviewVerified} from "@/lib/oa/finance-review
 import {duplicateFields,findBusinessInvoiceDuplicate} from "@/lib/oa/finance-duplicates";
 
 export const runtime="nodejs";
-const ok=(data:unknown,status=200)=>NextResponse.json({ok:true,data},{status});
-const fail=(error:string,status=400)=>NextResponse.json({ok:false,error},{status});
+export const dynamic="force-dynamic";
+const financeHeaders={"Cache-Control":"private, no-store, max-age=0, must-revalidate","CDN-Cache-Control":"no-store","Cloudflare-CDN-Cache-Control":"no-store"};
+const ok=(data:unknown,status=200)=>NextResponse.json({ok:true,data},{status,headers:financeHeaders});
+const fail=(error:string,status=400)=>NextResponse.json({ok:false,error},{status,headers:financeHeaders});
 const errorText=(e:unknown)=>e instanceof Error?e.message:String(e);
 function checkEmail(v:unknown){const s=clean(v,320);if(s&&!mailAddress(s))throw new Error("Invalid email address");return s.toLowerCase();}
 function validDate(v:unknown){const s=clean(v,10);if(s&&!/^\d{4}-\d{2}-\d{2}$/.test(s))throw new Error("Invalid YYYY-MM-DD date");return s||null;}
@@ -334,11 +336,13 @@ export async function POST(request:NextRequest){
      throw new Error("Bank account mismatch: settlement approval blocked");
    const note=clean(body.note,1000),approve=action==="settlement_approve";
    // Assignment is rechecked in the write; the database updates the invoice atomically.
-   const result=await run("UPDATE oa_finance_settlement SET status=?,decided_by=?,decided_at=CURRENT_TIMESTAMP,note=? WHERE id=? AND entity_id=? AND status='pending' AND (approver_user_id IS NULL OR approver_user_id=?)",[approve?"approved":"rejected",viewer.id,note||null,id,entity,viewer.id]);
-   if(result.meta?.changes!==1)throw new Error("Settlement approval conflict");
-   const current=await one<any>("SELECT i.status,t.paid_minor,i.amount_minor-t.paid_minor AS remaining_minor FROM oa_finance_invoice i JOIN oa_finance_settlement_totals t ON t.entity_id=i.entity_id AND t.invoice_id=i.id WHERE i.id=? AND i.entity_id=?",[row.invoice_id,entity]);
+   // RETURNING identifies the directly updated proof, independent of D1's
+   // affected-row metadata for the invoice state trigger.
+   const changed=await one<{id:string;status:string;decided_at:string}>("UPDATE oa_finance_settlement SET status=?,decided_by=?,decided_at=CURRENT_TIMESTAMP,note=? WHERE id=? AND entity_id=? AND status='pending' AND (approver_user_id IS NULL OR approver_user_id=?) RETURNING id,status,decided_at",[approve?"approved":"rejected",viewer.id,note||null,id,entity,viewer.id]);
+   if(!changed)throw new Error("Settlement approval conflict");
+   const current=await one<any>("SELECT i.status,t.paid_minor,t.pending_minor,i.amount_minor-t.paid_minor AS remaining_minor FROM oa_finance_invoice i JOIN oa_finance_settlement_totals t ON t.entity_id=i.entity_id AND t.invoice_id=i.id WHERE i.id=? AND i.entity_id=?",[row.invoice_id,entity]);
    await audit(viewer.id,approve?"finance.settlement.approve":"finance.settlement.reject","finance_settlement",id,{invoiceId:row.invoice_id,note,submittedBy:row.submitted_by,selfReviewed:row.submitted_by===viewer.id,superAdmin,amountMinor:row.amount_minor,remainingMinor:current?.remaining_minor},entity);
-   return ok({status:approve?"approved":"rejected",invoice_status:current?.status,paid_minor:current?.paid_minor,remaining_minor:current?.remaining_minor});
+   return ok({id:changed.id,status:changed.status,decided_at:changed.decided_at,invoice_id:row.invoice_id,invoice_status:current?.status,paid_minor:current?.paid_minor,pending_minor:current?.pending_minor,remaining_minor:current?.remaining_minor});
   }
   return fail("Unknown finance action",404);
  }catch(e){if(errorText(e)==="UNAUTHORIZED")return fail("Unauthorized",401);return withAccess(e);}
