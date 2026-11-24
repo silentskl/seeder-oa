@@ -61,7 +61,10 @@ export async function GET(request:NextRequest){
    const rows=await all<any>("SELECT i.*,dup.invoice_number AS duplicate_of_number,dup.status AS duplicate_of_status,dup.document_id AS duplicate_of_document_id,p.company_name AS approved_party_name,p.bank_account AS approved_bank_account,d.original_name AS document_name,a.address AS source_mailbox,a.provider AS source_provider,l.outcome AS last_ai_outcome,l.http_status AS last_ai_http_status,l.response_status AS last_ai_response_status,l.finish_reason AS last_ai_finish_reason,l.output_tokens AS last_ai_output_tokens,l.reasoning_tokens AS last_ai_reasoning_tokens,l.output_types AS last_ai_output_types,l.request_id AS last_ai_request_id,l.created_at AS last_ai_at FROM oa_finance_invoice i LEFT JOIN oa_finance_invoice dup ON dup.id=i.duplicate_of_invoice_id AND dup.entity_id=i.entity_id LEFT JOIN oa_finance_party p ON p.entity_id=i.entity_id AND p.root_id=i.party_root_id AND p.status='approved' LEFT JOIN oa_finance_document d ON d.id=i.document_id AND d.entity_id=i.entity_id LEFT JOIN oa_finance_mail_account a ON a.id=i.source_mail_account_id AND a.entity_id=i.entity_id LEFT JOIN oa_finance_ai_call_log l ON l.id=(SELECT d.id FROM oa_finance_ai_call_log d WHERE d.entity_id=i.entity_id AND d.invoice_id=i.id ORDER BY d.created_at DESC,d.id DESC LIMIT 1) WHERE i.entity_id=? ORDER BY i.created_at DESC,i.id DESC LIMIT 300 OFFSET ?",[entity,offset]);
    return ok(rows.map(i=>{const expected=normalizedBank(i.approved_bank_account),received=normalizedBank(i.invoice_bank_account);return {...i,bank_check:!i.approved_bank_account?"unverified":!expected||!received?"missing":expected===received?"match":"mismatch",approved_bank_account:undefined};}));
   }
-  if(view==="settlements")return ok(await all<any>("SELECT s.*,i.invoice_number,i.direction,i.currency,i.amount_minor,i.counterparty_name,d.original_name AS proof_name FROM oa_finance_settlement s JOIN oa_finance_invoice i ON i.id=s.invoice_id AND i.entity_id=s.entity_id JOIN oa_finance_document d ON d.id=s.document_id AND d.entity_id=s.entity_id WHERE s.entity_id=? ORDER BY s.submitted_at DESC,s.id DESC LIMIT 300",[entity]));
+  if(view==="settlements"){
+   const rows=await all<any>("SELECT s.*,i.invoice_number,i.direction,i.currency,i.amount_minor,i.counterparty_name,i.status AS invoice_status,d.original_name AS proof_name,u.name AS submitter_name,u.email AS submitter_email FROM oa_finance_settlement s JOIN oa_finance_invoice i ON i.id=s.invoice_id AND i.entity_id=s.entity_id JOIN oa_finance_document d ON d.id=s.document_id AND d.entity_id=s.entity_id LEFT JOIN user u ON u.id=s.submitted_by WHERE s.entity_id=? ORDER BY s.submitted_at DESC,s.id DESC LIMIT 300",[entity]);
+   return ok(rows.map(s=>({...s,decision_block_reason:s.status!=="pending"||s.invoice_status!=="settlement_pending"?"not_pending":s.submitted_by===access.userId?"own_submission":s.approver_user_id&&s.approver_user_id!==access.userId?"assigned_other":null})));
+  }
   if(view==="config"){
    if(access.role!=="admin"){
     const approvers=await all<{id:string;name:string;email:string}>(
@@ -69,7 +72,7 @@ export async function GET(request:NextRequest){
     return ok({approvers,mailbox:"",receiveAddress:"",aiConfigured:false,resendConfigured:false});
    }
    const mailbox=await one<{address:string;receive_address:string}>("SELECT address,receive_address FROM oa_finance_mailbox WHERE entity_id=?",[entity]);
-   const approvers=await all<{id:string;name:string;email:string}>("SELECT u.id,u.name,u.email FROM oa_entity_member m JOIN user u ON u.id=m.user_id WHERE m.entity_id=? AND m.active=1 AND m.role='admin' ORDER BY u.name,u.email",[entity]);
+   const approvers=await all<{id:string;name:string;email:string}>("SELECT u.id,u.name,u.email FROM user u WHERE EXISTS(SELECT 1 FROM oa_entity_member m WHERE m.entity_id=? AND m.user_id=u.id AND m.active=1 AND m.role='admin') OR EXISTS(SELECT 1 FROM oa_platform_administrator p WHERE p.user_id=u.id) ORDER BY u.name,u.email",[entity]);
    const ai=await publicFinanceAiSettings(entity);
    return ok({mailbox:mailbox?.address||"",receiveAddress:mailbox?.receive_address||"",approvers,aiConfigured:ai.enabled&&ai.api_key_configured||ai.legacy_environment_configured,resendConfigured:!!getOaEnv().financeResendApiKey&&!!getOaEnv().financeResendWebhookSecret});
   }
@@ -310,8 +313,8 @@ export async function POST(request:NextRequest){
   }
   if(action==="settlement_approve"||action==="settlement_reject"){
    const id=clean(body.id,80),row=await one<any>("SELECT s.*,i.direction,i.party_root_id,i.invoice_bank_account,i.status AS invoice_status FROM oa_finance_settlement s JOIN oa_finance_invoice i ON i.id=s.invoice_id AND i.entity_id=s.entity_id WHERE s.id=? AND s.entity_id=? AND s.status='pending'",[id,entity]);
-   if(!row||row.invoice_status!=="settlement_pending")throw new Error("Settlement is no longer pending");
-   if(row.submitted_by===viewer.id)throw new Error("Cannot approve or reject your own proof submission");
+   if(!row||row.invoice_status!=="settlement_pending")return fail("Settlement is no longer pending",409);
+   if(row.submitted_by===viewer.id)return fail("Cannot approve or reject your own proof submission",403);
    if(row.approver_user_id&&row.approver_user_id!==viewer.id)return fail("Assigned administrator only",403);
    if(action==="settlement_approve"&&row.direction==="ap"&&await bankCheck(entity,row.party_root_id,row.invoice_bank_account)!=="match")
      throw new Error("Bank account mismatch: settlement approval blocked");
