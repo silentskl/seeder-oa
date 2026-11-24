@@ -59,6 +59,17 @@ class PartialSettlementTests(unittest.TestCase):
   with self.assertRaises(sqlite3.IntegrityError):
    self.db.execute("INSERT INTO oa_finance_settlement(id,entity_id,invoice_id,document_id,submitted_by,amount_minor) VALUES('new','e','inv','0','u',25000)")
   self.check('open',25000,0)
+ def test_decision_returning_with_invoice_trigger(self):
+  self.migrate()
+  self.submit(0,30000)
+  api=(ROOT/"overlay/app/api/oa/finance/route.ts").read_text()
+  line=next(line for line in api.splitlines() if 'RETURNING id,status,decided_at' in line)
+  query=line.split('>("',1)[1].split('",[',1)[0]
+  result=self.db.execute(query,('approved','u',None,'0','e','u')).fetchone()
+  self.assertEqual(result[:2],('0','approved'))
+  self.check('open',30000,0)
+  self.assertIsNone(self.db.execute(query,('approved','u',None,'0','e','u')).fetchone())
+  self.check('open',30000,0)
  def test_legacy_full_payment(self):
   self.db.execute("INSERT INTO oa_finance_settlement(id,entity_id,invoice_id,document_id,submitted_by,status) VALUES('0','e','inv','0','u','approved')")
   self.db.execute("UPDATE oa_finance_invoice SET status='settled' WHERE id='inv'")
