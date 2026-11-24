@@ -384,7 +384,7 @@ export function FinanceConsole({section}:{section:Section}){
        </div>
        {s.self_review_allowed&&!s.decision_block_reason&&<p className="text-xs text-neutral-500">{t("Super administrator self-review permitted; recorded in the audit log.","超级管理员可自审，操作将记入审计日志。")}</p>}
         {s.decision_block_reason&&<p className="text-xs text-amber-700 dark:text-amber-300">{s.decision_block_reason==="own_submission"?t("You submitted this proof. Another administrator must approve it.","此凭证由当前账号提交，须由另一名管理员审核。"):s.decision_block_reason==="assigned_other"?t("Only the assigned administrator may review this proof.","此凭证已指派给其他管理员，仅指定审批人可审核。"):t("The invoice is no longer awaiting settlement approval.","关联发票不再处于待核销审核状态。")}</p>}
-       {settlementFeedback?.id===s.id&&<p role="alert" className="text-sm text-red-700 dark:text-red-300">{financeError(lang,settlementFeedback.error)}</p>}
+       {settlementFeedback!==null&&settlementFeedback.id===s.id&&<p role="alert" className="text-sm text-red-700 dark:text-red-300">{financeError(lang,settlementFeedback.error)}</p>}
       </div>:null}</td>
      </tr>)}</tbody></table></div>
    </section>
