@@ -215,3 +215,7 @@ complete Next.js build and a live two-Entity authorization test.
 Current scope: contract record creation, immutable attachment storage, list,
 view and download. Editing, deletion, version replacement, signing workflows
 and expiry reminders are not included.
+
+## Manual invoice uploads
+
+Finance → Data → Accounts Receivable / Accounts Payable accepts multiple PDF/JPEG/PNG/WebP attachments (12 MB per file) by file picker or drag-and-drop. Each file uses the existing private document upload and invoice AI extraction API independently. The selected direction is a review hint; a contradictory detected direction goes to Unclassified, and missing classification evidence requires manual review. Original documents are retained. Existing entity administrator authorization, normalized invoice-number duplicate review, financial confirmation checks, and email synchronization remain unchanged. Source is shown as Manual upload or Email. A batch reports per-file errors without aborting remaining files.

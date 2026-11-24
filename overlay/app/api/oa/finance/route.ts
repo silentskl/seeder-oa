@@ -137,21 +137,25 @@ export async function POST(request:NextRequest){
    return ok({status:action==="party_approve"?"approved":"rejected"});
   }
   if(action==="invoice_import"){
+   const requestedDirection=body.direction==null?undefined:body.direction;
+   if(requestedDirection!==undefined&&requestedDirection!=="ar"&&requestedDirection!=="ap")return fail("Invalid invoice direction",400);
    const documentId=clean(body.document_id,90);
    const doc=await one<any>("SELECT * FROM oa_finance_document WHERE id=? AND entity_id=? AND purpose='invoice'",[documentId,entity]);
    if(!doc)throw new Error("Invoice document not found");
-   if(await one("SELECT id FROM oa_finance_invoice WHERE entity_id=? AND document_id=?",[entity,documentId]))throw new Error("Duplicate invoice document import");
+   const existing=await one<{id:string}>("SELECT id FROM oa_finance_invoice WHERE entity_id=? AND document_id=?",[entity,documentId]);
+   if(existing)return ok({id:existing.id,duplicate:true});
+   if(doc.uploaded_by!==viewer.id)return fail("Forbidden",403);
    const object=await getOaEnv().uploads.get(doc.r2_key);if(!object)throw new Error("Invoice document bytes missing");
-   const parsed=await extractInvoice({entityId:entity,bytes:new Uint8Array(await object.arrayBuffer()),type:doc.content_type,name:doc.original_name,subject:clean(body.subject,160),body:"",sender:""});
+   const parsed=await extractInvoice({entityId:entity,bytes:new Uint8Array(await object.arrayBuffer()),type:doc.content_type,name:doc.original_name,subject:clean(body.subject,160),body:"",sender:"",requestedDirection});
    const id=await createInvoice({entityId:entity,documentId,source:"manual",sender:"",parsed});
-   await audit(viewer.id,"finance.invoice.import","finance_invoice",id,{documentId,extraction:parsed.extractionStatus},entity);
-   return ok({id,status:"needs_review"},201);
+   await audit(viewer.id,"finance.invoice.import","finance_invoice",id,{documentId,requestedDirection:requestedDirection||null,actualDirection:parsed.direction,extraction:parsed.extractionStatus},entity);
+   return ok({id,status:"needs_review",direction:parsed.direction,duplicate:false},201);
   }
   if(action==="invoice_reextract"){
    const id=clean(body.id,80);
 
    const invoice=await one<any>(
-    "SELECT i.id,i.sender_email,d.r2_key,d.original_name,d.content_type FROM oa_finance_invoice i JOIN oa_finance_document d ON d.id=i.document_id AND d.entity_id=i.entity_id WHERE i.id=? AND i.entity_id=? AND i.status='needs_review'",
+    "SELECT i.id,i.sender_email,i.source,i.direction,d.r2_key,d.original_name,d.content_type FROM oa_finance_invoice i JOIN oa_finance_document d ON d.id=i.document_id AND d.entity_id=i.entity_id WHERE i.id=? AND i.entity_id=? AND i.status='needs_review'",
     [id,entity]);
    if(!invoice)throw new Error("Invoice is no longer awaiting review");
    const object=await getOaEnv().uploads.get(invoice.r2_key);
@@ -160,7 +164,7 @@ export async function POST(request:NextRequest){
     if(!await runtimeFinanceAiSettings(entity))throw new Error("Enable and configure company invoice AI before re-extraction");
     const parsed=await extractInvoice({entityId:entity,bytes:new Uint8Array(await object.arrayBuffer()),
      type:invoice.content_type,name:invoice.original_name,subject:"",body:"",sender:invoice.sender_email,
-     invoiceId:id,throwOnAiFailure:true});
+     invoiceId:id,throwOnAiFailure:true,requestedDirection:invoice.source==="manual"&&(invoice.direction==="ar"||invoice.direction==="ap")?invoice.direction:undefined});
     if(parsed.extractionStatus!=="extracted")throw new Error("AI returned no extracted fields");
     const probe={entityId:entity,invoiceId:id,invoiceNumber:parsed.invoiceNumber,direction:parsed.direction,
      partyRootId:parsed.partyRootId,counterpartyName:parsed.counterpartyName,invoiceDate:parsed.invoiceDate,
