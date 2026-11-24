@@ -43,6 +43,22 @@ class PartialSettlementTests(unittest.TestCase):
   with self.assertRaises(sqlite3.IntegrityError): self.decide(0,'rejected')
   with self.assertRaises(sqlite3.IntegrityError): self.submit(1,70001)
   self.check('open',30000,0)
+ def test_partial_ar_and_currency_balances(self):
+  self.db.execute("UPDATE oa_finance_invoice SET direction='ar',currency='USD' WHERE id='inv'")
+  self.migrate()
+  self.submit(0,25000); self.decide(0,'approved')
+  self.check('open',25000,0)
+  self.submit(1,15000)
+  self.check('settlement_pending',25000,15000)
+  api=(ROOT/"overlay/app/api/oa/finance/route.ts").read_text()
+  query=next(line.strip().strip(',').strip('"') for line in api.splitlines() if 'SUM(t.paid_minor) AS paid_minor' in line)
+  self.assertEqual(self.db.execute(query,('e',)).fetchone(),('ar','USD',1,100000,25000,15000,75000,1,1,1))
+ def test_same_document_cannot_be_counted_twice(self):
+  self.migrate()
+  self.submit(0,25000); self.decide(0,'approved')
+  with self.assertRaises(sqlite3.IntegrityError):
+   self.db.execute("INSERT INTO oa_finance_settlement(id,entity_id,invoice_id,document_id,submitted_by,amount_minor) VALUES('new','e','inv','0','u',25000)")
+  self.check('open',25000,0)
  def test_legacy_full_payment(self):
   self.db.execute("INSERT INTO oa_finance_settlement(id,entity_id,invoice_id,document_id,submitted_by,status) VALUES('0','e','inv','0','u','approved')")
   self.db.execute("UPDATE oa_finance_invoice SET status='settled' WHERE id='inv'")

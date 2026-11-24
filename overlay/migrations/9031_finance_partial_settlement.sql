@@ -8,6 +8,7 @@ CREATE TRIGGER oa_finance_partial_submit_guard BEFORE INSERT ON oa_finance_settl
 WHEN NEW.status<>'pending' OR NEW.amount_minor IS NULL OR NOT EXISTS(
  SELECT 1 FROM oa_finance_invoice i WHERE i.id=NEW.invoice_id AND i.entity_id=NEW.entity_id
  AND i.status='open' AND i.amount_minor>0 AND i.currency IS NOT NULL
+ AND NOT EXISTS(SELECT 1 FROM oa_finance_settlement prior WHERE prior.entity_id=i.entity_id AND prior.invoice_id=i.id AND prior.document_id=NEW.document_id AND prior.status IN ('approved','pending'))
  AND NEW.amount_minor<=i.amount_minor-COALESCE((SELECT SUM(s.amount_minor) FROM oa_finance_settlement s WHERE s.entity_id=i.entity_id AND s.invoice_id=i.id AND s.status IN ('approved','pending')),0)
 )
 BEGIN SELECT RAISE(ABORT,'Invalid settlement amount or invoice state'); END;
