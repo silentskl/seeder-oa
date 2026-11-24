@@ -22,7 +22,7 @@ class SettlementFeedbackTests(unittest.TestCase):
   self.assertIn('a.id!==excludedUser||a.is_super_admin===1',UI)
   self.assertIn('s.self_review_allowed&&!s.decision_block_reason',UI)
   self.assertIn('AS is_super_admin',API)
-  self.assertIn('settlementFeedback?.id===s.id',UI)
+  self.assertIn('settlementFeedback!==null&&settlementFeedback.id===s.id',UI)
   self.assertIn('s.submitter_name||s.submitter_email||s.submitted_by',UI)
  def test_error_translation(self):
   for message in ('Cannot approve or reject your own proof submission','Assigned administrator only','Settlement approval conflict','Bank account mismatch: settlement approval blocked'):
