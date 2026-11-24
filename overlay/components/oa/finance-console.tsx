@@ -88,6 +88,7 @@ export function FinanceConsole({section}:{section:Section}){
  const [mailbox,setMailbox]=useState(""),[receiveAddress,setReceiveAddress]=useState(""),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true);
  const [error,setError]=useState(""),[notice,setNotice]=useState("");
  const [directionFilter,setDirectionFilter]=useState("ar");
+ const [uploadProgress,setUploadProgress]=useState("");
  const load=useCallback(async(id:string)=>{
   if(id!==selectedEntity.current)return;
   const seq=++requestVersion.current;
@@ -131,6 +132,29 @@ export function FinanceConsole({section}:{section:Section}){
    setBusy(false);
   }
  }
+ async function importFiles(files:File[],direction:"ar"|"ap"){
+  if(busy||!files.length)return;
+  const company=entity;
+  setBusy(true);setError("");setNotice("");
+  let imported=0,duplicates=0;const failures:string[]=[];
+  try{
+   for(let index=0;index<files.length;index++){
+    const file=files[index];
+    setUploadProgress((index+1)+"/"+files.length+": "+file.name);
+    try{
+     const document_id=await upload(company,"invoice",file);
+     const result=await request(company,"invoice_import",{document_id,direction});
+     if(result.duplicate)duplicates++;else imported++;
+    }catch(e){failures.push(file.name+": "+(e instanceof Error?e.message:String(e)));}
+   }
+   if(selectedEntity.current===company){
+    setStatusFilter("all");
+    setNotice(t("Imported: ","已导入：")+imported+t(" · Duplicates: "," · 重复：")+duplicates+t(" · Failed: "," · 失败：")+failures.length);
+    if(failures.length)setError(failures.join("\n"));
+    try{await load(company);}catch(e){setError(String(e));}
+   }
+  }finally{setUploadProgress("");setBusy(false);}
+ }
  function selectEntity(id:string){
   selectedEntity.current=id;requestVersion.current++;
   setEntity(id);setLoading(true);setError("");setParty({...emptyParty});setReview({...emptyReview});setActiveTab("data");setConfigTab("mailboxes");setInvoices([]);setInvoiceOffset(0);setHasMoreInvoices(false);
@@ -168,14 +192,14 @@ export function FinanceConsole({section}:{section:Section}){
  return <div className="mx-auto max-w-7xl space-y-4 p-4 md:p-6">
   <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-xl font-semibold">{section==="parties"?t("Suppliers & Customers","供应商与客户"):t("Finance · AR / AP","应收应付账款")}</h1>
    <p className="text-sm text-neutral-500">{t("Company-scoped records · administrator approval · audit trail","数据按公司隔离 · 管理员审批 · 全程审计")}</p></div>
-   {entities.length>1&&<select className={input+" max-w-72"} value={entity} onChange={e=>selectEntity(e.target.value)}>{entities.map(x=><option key={x.id} value={x.id}>{x.display_name}</option>)}</select>}
+   {entities.length>1&&<select disabled={busy} className={input+" max-w-72"} value={entity} onChange={e=>selectEntity(e.target.value)}>{entities.map(x=><option key={x.id} value={x.id}>{x.display_name}</option>)}</select>}
   </div>
   <div role="tablist" aria-label={section==="parties"?t("Suppliers and customers","供应商与客户"):t("AR and AP","应收应付")} className="flex gap-1 border-b border-neutral-200 pb-2 dark:border-neutral-800">
    {(["data","config"] as const).map(tab=><button key={tab} type="button" role="tab" aria-selected={activeTab===tab}
     className={btn+(activeTab===tab?" bg-neutral-900 text-white dark:bg-white dark:text-black":"")}
     onClick={()=>setActiveTab(tab)}>{tab==="data"?t("Data","数据"):t("Configuration","配置")}</button>)}
   </div>
-  {error&&<div role="alert" className="rounded-md border border-red-300 p-3 text-sm text-red-700">{financeError(lang,error)}</div>}
+  {error&&<div role="alert" className="whitespace-pre-wrap rounded-md border border-red-300 p-3 text-sm text-red-700 dark:text-red-300">{financeError(lang,error)}</div>}
   {notice&&<div role="status" className="rounded-md border p-3 text-sm">{notice}</div>}
   {loading?<p className="text-sm text-neutral-500">{t("Loading finance records…","正在加载财务数据…")}</p>:section==="parties"?<>
    {activeTab==="config"&&<>
@@ -238,15 +262,7 @@ export function FinanceConsole({section}:{section:Section}){
     </form>
     <p className="mt-3 text-xs text-neutral-500">{t("Resend inbound","Resend 入站邮件")}: {config.resendConfigured?t("configured","已配置"):t("not configured","未配置")}</p>
    </section></details>
-   <details className={card}><summary className="cursor-pointer font-semibold">{t("Import an invoice manually","手动导入发票")}</summary>
-    <form className="flex flex-wrap items-center gap-2" onSubmit={e=>{e.preventDefault();const fd=new FormData(e.currentTarget),file=fd.get("file");
-     if(!(file instanceof File)||!file.size)return;
-     void run(async()=>{const document_id=await upload(entity,"invoice",file);await request(entity,"invoice_import",{document_id,subject:fd.get("subject")});},t("Invoice imported for review.","发票已导入待审核。"));}}>
-     <input className={input+" max-w-72"} name="subject" placeholder={t("Invoice subject (optional)","发票主题（可选）")}/>
-     <input type="file" name="file" required accept=".pdf,.jpg,.jpeg,.png,.webp" className="text-xs"/>
-     <button className={btn} disabled={busy}>{t("Upload & extract","上传并识别")}</button>
-    </form>
-   </details>
+   
    </>}
    </>}
    {activeTab==="data"&&<>
@@ -254,7 +270,7 @@ export function FinanceConsole({section}:{section:Section}){
    <section className={card}><div className="mb-3 flex flex-wrap items-center justify-between gap-2">
     <h2 className="font-semibold">{directionFilter==="ar"?t("Accounts Receivable","应收账款"):directionFilter==="ap"?t("Accounts Payable","应付账款"):t("Needs classification","待分类")} ({shownInvoices.length})</h2>
     <div className="flex flex-wrap items-center gap-2">
-     {( [["ar",t("Accounts receivable","应收账款")],["ap",t("Accounts payable","应付账款")],["unknown",t("Unclassified","待分类")]] as const).map(([v,label])=><button key={v} type="button" className={btn+(directionFilter===v?" font-bold underline":"")} onClick={()=>{setDirectionFilter(v);setStatusFilter("all");}}>{label}</button>)}
+     {( [["ar",t("Accounts receivable","应收账款")],["ap",t("Accounts payable","应付账款")],["unknown",t("Unclassified","待分类")]] as const).map(([v,label])=><button key={v} type="button" className={btn+(directionFilter===v?" font-bold underline":"")} disabled={busy} onClick={()=>{setDirectionFilter(v);setStatusFilter("all");}}>{label}</button>)}
      <select aria-label={t("Filter invoice status","筛选发票状态")} className={input+" max-w-52"} value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}>
       <option value="all">{t("All statuses","全部状态")}</option><option value="possible_duplicate">{t("Possible duplicates","疑似重复")}</option><option value="needs_review">{t("Needs review","待审核")}</option>
       <option value="open">{directionFilter==="ar"?t("Unreceived","未收款"):t("Unpaid","未付款")}</option>
@@ -264,10 +280,18 @@ export function FinanceConsole({section}:{section:Section}){
      </select>
     </div>
    </div>
-    <div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead><tr className="text-xs text-neutral-500">{[t("Invoice","发票"),t("Counterparty / Type","往来单位与类型"),t("Amount / Due","金额与到期日"),t("Bank check","银行校验"),t("Status","状态"),t("Actions","操作")].map(t=><th key={t} className="p-2">{t}</th>)}</tr></thead><tbody>
+    {directionFilter!=="unknown"&&<div className="mb-3 flex flex-wrap items-center gap-3 rounded-md border border-dashed p-3 dark:border-neutral-700" onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();if(!busy)void importFiles(Array.from(e.dataTransfer.files),directionFilter==="ar"?"ar":"ap");}}>
+      <label className={primary+(busy?" opacity-50 cursor-not-allowed":" cursor-pointer")}>
+       {t("Upload invoice","上传发票")}
+       <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.webp" className="sr-only" disabled={busy} onChange={e=>{const files=Array.from(e.currentTarget.files||[]);e.currentTarget.value="";void importFiles(files,directionFilter==="ar"?"ar":"ap");}}/>
+      </label>
+      <span className="text-xs text-neutral-500">{t("Select or drop files · PDF/JPG/PNG/WebP · 12 MB each · AI extraction and review","选择或拖入文件 · PDF/JPG/PNG/WebP · 每份不超过 12 MB · AI 识别后审核")}</span>
+      {uploadProgress&&<span role="status" className="text-xs">{uploadProgress}</span>}
+     </div>}
+     <div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead><tr className="text-xs text-neutral-500">{[t("Invoice","发票"),t("Counterparty / Type","往来单位与类型"),t("Amount / Due","金额与到期日"),t("Bank check","银行校验"),t("Status","状态"),t("Actions","操作")].map(t=><th key={t} className="p-2">{t}</th>)}</tr></thead><tbody>
      {shownInvoices.map(i=><tr key={i.id} className={"border-t align-top "+(overdueDays(i.due_date,i.status)>0?"bg-red-50 text-red-900 dark:bg-red-950/40 dark:text-red-200":"dark:border-neutral-800")}>
       <td className="p-2"><div className="font-medium">{i.invoice_number||t("Unrecognized","未识别")}</div><div className="text-xs">{i.invoice_date||"—"}</div><a className="text-xs underline" href={fileUrl(entity,i.document_id)}>{t("Original invoice","原始发票")}</a></td>
-      <td className="p-2">{i.approved_party_name||i.counterparty_name||t("Unmatched","未匹配")}<div className="text-xs">{String(i.direction).toUpperCase()} · {i.source}</div>{i.source_mailbox&&<div className="text-xs text-neutral-500">{i.source_mailbox} · {i.source_provider}</div>}</td>
+      <td className="p-2">{i.approved_party_name||i.counterparty_name||t("Unmatched","未匹配")}<div className="text-xs">{String(i.direction).toUpperCase()} · {i.source==="manual"?t("Manual upload","手动上传"):t("Email","邮件")}</div>{i.source_mailbox&&<div className="text-xs text-neutral-500">{i.source_mailbox} · {i.source_provider}</div>}</td>
       <td className="p-2">{i.amount_minor!=null?amount(i.amount_minor,i.currency):"—"}<div className="text-xs">{t("Due","到期日")} {i.due_date||"—"}{i.due_date_inferred===1&&<span className="ml-1 text-amber-700 dark:text-amber-300">{t("(estimated +30 days)","（推算 +30 天）")}</span>}</div>{overdueDays(i.due_date,i.status)>0&&<div className="text-xs font-bold text-red-700 dark:text-red-300">{t("Overdue by","已逾期")} {overdueDays(i.due_date,i.status)} {t("days","天")}</div>}</td>
       <td className="p-2">{i.direction==="ar"?<span className="text-xs text-neutral-500">{t("AR receiving bank account","应收发票收款账户")}</span>:<span className={i.bank_check==="mismatch"?"text-red-600 font-semibold":""}>{i.bank_check}</span>}<div className="text-xs">{i.invoice_bank_account||t("No account","无银行账号")}</div></td>
       <td className="p-2"><span className="font-medium">{i.status==="open"?(i.direction==="ar"?t("Unreceived","未收款"):t("Unpaid","未付款")):i.status==="settlement_pending"?t("Proof pending approval","待核销审核"):i.status==="settled"?(i.direction==="ar"?t("Received","已收款"):t("Paid","已付款")):i.status==="needs_review"?t("Needs review","待审核"):i.status}</span>

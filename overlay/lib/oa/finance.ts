@@ -66,7 +66,7 @@ export async function findParty(entityId:string,name:string,partyType:"supplier"
  if(matched.length!==1&&email)matched=parties.filter(p=>mailAddress(p.email)===mailAddress(email)&&mailAddress(email)!=="");
  return matched.length===1?matched[0]:null;
 }
-export async function extractInvoice(input:{entityId:string;bytes:Uint8Array;type:string;name:string;subject:string;body:string;sender:string;invoiceId?:string;throwOnAiFailure?:boolean}):Promise<ParsedInvoice>{
+export async function extractInvoice(input:{entityId:string;bytes:Uint8Array;type:string;name:string;subject:string;body:string;sender:string;invoiceId?:string;throwOnAiFailure?:boolean;requestedDirection?:"ar"|"ap"}):Promise<ParsedInvoice>{
  let data:Extracted|null=null,reason="";
  try{data=await extractWithFinanceAi(input.entityId,{bytes:input.bytes,type:input.type,name:input.name},input.subject,input.body,input.invoiceId);}
  catch(e){if(input.throwOnAiFailure)throw e;reason="AI extraction unavailable: "+(e instanceof Error?e.message:String(e)).slice(0,350);}
@@ -75,9 +75,14 @@ export async function extractInvoice(input:{entityId:string;bytes:Uint8Array;typ
  const self=[normalizedName(entity?.legal_name),normalizedName(entity?.display_name)].filter(Boolean);
  const seller=normalizedName(data?.seller_name),buyer=normalizedName(data?.buyer_name);
  const isSeller=!!seller&&self.includes(seller),isBuyer=!!buyer&&self.includes(buyer);
- const direction:"ar"|"ap"|"unknown"=isSeller&&!isBuyer?"ar":isBuyer&&!isSeller?"ap":"unknown";
- const counterpartyName=direction==="ar"?clean(data?.buyer_name):direction==="ap"?clean(data?.seller_name):"";
- const party=direction==="unknown"?null:await findParty(input.entityId,counterpartyName,direction==="ap"?"supplier":"customer",direction==="ap"?input.sender:"");
+ const detectedDirection:"ar"|"ap"|"unknown"=isSeller&&!isBuyer?"ar":isBuyer&&!isSeller?"ap":"unknown";
+ // Manual AR/AP selection is a review hint, never evidence of company ownership.
+ const conflict=!!input.requestedDirection&&detectedDirection!=="unknown"&&detectedDirection!==input.requestedDirection;
+ const direction=conflict?"unknown":detectedDirection==="unknown"?(input.requestedDirection||"unknown"):detectedDirection;
+ if(conflict)reason+=" Selected AR/AP conflicts with detected invoice direction; classify during review.";
+ else if(input.requestedDirection&&detectedDirection==="unknown")reason+=" Selected AR/AP is unverified; confirm company and direction during review.";
+ const counterpartyName=detectedDirection==="unknown"||conflict?"":direction==="ar"?clean(data?.buyer_name):direction==="ap"?clean(data?.seller_name):"";
+ const party=direction==="unknown"||detectedDirection==="unknown"?null:await findParty(input.entityId,counterpartyName,direction==="ap"?"supplier":"customer",direction==="ap"?input.sender:"");
  let currency:string|null=null,amountMinor:number|null=null;
  try{
    if(data?.currency&&data?.total_amount){currency=normalizeCurrency(data.currency);amountMinor=majorToMinor(data.total_amount,currency);if(amountMinor<=0)amountMinor=null;}
