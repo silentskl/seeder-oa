@@ -202,6 +202,7 @@ echo "[DEPLOY] Validating reviewed multi-entity migrations with local SQLite..."
 node "$ROOT/tests/multi-entity-migrations.test.mjs"
 python3 "$ROOT/tests/test_business_travel_migration.py"
 python3 "$ROOT/tests/test_finance_migration.py"
+python3 "$ROOT/tests/test_finance_partial_settlement.py"
 python3 "$ROOT/tests/test_finance_mail_accounts_migration.py"
 python3 "$ROOT/tests/test_finance_ai_migration.py"
 python3 "$ROOT/tests/test_finance_ai_diagnostics_migration.py"
@@ -236,7 +237,7 @@ echo "$PENDING"
 # Whitelist only migrations reviewed for this production upgrade.
 MIGRATIONS="$(printf '%s\n' "$PENDING" | grep -Eo '[0-9]{4}_[[:alnum:]_-]+\.sql' | sort -u || true)"
 if [[ -n "$MIGRATIONS" ]]; then
-  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles|9014_email_log_company|9015_entity_leave_types|9016_entity_medical_allowance|9017_entity_database_guards|9018_entity_invitations|9019_business_travel|9020_finance|9021_finance_mail_accounts|9022_finance_ai_settings|9023_finance_ai_diagnostics|9024_finance_ai_reasoning_effort|9025_finance_mail_backfill|9026_finance_invoice_business_dedup|9027_finance_due_date_inference|9028_oa_administrator_permissions|9029_oa_contract_management|9030_oa_contract_permissions)\.sql$' || true)"
+  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles|9014_email_log_company|9015_entity_leave_types|9016_entity_medical_allowance|9017_entity_database_guards|9018_entity_invitations|9019_business_travel|9020_finance|9021_finance_mail_accounts|9022_finance_ai_settings|9023_finance_ai_diagnostics|9024_finance_ai_reasoning_effort|9025_finance_mail_backfill|9026_finance_invoice_business_dedup|9027_finance_due_date_inference|9028_oa_administrator_permissions|9029_oa_contract_management|9030_oa_contract_permissions|9031_finance_partial_settlement)\.sql$' || true)"
   if [[ -n "$UNKNOWN" ]]; then
     echo "ERROR: unexpected pending migrations: $UNKNOWN" >&2
     exit 1
@@ -363,6 +364,12 @@ echo "$TRAVEL_TABLES"
 if ! printf '%s\n' "$TRAVEL_TABLES" | grep -Eq '(^|[[:space:]│])3([[:space:]│]|$)'; then
   echo "ERROR: migration 9019 travel tables missing; refusing deployment." >&2
   exit 1
+fi
+# Verify partial-settlement migration and atomic database guards before release.
+PARTIAL_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT (SELECT COUNT(*) FROM pragma_table_info('oa_finance_settlement') WHERE name='amount_minor')+(SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN ('oa_finance_partial_submit_guard','oa_finance_partial_submit_state','oa_finance_partial_amount_immutable','oa_finance_partial_decide_guard','oa_finance_partial_decide_state'))+(SELECT COUNT(*) FROM sqlite_master WHERE type='view' AND name='oa_finance_settlement_totals') AS n;" 2>&1)" || { echo "$PARTIAL_CHECK" >&2; exit 1; }
+echo "$PARTIAL_CHECK"
+if ! printf '%s\n' "$PARTIAL_CHECK" | grep -Eq '(^|[[:space:]│])7([[:space:]│]|$)'; then
+  echo "ERROR: migration 9031 partial settlement guards missing; refusing deployment." >&2; exit 1
 fi
 # Finance schema must exist before its APIs are published.
 FINANCE_TABLES="$(npx wrangler d1 execute PM_DB --remote --command="SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name IN ('oa_finance_party','oa_finance_mailbox','oa_finance_document','oa_finance_invoice','oa_finance_settlement');" 2>&1)" || { echo "$FINANCE_TABLES" >&2; exit 1; }

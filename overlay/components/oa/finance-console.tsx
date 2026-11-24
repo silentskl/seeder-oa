@@ -61,12 +61,15 @@ function Field({label,name,value,onChange,type="text",required=false,disabled=fa
 }
 function ProofForm({entity,invoice,busy,run,lang}:{entity:string;invoice:Row;busy:boolean;run:(task:()=>Promise<any>,message:string)=>Promise<void>;lang:"en"|"zh"}){
  const t=(en:string,zh:string)=>financeTr(lang,en,zh);
+ const remaining=major(invoice.remaining_minor,invoice.currency);
+ const digits=new Intl.NumberFormat("en",{style:"currency",currency:invoice.currency||"SGD"}).resolvedOptions().maximumFractionDigits??2;
  return <form className="flex flex-wrap items-center gap-2" onSubmit={e=>{
    e.preventDefault();const f=new FormData(e.currentTarget),file=f.get("file");
    if(!(file instanceof File)||!file.size)return;
    if(!window.confirm(t("Submit payment / receipt evidence for administrator approval?","确认提交收付款凭证供管理员审批？")))return;
-   void run(async()=>{const document_id=await upload(entity,"settlement",file);await request(entity,"settlement_submit",{invoice_id:invoice.id,document_id,approver_id:f.get("approver_id")||""});},t("Proof submitted for approval.","凭证已提交审批。"));
+   void run(async()=>{const document_id=await upload(entity,"settlement",file);await request(entity,"settlement_submit",{invoice_id:invoice.id,document_id,amount:f.get("amount"),approver_id:f.get("approver_id")||""});},t("Proof submitted for approval.","凭证已提交审批。"));
   }}>
+  <label className="text-xs">{t("This payment / receipt amount","本次收付款金额")} ({invoice.currency})<input key={invoice.id+":"+remaining} className={input+" max-w-44"} name="amount" type="number" required min={1/10**digits} max={remaining} step={1/10**digits} defaultValue={remaining} disabled={busy}/></label>
   <input aria-label={t("Bank proof","银行凭证")} type="file" name="file" required accept=".pdf,.png,.jpg,.jpeg,.webp" className="max-w-52 text-xs"/>
   <button type="submit" className={btn} disabled={busy}>{invoice.direction==="ar"?t("Record receipt (upload proof)","登记收款（上传凭证）"):t("Record payment (upload proof)","登记付款（上传凭证）")}</button>
  </form>;
@@ -184,7 +187,7 @@ export function FinanceConsole({section}:{section:Section}){
  const approvedParty=approved.find(p=>p.root_id===review.party_root_id&&(p.party_type==="both"||p.party_type===(review.direction==="ap"?"supplier":"customer")));
  const checks=invoiceReviewChecks({counterparty_name:review.counterparty_name,invoice_bank_name:review.invoice_bank_name,invoice_bank_account:review.invoice_bank_account,invoice_bank_swift:review.invoice_bank_swift,currency:review.currency},approvedParty);
  const reviewVerified=!!approvedParty&&invoiceReviewVerified(checks);
- const shownInvoices=invoices.filter(i=>i.direction===directionFilter&&(statusFilter==="all"||(statusFilter==="possible_duplicate"?i.duplicate_status==="possible":i.status===statusFilter)));
+ const shownInvoices=invoices.filter(i=>i.direction===directionFilter&&(statusFilter==="all"||(statusFilter==="possible_duplicate"?i.duplicate_status==="possible":statusFilter==="partial"?Number(i.paid_minor)>0&&Number(i.remaining_minor)>0:statusFilter==="open"?i.status==="open"&&Number(i.paid_minor)===0:i.status===statusFilter)));
  async function decideSettlement(s:Row,approve:boolean){
   if(busy||s.decision_block_reason)return;
   const note=approve?"":window.prompt(t("Rejection note","拒绝说明"));
@@ -193,7 +196,7 @@ export function FinanceConsole({section}:{section:Section}){
   await run(async()=>{
    try{await request(entity,approve?"settlement_approve":"settlement_reject",{id:s.id,note});}
    catch(e){setSettlementFeedback({id:s.id,error:e instanceof Error?e.message:String(e)});throw e;}
-  },approve?(s.direction==="ar"?t("Receipt confirmed; invoice marked received.","收款已确认，发票已标记为已收款。"):t("Payment confirmed; invoice marked paid.","付款已确认，发票已标记为已付款。")):t("Bank proof rejected.","银行凭证已拒绝。"));
+  },approve?(s.direction==="ar"?t("Receipt confirmed; invoice balance updated.","本次收款已确认，发票余额已更新。"):t("Payment confirmed; invoice balance updated.","本次付款已确认，发票余额已更新。")):t("Bank proof rejected.","银行凭证已拒绝。"));
  }
  const assignee=(assigned:string|null,action:string,id:string,excludedUser?:string)=>(
   <select aria-label="Assign approving admin" className={input+" max-w-52"} value={assigned||""} disabled={busy}
@@ -286,6 +289,7 @@ export function FinanceConsole({section}:{section:Section}){
      <select aria-label={t("Filter invoice status","筛选发票状态")} className={input+" max-w-52"} value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}>
       <option value="all">{t("All statuses","全部状态")}</option><option value="possible_duplicate">{t("Possible duplicates","疑似重复")}</option><option value="needs_review">{t("Needs review","待审核")}</option>
       <option value="open">{directionFilter==="ar"?t("Unreceived","未收款"):t("Unpaid","未付款")}</option>
+      <option value="partial">{directionFilter==="ar"?t("Partially received","部分收款"):t("Partially paid","部分付款")}</option>
       <option value="settlement_pending">{t("Proof pending approval","凭证待审核")}</option>
       <option value="settled">{directionFilter==="ar"?t("Received","已收款"):t("Paid","已付款")}</option>
       <option value="rejected">{t("Rejected","已拒绝")}</option>
@@ -304,9 +308,9 @@ export function FinanceConsole({section}:{section:Section}){
      {shownInvoices.map(i=><tr key={i.id} className={"border-t align-top "+(overdueDays(i.due_date,i.status)>0?"bg-red-50 text-red-900 dark:bg-red-950/40 dark:text-red-200":"dark:border-neutral-800")}>
       <td className="p-2"><div className="font-medium">{i.invoice_number||t("Unrecognized","未识别")}</div><div className="text-xs">{i.invoice_date||"—"}</div><a className="text-xs underline" href={fileUrl(entity,i.document_id)}>{t("Original invoice","原始发票")}</a></td>
       <td className="p-2">{i.approved_party_name||i.counterparty_name||t("Unmatched","未匹配")}<div className="text-xs">{String(i.direction).toUpperCase()} · {i.source==="manual"?t("Manual upload","手动上传"):t("Email","邮件")}</div>{i.source_mailbox&&<div className="text-xs text-neutral-500">{i.source_mailbox} · {i.source_provider}</div>}</td>
-      <td className="p-2">{i.amount_minor!=null?amount(i.amount_minor,i.currency):"—"}<div className="text-xs">{t("Due","到期日")} {i.due_date||"—"}{i.due_date_inferred===1&&<span className="ml-1 text-amber-700 dark:text-amber-300">{t("(estimated +30 days)","（推算 +30 天）")}</span>}</div>{overdueDays(i.due_date,i.status)>0&&<div className="text-xs font-bold text-red-700 dark:text-red-300">{t("Overdue by","已逾期")} {overdueDays(i.due_date,i.status)} {t("days","天")}</div>}</td>
+      <td className="p-2">{i.amount_minor!=null?amount(i.amount_minor,i.currency):"—"}{["open","settlement_pending","settled"].includes(i.status)&&<div className="mt-1 text-xs space-y-1"><div>{i.direction==="ar"?t("Received","已收款"):t("Paid","已付款")}: {amount(i.paid_minor,i.currency)}</div><div className="font-medium">{t("Remaining","剩余")}: {amount(i.remaining_minor,i.currency)}</div>{Number(i.pending_minor)>0&&<div>{t("Pending approval","待审核")}: {amount(i.pending_minor,i.currency)}</div>}</div>}<div className="text-xs">{t("Due","到期日")} {i.due_date||"—"}{i.due_date_inferred===1&&<span className="ml-1 text-amber-700 dark:text-amber-300">{t("(estimated +30 days)","（推算 +30 天）")}</span>}</div>{overdueDays(i.due_date,i.status)>0&&<div className="text-xs font-bold text-red-700 dark:text-red-300">{t("Overdue by","已逾期")} {overdueDays(i.due_date,i.status)} {t("days","天")}</div>}</td>
       <td className="p-2">{i.direction==="ar"?<span className="text-xs text-neutral-500">{t("AR receiving bank account","应收发票收款账户")}</span>:<span className={i.bank_check==="mismatch"?"text-red-600 font-semibold":""}>{i.bank_check}</span>}<div className="text-xs">{i.invoice_bank_account||t("No account","无银行账号")}</div></td>
-      <td className="p-2"><span className="font-medium">{i.status==="open"?(i.direction==="ar"?t("Unreceived","未收款"):t("Unpaid","未付款")):i.status==="settlement_pending"?t("Proof pending approval","待核销审核"):i.status==="settled"?(i.direction==="ar"?t("Received","已收款"):t("Paid","已付款")):i.status==="needs_review"?t("Needs review","待审核"):i.status}</span>
+      <td className="p-2"><span className="font-medium">{i.status==="open"?(Number(i.paid_minor)>0?(i.direction==="ar"?t("Partially received","部分收款"):t("Partially paid","部分付款")):(i.direction==="ar"?t("Unreceived","未收款"):t("Unpaid","未付款"))):i.status==="settlement_pending"?t("Proof pending approval","待核销审核"):i.status==="settled"?(i.direction==="ar"?t("Received","已收款"):t("Paid","已付款")):i.status==="needs_review"?t("Needs review","待审核"):i.status}</span>
        <div className="text-xs">{i.extraction_note||""}</div>
        {i.duplicate_status==="possible"&&<div role="alert" className="mt-2 rounded-md border border-amber-500 bg-amber-50 p-2 text-xs text-amber-950 dark:bg-amber-950 dark:text-amber-100">
         <div className="font-semibold">{t("Possible duplicate invoice","疑似重复发票")}</div>
@@ -373,7 +377,7 @@ export function FinanceConsole({section}:{section:Section}){
    </section>}
    <section className={card}><h2 className="mb-3 font-semibold">{t("Receipt / payment proof approvals","收付款凭证审核")} ({settlements.length})</h2>
     <div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead><tr>{[t("Invoice","发票"),t("Type / Amount","类型与金额"),t("Evidence","凭证"),t("Approval","审核"),t("Action","操作")].map(x=><th key={x} className="p-2 text-xs text-neutral-500">{x}</th>)}</tr></thead><tbody>
-     {settlements.map(s=><tr key={s.id} className="border-t align-top dark:border-neutral-800"><td className="p-2">{s.invoice_number||s.invoice_id}</td><td className="p-2">{String(s.direction).toUpperCase()} · {amount(s.amount_minor,s.currency)}</td>
+     {settlements.map(s=><tr key={s.id} className="border-t align-top dark:border-neutral-800"><td className="p-2">{s.invoice_number||s.invoice_id}</td><td className="p-2">{String(s.direction).toUpperCase()} · {amount(s.amount_minor,s.currency)}<div className="text-xs text-neutral-500">{t("Invoice total","发票总额")}: {amount(s.invoice_amount_minor,s.currency)}</div></td>
       <td className="p-2"><a className="underline" href={fileUrl(entity,s.document_id)}>{s.proof_name||t("Bank proof","银行凭证")}</a></td>
       <td className="p-2">{s.status==="pending"?t("Pending","待审核"):s.status==="approved"?t("Approved","已批准"):s.status==="rejected"?t("Rejected","已拒绝"):s.status}<div className="text-xs text-neutral-500">{s.decided_at||s.submitted_at}</div><div className="text-xs text-neutral-500">{t("Submitted by","提交人")}: {s.submitter_name||s.submitter_email||s.submitted_by}</div></td>
       <td className="p-2">{s.status==="pending"?<div className="space-y-2">
