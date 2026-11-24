@@ -198,7 +198,7 @@ export function FinanceConsole({section}:{section:Section}){
  const assignee=(assigned:string|null,action:string,id:string,excludedUser?:string)=>(
   <select aria-label="Assign approving admin" className={input+" max-w-52"} value={assigned||""} disabled={busy}
     onChange={e=>{if(e.target.value)void run(()=>request(entity,action,{id,approver_id:e.target.value}),t("Approver assigned.","已指派审批人。"));}}>
-   <option value="">{t("Any other admin","任意其他管理员")}</option>{admins.filter(a=>a.id!==excludedUser).map(a=><option key={a.id} value={a.id}>{a.name||a.email}</option>)}
+   <option value="">{t("Any other admin","任意其他管理员")}</option>{admins.filter(a=>a.id!==excludedUser||a.is_super_admin===1).map(a=><option key={a.id} value={a.id}>{a.name||a.email}</option>)}
   </select>
  );
  return <div className="mx-auto max-w-7xl space-y-4 p-4 md:p-6">
@@ -217,7 +217,7 @@ export function FinanceConsole({section}:{section:Section}){
    {activeTab==="config"&&<>
    <section className={card}>
     <h2 className="mb-3 font-semibold">{party.root_id?t("Propose a change to approved company","申请修改已批准企业资料"):t("Add supplier or customer","新增供应商或客户")}</h2>
-     <p className="text-xs text-neutral-500">{t("Company administrators may approve counterparty proposals. Receipt and payment proofs require a separate reviewer.","公司管理员可以审批供应商／客户资料申请；收付款凭证仍须另一名管理员独立审批。")}</p>
+     <p className="text-xs text-neutral-500">{t("Company administrators may approve counterparty proposals. Only super administrators may review their own receipt/payment proofs.","公司管理员可以审批供应商／客户资料申请；收付款凭证仅超级管理员可以自审，普通管理员仍须交叉审批。")}</p>
     <p className="mb-3 text-xs text-neutral-500">{t("New or updated bank details require approval before use.","新增或变更的银行信息须经审批才能生效。")}</p>
     <form className="space-y-3" onSubmit={e=>{e.preventDefault();void run(async()=>{await request(entity,"party_propose",party);setParty({...emptyParty});},t("Company proposal submitted.","公司资料申请已提交。"));}}>
      <div className="grid gap-3 md:grid-cols-3">
@@ -382,7 +382,8 @@ export function FinanceConsole({section}:{section:Section}){
         <button type="button" className={primary} disabled={busy||!!s.decision_block_reason} onClick={()=>void decideSettlement(s,true)}>{t("Approve","批准")} {s.direction==="ar"?t("receipt","收款"):t("payment","付款")}</button>
         <button type="button" className={btn} disabled={busy||!!s.decision_block_reason} onClick={()=>void decideSettlement(s,false)}>{t("Reject","拒绝")}</button>
        </div>
-       {s.decision_block_reason&&<p className="text-xs text-amber-700 dark:text-amber-300">{s.decision_block_reason==="own_submission"?t("You submitted this proof. Another administrator must approve it.","此凭证由当前账号提交，须由另一名管理员审核。"):s.decision_block_reason==="assigned_other"?t("Only the assigned administrator may review this proof.","此凭证已指派给其他管理员，仅指定审批人可审核。"):t("The invoice is no longer awaiting settlement approval.","关联发票不再处于待核销审核状态。")}</p>}
+       {s.self_review_allowed&&!s.decision_block_reason&&<p className="text-xs text-neutral-500">{t("Super administrator self-review permitted; recorded in the audit log.","超级管理员可自审，操作将记入审计日志。")}</p>}
+        {s.decision_block_reason&&<p className="text-xs text-amber-700 dark:text-amber-300">{s.decision_block_reason==="own_submission"?t("You submitted this proof. Another administrator must approve it.","此凭证由当前账号提交，须由另一名管理员审核。"):s.decision_block_reason==="assigned_other"?t("Only the assigned administrator may review this proof.","此凭证已指派给其他管理员，仅指定审批人可审核。"):t("The invoice is no longer awaiting settlement approval.","关联发票不再处于待核销审核状态。")}</p>}
        {settlementFeedback?.id===s.id&&<p role="alert" className="text-sm text-red-700 dark:text-red-300">{financeError(lang,settlementFeedback.error)}</p>}
       </div>:null}</td>
      </tr>)}</tbody></table></div>
