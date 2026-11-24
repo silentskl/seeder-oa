@@ -20,14 +20,21 @@ function validDate(v:unknown){const s=clean(v,10);if(s&&!/^\d{4}-\d{2}-\d{2}$/.t
 function partyType(v:unknown){const s=clean(v,12);if(!["supplier","customer","both"].includes(s))throw new Error("Invalid supplier/customer type");return s;}
 async function adminAssignee(entity:string,userId:string,proposer:string,allowPartySelfAssignment=false){
  const member=await one<{user_id:string}>("SELECT user_id FROM oa_entity_member WHERE entity_id=? AND user_id=? AND role='admin' AND active=1",[entity,userId]);
+ const superAdmin=await isOaSuperAdmin(userId);
  const allowed=allowPartySelfAssignment
   ? await canManageParties(userId,entity,!!member)
-  : !!member || await isOaSuperAdmin(userId);
- // A company administrator may approve their OWN supplier/customer proposal.
- // Payment/receipt proof submissions retain the independent-admin requirement.
- if(!allowed||(userId===proposer&&!allowPartySelfAssignment))
-  throw new Error(allowPartySelfAssignment?"Assignee must be an active Entity admin":"Assignee must be an active different Entity admin");
+  : !!member || superAdmin;
+ // Ordinary Entity administrators may self-review party proposals, but only
+ // platform founders/super administrators may self-review receipt/payment proofs.
+ if(!allowed||(userId===proposer&&!allowPartySelfAssignment&&!superAdmin))
+  throw new Error(allowPartySelfAssignment?"Assignee must be an active Entity admin":"Assignee must be an active different Entity admin unless they are a super administrator");
  return userId;
+}
+function settlementDecisionBlock(row:{status:string;invoice_status:string;submitted_by:string;approver_user_id?:string|null}|null,userId:string,superAdmin:boolean){
+ if(!row||row.status!=="pending"||row.invoice_status!=="settlement_pending")return "not_pending";
+ if(row.submitted_by===userId&&!superAdmin)return "own_submission";
+ if(row.approver_user_id&&row.approver_user_id!==userId)return "assigned_other";
+ return null;
 }
 function withAccess(e:unknown){
  if(e instanceof EntityAccessError)return fail(e.message,e.status);
@@ -63,7 +70,8 @@ export async function GET(request:NextRequest){
   }
   if(view==="settlements"){
    const rows=await all<any>("SELECT s.*,i.invoice_number,i.direction,i.currency,i.amount_minor,i.counterparty_name,i.status AS invoice_status,d.original_name AS proof_name,u.name AS submitter_name,u.email AS submitter_email FROM oa_finance_settlement s JOIN oa_finance_invoice i ON i.id=s.invoice_id AND i.entity_id=s.entity_id JOIN oa_finance_document d ON d.id=s.document_id AND d.entity_id=s.entity_id LEFT JOIN user u ON u.id=s.submitted_by WHERE s.entity_id=? ORDER BY s.submitted_at DESC,s.id DESC LIMIT 300",[entity]);
-   return ok(rows.map(s=>({...s,decision_block_reason:s.status!=="pending"||s.invoice_status!=="settlement_pending"?"not_pending":s.submitted_by===access.userId?"own_submission":s.approver_user_id&&s.approver_user_id!==access.userId?"assigned_other":null})));
+   const superAdmin=await isOaSuperAdmin(access.userId);
+   return ok(rows.map(s=>({...s,decision_block_reason:settlementDecisionBlock(s,access.userId,superAdmin),self_review_allowed:superAdmin&&s.submitted_by===access.userId})));
   }
   if(view==="config"){
    if(access.role!=="admin"){
@@ -72,7 +80,7 @@ export async function GET(request:NextRequest){
     return ok({approvers,mailbox:"",receiveAddress:"",aiConfigured:false,resendConfigured:false});
    }
    const mailbox=await one<{address:string;receive_address:string}>("SELECT address,receive_address FROM oa_finance_mailbox WHERE entity_id=?",[entity]);
-   const approvers=await all<{id:string;name:string;email:string}>("SELECT u.id,u.name,u.email FROM user u WHERE EXISTS(SELECT 1 FROM oa_entity_member m WHERE m.entity_id=? AND m.user_id=u.id AND m.active=1 AND m.role='admin') OR EXISTS(SELECT 1 FROM oa_platform_administrator p WHERE p.user_id=u.id) ORDER BY u.name,u.email",[entity]);
+   const approvers=await all<{id:string;name:string;email:string;is_super_admin:number}>("SELECT u.id,u.name,u.email,CASE WHEN EXISTS(SELECT 1 FROM oa_platform_administrator p WHERE p.user_id=u.id) THEN 1 ELSE 0 END AS is_super_admin FROM user u WHERE EXISTS(SELECT 1 FROM oa_entity_member m WHERE m.entity_id=? AND m.user_id=u.id AND m.active=1 AND m.role='admin') OR EXISTS(SELECT 1 FROM oa_platform_administrator p WHERE p.user_id=u.id) ORDER BY u.name,u.email",[entity]);
    const ai=await publicFinanceAiSettings(entity);
    return ok({mailbox:mailbox?.address||"",receiveAddress:mailbox?.receive_address||"",approvers,aiConfigured:ai.enabled&&ai.api_key_configured||ai.legacy_environment_configured,resendConfigured:!!getOaEnv().financeResendApiKey&&!!getOaEnv().financeResendWebhookSecret});
   }
@@ -313,9 +321,11 @@ export async function POST(request:NextRequest){
   }
   if(action==="settlement_approve"||action==="settlement_reject"){
    const id=clean(body.id,80),row=await one<any>("SELECT s.*,i.direction,i.party_root_id,i.invoice_bank_account,i.status AS invoice_status FROM oa_finance_settlement s JOIN oa_finance_invoice i ON i.id=s.invoice_id AND i.entity_id=s.entity_id WHERE s.id=? AND s.entity_id=? AND s.status='pending'",[id,entity]);
-   if(!row||row.invoice_status!=="settlement_pending")return fail("Settlement is no longer pending",409);
-   if(row.submitted_by===viewer.id)return fail("Cannot approve or reject your own proof submission",403);
-   if(row.approver_user_id&&row.approver_user_id!==viewer.id)return fail("Assigned administrator only",403);
+   const superAdmin=await isOaSuperAdmin(viewer.id);
+   const blocked=settlementDecisionBlock(row,viewer.id,superAdmin);
+   if(!row||blocked==="not_pending")return fail("Settlement is no longer pending",409);
+   if(blocked==="own_submission")return fail("Cannot approve or reject your own proof submission",403);
+   if(blocked==="assigned_other")return fail("Assigned administrator only",403);
    if(action==="settlement_approve"&&row.direction==="ap"&&await bankCheck(entity,row.party_root_id,row.invoice_bank_account)!=="match")
      throw new Error("Bank account mismatch: settlement approval blocked");
    const db=getOaEnv().db,note=clean(body.note,1000),approve=action==="settlement_approve";
@@ -324,7 +334,7 @@ export async function POST(request:NextRequest){
     db.prepare("UPDATE oa_finance_invoice SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND entity_id=? AND status='settlement_pending'").bind(approve?"settled":"open",row.invoice_id,entity)
    ]);
    if(result[0].meta?.changes!==1||result[1].meta?.changes!==1)throw new Error("Settlement approval conflict");
-   await audit(viewer.id,approve?"finance.settlement.approve":"finance.settlement.reject","finance_settlement",id,{invoiceId:row.invoice_id,note},entity);
+   await audit(viewer.id,approve?"finance.settlement.approve":"finance.settlement.reject","finance_settlement",id,{invoiceId:row.invoice_id,note,submittedBy:row.submitted_by,selfReviewed:row.submitted_by===viewer.id,superAdmin},entity);
    return ok({status:approve?"approved":"rejected",invoice_status:approve?"settled":"open"});
   }
   return fail("Unknown finance action",404);
