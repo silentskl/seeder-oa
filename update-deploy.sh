@@ -186,6 +186,8 @@ echo "[OA] Checking TypeScript/TSX parser diagnostics before Next.js build..."
 node "$ROOT/scripts/check-oa-syntax.mjs" "$APP"
 echo "[OA] Running complete TypeScript type check (before Webpack build)..."
 (cd "$APP" && ./node_modules/.bin/tsc --noEmit)
+python3 "$ROOT/patch-auth-request-lifecycle.py" "$APP"
+node "$ROOT/patch-better-auth-lifecycle.mjs" "$APP"
 echo "[DEPLOY] Building production bundle..."
 npm run build
 echo "[DEPLOY] Validating Cloudflare account and production D1 access..."
