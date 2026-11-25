@@ -1,3 +1,4 @@
+import {canManageBilling} from "@/lib/oa/admin-permissions";
 import {resolveFinanceEntityAccess} from "@/lib/oa/finance-entity";
 import {NextRequest,NextResponse} from "next/server";
 import {getViewer} from "@/lib/auth-server";
@@ -11,7 +12,7 @@ export async function GET(request:NextRequest,context:{params:Promise<{id:string
  const viewer=await getViewer();if(!viewer)return fail("Unauthorized",401);
  try{
   const access=await resolveFinanceEntityAccess(viewer.id,request.nextUrl.searchParams.get("entity_id"));
-  if(access.role!=="admin")return fail("Forbidden",403);
+  if(!await canManageBilling(viewer.id,access.entityId))return fail("Forbidden",403);
   const {id}=await context.params;
   const doc=await one<{r2_key:string;original_name:string;content_type:string}>("SELECT r2_key,original_name,content_type FROM oa_finance_document WHERE id=? AND entity_id=?",[id,access.entityId]);
   if(!doc)return fail("Document not found",404);

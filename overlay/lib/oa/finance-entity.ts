@@ -1,4 +1,4 @@
-import {EntityAccessError,entitySqlLiteral,LEGACY_ENTITY_ID,requireEntityAccess,listMyEntities} from "./entity";
+import {EntityAccessError,entitySqlLiteral,LEGACY_ENTITY_ID,requireEntityAccess} from "./entity";
 import {getOaEnv} from "./env";
 import {isOaSuperAdmin} from "./admin-permissions";
 import {all} from "./db";
@@ -21,6 +21,5 @@ export async function listFinanceAdminEntities(userId:string){
  if(await isOaSuperAdmin(userId))return all<{id:string;display_name:string;role:"admin"}>(
   "SELECT id,display_name,'admin' AS role FROM oa_entity WHERE active=1"+
   (financeMultiEntityActive()?"":" AND id='legacy-primary'")+" ORDER BY display_name,id");
- const entities=await listMyEntities(userId);
- return entities.filter(e=>e.role==="admin"&&(e.id===LEGACY_ENTITY_ID||financeMultiEntityActive()));
+ return all<{id:string;display_name:string;role:"admin"|"billing_admin"}>(`SELECT e.id,e.display_name,CASE WHEN m.role='admin' THEN 'admin' ELSE 'billing_admin' END AS role FROM oa_billing_permission p JOIN oa_entity_member m ON m.entity_id=p.entity_id AND m.user_id=p.user_id AND m.active=1 JOIN oa_entity e ON e.id=p.entity_id AND e.active=1 WHERE p.user_id=? AND p.permission='finance.billing.manage' ${financeMultiEntityActive()?"":"AND e.id='legacy-primary'"} ORDER BY e.display_name,e.id`,[userId]);
 }

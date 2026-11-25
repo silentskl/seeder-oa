@@ -1,5 +1,6 @@
 import {NextRequest,NextResponse} from "next/server";
 import {getViewer} from "@/lib/auth-server";
+import {canManageBilling} from "@/lib/oa/admin-permissions";
 import {resolveFinanceEntityAccess} from "@/lib/oa/finance-entity";
 import {EntityAccessError} from "@/lib/oa/entity";
 import {listMailBackfills,startMailBackfill,updateMailBackfillStatus,processMailBackfill} from "@/lib/oa/finance-mail-backfill";
@@ -11,7 +12,7 @@ async function authorize(entity:unknown){
  const viewer=await getViewer();
  if(!viewer)return {error:fail("Unauthorized",401)};
  const access=await resolveFinanceEntityAccess(viewer.id,entity);
- if(access.role!=="admin")return {error:fail("Company finance administrator required",403)};
+ if(access.role!=="admin"||!await canManageBilling(viewer.id,access.entityId))return {error:fail("Company finance administrator required",403)};
  return {entityId:access.entityId,userId:viewer.id};
 }
 function failure(e:unknown){

@@ -1,5 +1,5 @@
 import {resolveFinanceEntityAccess} from "@/lib/oa/finance-entity";
-import {canManageParties,isOaSuperAdmin} from "@/lib/oa/admin-permissions";
+import {canManageParties,isOaSuperAdmin,canManageBilling} from "@/lib/oa/admin-permissions";
 import {NextRequest,NextResponse} from "next/server";
 import {getViewer} from "@/lib/auth-server";
 import {all,audit,one,run} from "@/lib/oa/db";
@@ -25,7 +25,7 @@ async function adminAssignee(entity:string,userId:string,proposer:string,allowPa
  const superAdmin=await isOaSuperAdmin(userId);
  const allowed=allowPartySelfAssignment
   ? await canManageParties(userId,entity,!!member)
-  : !!member || superAdmin;
+  : await canManageBilling(userId,entity);
  // Ordinary Entity administrators may self-review party proposals, but only
  // platform founders/super administrators may self-review receipt/payment proofs.
  if(!allowed||(userId===proposer&&!allowPartySelfAssignment&&!superAdmin))
@@ -58,9 +58,11 @@ export async function GET(request:NextRequest){
   const {access,entity}=await accessFor(request,request.nextUrl.searchParams.get("entity_id"));
   const view=clean(request.nextUrl.searchParams.get("view"),30);
   const partyManager=await canManageParties(access.userId,entity,access.role==="admin");
-  if(access.role!=="admin" && !(partyManager&&(view==="parties"||view==="config")))
+  const billing=await canManageBilling(access.userId,entity);
+  const partyScope=request.nextUrl.searchParams.get("scope")==="parties";
+  if(partyScope ? (!partyManager||!(view==="parties"||view==="config")) : !billing)
    return fail("Forbidden",403);
-  if(view==="parties")return ok(await all<any>("SELECT * FROM oa_finance_party WHERE entity_id=? ORDER BY created_at DESC,id DESC LIMIT 300",[entity]));
+  if(view==="parties")return ok(await all<any>("SELECT * FROM oa_finance_party WHERE entity_id=?"+(partyScope?"":" AND status='approved'")+" ORDER BY created_at DESC,id DESC LIMIT 300",[entity]));
   if(view==="balances")return ok(await all<any>(
    "SELECT i.direction,i.currency,COUNT(*) AS invoice_count,SUM(i.amount_minor) AS amount_minor,SUM(t.paid_minor) AS paid_minor,SUM(t.pending_minor) AS pending_minor,SUM(i.amount_minor-t.paid_minor) AS remaining_minor,SUM(CASE WHEN i.amount_minor>t.paid_minor THEN 1 ELSE 0 END) AS outstanding_count,SUM(CASE WHEN t.pending_minor>0 THEN 1 ELSE 0 END) AS pending_count,SUM(CASE WHEN t.paid_minor>0 THEN 1 ELSE 0 END) AS paid_count FROM oa_finance_invoice i JOIN oa_finance_settlement_totals t ON t.entity_id=i.entity_id AND t.invoice_id=i.id WHERE i.entity_id=? AND i.direction IN ('ar','ap') AND i.currency IS NOT NULL AND i.amount_minor>0 AND i.status IN ('open','settlement_pending','settled') GROUP BY i.direction,i.currency ORDER BY i.direction,i.currency",
    [entity]
@@ -77,15 +79,16 @@ export async function GET(request:NextRequest){
    return ok(rows.map(s=>({...s,decision_block_reason:settlementDecisionBlock(s,access.userId,superAdmin),self_review_allowed:superAdmin&&s.submitted_by===access.userId})));
   }
   if(view==="config"){
-   if(access.role!=="admin"){
+   if(partyScope){
     const approvers=await all<{id:string;name:string;email:string}>(
      "SELECT u.id,u.name,u.email FROM user u WHERE EXISTS(SELECT 1 FROM oa_entity_member m WHERE m.entity_id=? AND m.user_id=u.id AND m.active=1 AND m.role='admin') OR EXISTS(SELECT 1 FROM oa_entity_permission p JOIN oa_entity_member m ON m.entity_id=p.entity_id AND m.user_id=p.user_id AND m.active=1 WHERE p.entity_id=? AND p.user_id=u.id AND p.permission='finance.parties.manage') ORDER BY u.name,u.email",[entity,entity]);
     return ok({approvers,mailbox:"",receiveAddress:"",aiConfigured:false,resendConfigured:false});
    }
+   const approvers=await all<{id:string;name:string;email:string;is_super_admin:number}>(`SELECT u.id,u.name,u.email,CASE WHEN EXISTS(SELECT 1 FROM oa_platform_administrator p WHERE p.user_id=u.id) THEN 1 ELSE 0 END AS is_super_admin FROM user u WHERE u.disabled_at IS NULL AND (EXISTS(SELECT 1 FROM oa_billing_permission p JOIN oa_entity_member m ON m.entity_id=p.entity_id AND m.user_id=p.user_id AND m.active=1 WHERE p.entity_id=? AND p.user_id=u.id AND p.permission='finance.billing.manage') OR EXISTS(SELECT 1 FROM oa_platform_administrator p WHERE p.user_id=u.id)) ORDER BY u.name,u.email`,[entity]);
+   if(access.role!=="admin")return ok({approvers,mailbox:"",receiveAddress:"",aiConfigured:false,resendConfigured:false,canConfigure:false});
    const mailbox=await one<{address:string;receive_address:string}>("SELECT address,receive_address FROM oa_finance_mailbox WHERE entity_id=?",[entity]);
-   const approvers=await all<{id:string;name:string;email:string;is_super_admin:number}>("SELECT u.id,u.name,u.email,CASE WHEN EXISTS(SELECT 1 FROM oa_platform_administrator p WHERE p.user_id=u.id) THEN 1 ELSE 0 END AS is_super_admin FROM user u WHERE EXISTS(SELECT 1 FROM oa_entity_member m WHERE m.entity_id=? AND m.user_id=u.id AND m.active=1 AND m.role='admin') OR EXISTS(SELECT 1 FROM oa_platform_administrator p WHERE p.user_id=u.id) ORDER BY u.name,u.email",[entity]);
    const ai=await publicFinanceAiSettings(entity);
-   return ok({mailbox:mailbox?.address||"",receiveAddress:mailbox?.receive_address||"",approvers,aiConfigured:ai.enabled&&ai.api_key_configured||ai.legacy_environment_configured,resendConfigured:!!getOaEnv().financeResendApiKey&&!!getOaEnv().financeResendWebhookSecret});
+   return ok({canConfigure:true,mailbox:mailbox?.address||"",receiveAddress:mailbox?.receive_address||"",approvers,aiConfigured:ai.enabled&&ai.api_key_configured||ai.legacy_environment_configured,resendConfigured:!!getOaEnv().financeResendApiKey&&!!getOaEnv().financeResendWebhookSecret});
   }
   return fail("Unknown finance view",404);
  }catch(e){if(errorText(e)==="UNAUTHORIZED")return fail("Unauthorized",401);return withAccess(e);}
@@ -97,7 +100,10 @@ export async function POST(request:NextRequest){
   const action=clean(body.action,40);
   if(action.startsWith("party_")){
    if(!await canManageParties(viewer.id,entity,access.role==="admin"))return fail("Forbidden",403);
-  }else if(access.role!=="admin")return fail("Forbidden",403);
+  }else{
+   if(!await canManageBilling(viewer.id,entity))return fail("Forbidden",403);
+   if(action==="set_mailbox"&&access.role!=="admin")return fail("Forbidden",403);
+  }
   if(action==="party_propose"){
    const name=clean(body.company_name,250);
    if(!name)throw new Error("Missing company name");

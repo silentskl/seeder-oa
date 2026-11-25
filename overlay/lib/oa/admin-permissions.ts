@@ -102,3 +102,12 @@ export async function listContractAccessEntities(userId:string){
   GROUP BY e.id,e.display_name
   ORDER BY e.display_name,e.id`,[userId]);
 }
+
+export const BILLING_PERMISSION="finance.billing.manage" as const;
+export async function canManageBilling(userId:string,entityId:string){
+ if(!userId||!entityId)return false;
+ const env=getOaEnv();
+ if(entityId!=="legacy-primary"&&!env.multiEntityBusinessEnabled&&!env.financeMultiEntityEnabled)return false;
+ if(await isOaSuperAdmin(userId))return !!await one("SELECT id FROM oa_entity WHERE id=? AND active=1",[entityId]);
+ return !!await one(`SELECT 1 AS allowed FROM oa_billing_permission p JOIN oa_entity_member m ON m.entity_id=p.entity_id AND m.user_id=p.user_id AND m.active=1 JOIN oa_entity e ON e.id=p.entity_id AND e.active=1 JOIN user u ON u.id=p.user_id AND u.disabled_at IS NULL WHERE p.entity_id=? AND p.user_id=? AND p.permission=?`,[entityId,userId,BILLING_PERMISSION]);
+}

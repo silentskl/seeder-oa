@@ -38,8 +38,8 @@ async function request(entityId:string,action:string,data:Record<string,unknown>
 }
 let financeReadSequence=0;
 const freshRead=()=> "&_fresh="+Date.now()+"-"+(++financeReadSequence);
-async function fetchView(entityId:string,view:string){
- const res=await fetch("/api/oa/finance?entity_id="+encodeURIComponent(entityId)+"&view="+encodeURIComponent(view)+freshRead(),{cache:"no-store"});
+async function fetchView(entityId:string,view:string,scope="ledger"){
+ const res=await fetch("/api/oa/finance?entity_id="+encodeURIComponent(entityId)+"&view="+encodeURIComponent(view)+freshRead()+"&scope="+encodeURIComponent(scope),{cache:"no-store"});
  const json=await res.json().catch(()=>null);
  if(!res.ok||!json?.ok)throw new Error(json?.error||"Unable to load "+view);
  return json.data;
@@ -113,8 +113,8 @@ export function FinanceConsole({section}:{section:Section}){
    return false;
   }
   const jobs=[
-   refresh(()=>fetchView(id,"parties"),setParties),
-   refresh(()=>fetchView(id,"config"),c=>{setConfig(c);if(section!=="parties"){setMailbox(c.mailbox||"");setReceiveAddress(c.receiveAddress||c.mailbox||"");}})
+   refresh(()=>fetchView(id,"parties",section==="parties"?"parties":"ledger"),setParties),
+   refresh(()=>fetchView(id,"config",section==="parties"?"parties":"ledger"),c=>{setConfig(c);if(section!=="parties"){setMailbox(c.mailbox||"");setReceiveAddress(c.receiveAddress||c.mailbox||"");}})
   ];
   if(section!=="parties")jobs.push(
    refresh(()=>fetchInvoicePage(id,0),i=>{setInvoices(i);setInvoiceOffset(i.length);setHasMoreInvoices(i.length===300);}),
@@ -130,9 +130,10 @@ export function FinanceConsole({section}:{section:Section}){
    const res=await fetch("/api/oa/finance/entities",{cache:"no-store"});const json=await res.json();
    const available:Row[]=section==="parties"?(json?.data?.entities||[]):(json?.data?.financeEntities||[]);
    const enabled=!!json?.data?.multiEntityEnabled;
-   const shown=available.filter(x=>(x.role==="admin"||(section==="parties"&&x.role==="parties_admin"))&&(enabled||x.id==="legacy-primary"));
+   const shown=available.filter(x=>(x.role==="admin"||(section==="parties"?x.role==="parties_admin":x.role==="billing_admin"))&&(enabled||x.id==="legacy-primary"));
    if(!active)return;
    setEntities(shown);
+   if(!shown.length){setError("Permission required");return;}
    const saved=window.sessionStorage.getItem("oa.selectedEntity");
    const id=shown.some(x=>x.id===saved)?saved||"legacy-primary":shown[0]?.id||"legacy-primary";
    selectedEntity.current=id;
@@ -235,14 +236,14 @@ export function FinanceConsole({section}:{section:Section}){
    {entities.length>1&&<select disabled={busy} className={input+" max-w-72"} value={entity} onChange={e=>selectEntity(e.target.value)}>{entities.map(x=><option key={x.id} value={x.id}>{x.display_name}</option>)}</select>}
   </div>
   <div role="tablist" aria-label={section==="parties"?t("Suppliers and customers","供应商与客户"):t("AR and AP","应收应付")} className="flex gap-1 border-b border-neutral-200 pb-2 dark:border-neutral-800">
-   {(["data","config"] as const).map(tab=><button key={tab} type="button" role="tab" aria-selected={activeTab===tab}
+   {(["data","config"] as const).filter(tab=>tab==="data"||section==="parties"||config.canConfigure===true).map(tab=><button key={tab} type="button" role="tab" aria-selected={activeTab===tab}
     className={btn+(activeTab===tab?" bg-neutral-900 text-white dark:bg-white dark:text-black":"")}
     onClick={()=>setActiveTab(tab)}>{tab==="data"?t("Data","数据"):t("Configuration","配置")}</button>)}
   </div>
   {error&&<div role="alert" className="whitespace-pre-wrap rounded-md border border-red-300 p-3 text-sm text-red-700 dark:text-red-300">{financeError(lang,error)}</div>}
   {notice&&<div role="status" className="rounded-md border p-3 text-sm">{notice}</div>}
   {refreshWarning&&<div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-amber-400 p-3 text-sm text-amber-800 dark:text-amber-200">{t("Some views could not be refreshed. The action result is separate; retry loading the latest data.","部分数据暂未刷新，操作结果不受影响。请重试加载最新数据。")}<button type="button" className={btn} disabled={busy} onClick={()=>{setBusy(true);void load(entity).finally(()=>setBusy(false));}}>{t("Refresh data","刷新数据")}</button></div>}
-  {loading?<p className="text-sm text-neutral-500">{t("Loading finance records…","正在加载财务数据…")}</p>:section==="parties"?<>
+  {loading?<p className="text-sm text-neutral-500">{t("Loading finance records…","正在加载财务数据…")}</p>:!entities.length?null:section==="parties"?<>
    {activeTab==="config"&&<>
    <section className={card}>
     <h2 className="mb-3 font-semibold">{party.root_id?t("Propose a change to approved company","申请修改已批准企业资料"):t("Add supplier or customer","新增供应商或客户")}</h2>
@@ -284,7 +285,7 @@ export function FinanceConsole({section}:{section:Section}){
    </section>)}
    </>}
   </>:<>
-   {activeTab==="config"&&<>
+   {activeTab==="config"&&config.canConfigure===true&&<>
    <div role="tablist" aria-label={t("Finance configuration","财务配置")} className="flex flex-wrap gap-2 border-b pb-2 dark:border-neutral-800">
     {([["mailboxes",t("Connected company mailboxes","企业财务邮箱")],["ai",t("ModelBridge AI settings","ModelBridge AI 设置")],["calls",t("Recent ModelBridge calls","最近 ModelBridge 调用")]] as const).map(([tab,label])=><button type="button" key={tab} role="tab" aria-selected={configTab===tab} className={btn+(configTab===tab?" bg-neutral-900 text-white dark:bg-white dark:text-black":"")} onClick={()=>setConfigTab(tab)}>{label}</button>)}
    </div>
