@@ -2,6 +2,7 @@
 """Keep Better Auth initialization inside the request on Workers."""
 from pathlib import Path
 import sys
+import re
 
 def patch(root):
     p = root / "lib/auth.ts"
@@ -34,7 +35,6 @@ export function getAuth(): ReturnType<typeof createAuth> {
             if f.suffix not in (".ts", ".tsx") or f == p:
                 continue
             t = f.read_text()
-            import re
             pattern = r'import\s*\{\s*auth\s*\}\s*from\s*["\x27]@/lib/auth["\x27]\s*;'
             if re.search(pattern,t):
                 t = re.sub(pattern,'import { getAuth } from "@/lib/auth";',t)
