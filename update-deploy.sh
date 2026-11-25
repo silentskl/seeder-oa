@@ -182,6 +182,8 @@ if(enabled){console.error('ERROR: production configuration attempts to enable un
 NODE
 # Full compile/build must succeed BEFORE any remote D1 migration can be applied.
 # Finance migrations include schema changes; never alter production data because of a code-only type error.
+python3 "$ROOT/patch-auth-request-lifecycle.py" "$APP"
+node "$ROOT/patch-better-auth-lifecycle.mjs" "$APP"
 echo "[OA] Checking TypeScript/TSX parser diagnostics before Next.js build..."
 node "$ROOT/scripts/check-oa-syntax.mjs" "$APP"
 echo "[OA] Running complete TypeScript type check (before Webpack build)..."
