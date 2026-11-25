@@ -39,6 +39,19 @@ if(old!==staticLoader){
     throw Error("Unreviewed async_hooks loader");
   changes.set(loader,staticLoader);
 }
+// Optional tracing in 1.6.9 starts a dynamic import in a request and
+// retains the Promise globally. OA does not require Better Auth tracing.
+// Use the package's own no-op API; do not alter endpoint execution.
+const tracePath="dist/instrumentation/api.mjs";
+const trace=read(tracePath);
+if(!trace.includes("OA_NO_ASYNC_TRACING_V1")){
+  if(!trace.includes("openTelemetryAPIPromise")||!trace.includes("noopOpenTelemetryAPI")||!trace.includes("@opentelemetry/api"))
+    throw Error("Unreviewed instrumentation loader");
+  // Preserve the actual reviewed no-op import (including its bundled path).
+  const imports=trace.match(/import\s*\{\s*noopOpenTelemetryAPI\s*\}\s*from\s*["'][^"']+["'];?/g)||[];
+  if(imports.length!==1) throw Error("Unreviewed no-op instrumentation import");
+  changes.set(tracePath,'// OA_NO_ASYNC_TRACING_V1\n'+imports[0]+'\nfunction getOpenTelemetryAPI() { return noopOpenTelemetryAPI; }\nexport { getOpenTelemetryAPI };\n');
+}
 // Each async initializer has an await gap. A second synchronous check after
 // the await preserves the one shared ALS container, never a shared Promise.
 for(const [name,field] of [
@@ -63,6 +76,9 @@ const imp=rel=>import(pathToFileURL(path.join(core,rel)).href);
 const {getAsyncLocalStorage}=await imp(loader);
 const {AsyncLocalStorage}=await import("node:async_hooks");
 assert.equal(await getAsyncLocalStorage(),AsyncLocalStorage);
+const tracing=await imp(tracePath);
+assert.equal(tracing.getOpenTelemetryAPI(),tracing.getOpenTelemetryAPI());
+assert.equal(typeof tracing.getOpenTelemetryAPI().trace.getTracer,"function");
 const state=await imp("dist/context/request-state.mjs");
 const endpoint=await imp("dist/context/endpoint-context.mjs");
 const transaction=await imp("dist/context/transaction.mjs");
@@ -87,4 +103,4 @@ await Promise.all(Array.from({length:64},(_,i)=>{
     });
   });
 }));
-console.log("PASS Better Auth 1.6.9 static native ALS, concurrent initialization and context isolation (64 requests)");
+console.log("PASS Better Auth 1.6.9 native ALS, no-op tracing, concurrent initialization and context isolation (64 requests)");
