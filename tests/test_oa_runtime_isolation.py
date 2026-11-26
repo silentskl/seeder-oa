@@ -21,6 +21,12 @@ class RuntimeIsolation(unittest.TestCase):
   self.assertIn('scope==="ledger"?Promise.resolve([]):listPartyManagementEntities',s)
   ui=(ROOT/"components/oa/finance-console.tsx").read_text()
   self.assertIn("!res.ok||!json?.ok",ui)
+ def test_oa_sidebar_disables_automatic_prefetch(self):
+  import re
+  s=(ROOT/"components/oa/oa-shell.tsx").read_text()
+  links=re.findall(r"<Link\s+[^>]*>",s)
+  self.assertGreaterEqual(len(links),3)
+  for link in links:self.assertIn("prefetch={false}",link)
  def test_logging(self):
   s=(ROOT/"instrumentation.ts").read_text()
   self.assertIn("Instrumentation.onRequestError",s)
