@@ -1,21 +1,31 @@
 import { getOaEnv } from "./env";
+import {logOaFailure,queryTarget} from "./runtime-diagnostics";
 
 export async function one<T = Record<string, unknown>>(sql: string, binds: unknown[] = []): Promise<T | null> {
-  const { db } = getOaEnv();
-  const stmt = db.prepare(sql).bind(...binds);
-  const row = await stmt.first<T>();
-  return row ?? null;
+  const start=Date.now();
+  try{
+    const { db } = getOaEnv();
+    const stmt = db.prepare(sql).bind(...binds);
+    const row = await stmt.first<T>();
+    return row ?? null;
+  }catch(error){logOaFailure("db.one",error,{table:queryTarget(sql),durationMs:Date.now()-start});throw error;}
 }
 
 export async function all<T = Record<string, unknown>>(sql: string, binds: unknown[] = []): Promise<T[]> {
-  const { db } = getOaEnv();
-  const result = await db.prepare(sql).bind(...binds).all<T>();
-  return result.results ?? [];
+  const start=Date.now();
+  try{
+    const { db } = getOaEnv();
+    const result = await db.prepare(sql).bind(...binds).all<T>();
+    return result.results ?? [];
+  }catch(error){logOaFailure("db.all",error,{table:queryTarget(sql),durationMs:Date.now()-start});throw error;}
 }
 
 export async function run(sql: string, binds: unknown[] = []) {
-  const { db } = getOaEnv();
-  return db.prepare(sql).bind(...binds).run();
+  const start=Date.now();
+  try{
+    const { db } = getOaEnv();
+    return await db.prepare(sql).bind(...binds).run();
+  }catch(error){logOaFailure("db.run",error,{table:queryTarget(sql),durationMs:Date.now()-start});throw error;}
 }
 
 export async function audit(actorUserId: string | null, action: string, entityType: string, entityId: string | null, details?: unknown, companyId = 'legacy-primary') {

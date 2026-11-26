@@ -16,6 +16,7 @@ type Props = {
   isPartyAdmin: boolean;
   isContractAdmin: boolean;
   isSuperAdmin: boolean;
+  navigationWarning?: string;
 };
 
 const employeeNav = [
@@ -41,7 +42,7 @@ function NavLink({href,label}:{href:string;label:string}) {
   return <Link href={href} className={`block rounded-lg px-3 py-2 text-sm transition ${active?"bg-neutral-900 font-medium text-white dark:bg-white dark:text-neutral-900":"text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-300 dark:hover:bg-neutral-900 dark:hover:text-white"}`}>{label}</Link>;
 }
 
-export function OaShell({children,userName,userEmail,isAdmin,isManager,isFinanceAdmin,isPartyAdmin,isContractAdmin,isSuperAdmin}:Props) {
+export function OaShell({children,userName,userEmail,isAdmin,isManager,isFinanceAdmin,isPartyAdmin,isContractAdmin,isSuperAdmin,navigationWarning}:Props) {
   const pathname = usePathname();
   const adminMode = pathname.startsWith("/admin/oa");
   const [lang,setLang]=useFinanceLanguage();
@@ -59,7 +60,8 @@ export function OaShell({children,userName,userEmail,isAdmin,isManager,isFinance
         <Link href="/admin/oa" className={`rounded-md px-2 py-1.5 text-center ${adminMode?"bg-white font-medium shadow-sm dark:bg-neutral-800":"text-neutral-500"}`}>{t("Admin","管理员")}</Link>
       </div>}
       <nav className="space-y-1">
-        {(adminMode && isAdmin ? adminNav : employeeNav).map(([href,label])=><NavLink key={href} href={href} label={t(label,navLabels[href]||label)}/>)}
+        {navigationWarning&&<div role="alert" className="rounded-md border border-amber-400 p-2 text-xs text-amber-800 dark:text-amber-200">{t("Some menu permissions could not be checked. Unavailable modules remain hidden.","部分菜单权限暂无法验证，相关模块已隐藏。")} <button type="button" className="underline" onClick={()=>window.location.reload()}>{t("Retry","重试")}</button><div className="break-all text-[10px]">{navigationWarning}</div></div>}
+        {(adminMode && isAdmin ? adminNav : employeeNav).filter(([href])=>href!=="/admin/oa/parties"||isPartyAdmin).map(([href,label])=><NavLink key={href} href={href} label={t(label,navLabels[href]||label)}/>)}
         {!isAdmin&&isPartyAdmin&&<NavLink href="/admin/oa/parties" label={t("Suppliers & Customers","供应商与客户")}/>}
         {isContractAdmin&&<NavLink href="/admin/oa/contracts" label={t("Contracts","合同管理")}/>}
         {isFinanceAdmin&&<NavLink href="/admin/oa/finance" label={t("Finance · AR/AP","应收应付账款")}/>}

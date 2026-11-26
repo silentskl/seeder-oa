@@ -88,6 +88,8 @@ fi
 # Detect stale high-risk source files, not just the OA console.
 # A partial overlay can leave old unsecured endpoints in production.
 CRITICAL_OA_FILES=(
+  "instrumentation.ts"
+  "lib/oa/runtime-diagnostics.ts"
   "app/api/oa/route.ts"
   "app/api/oa/administrators/route.ts"
   "app/(oa)/admin/oa/access/page.tsx"
@@ -217,6 +219,7 @@ python3 "$ROOT/tests/test_admin_permissions_migration.py"
 python3 "$ROOT/tests/test_contracts_migration.py"
 python3 "$ROOT/tests/test_contract_permissions_migration.py"
 python3 "$ROOT/tests/test_billing_permissions_migration.py"
+python3 "$ROOT/tests/test_oa_runtime_isolation.py"
 python3 "$ROOT/tests/test_ubuntu_docker_migration.py"
 python3 "$ROOT/tests/test_oa_invite_auth_patcher.py"
 python3 "$ROOT/tests/test_finance_edge_fetch.py"
