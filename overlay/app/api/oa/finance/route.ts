@@ -169,7 +169,7 @@ export async function POST(request:NextRequest){
    const parsed=await extractInvoice({entityId:entity,bytes:new Uint8Array(await object.arrayBuffer()),type:doc.content_type,name:doc.original_name,subject:clean(body.subject,160),body:"",sender:"",requestedDirection});
    const id=await createInvoice({entityId:entity,documentId,source:"manual",sender:"",parsed});
    await audit(viewer.id,"finance.invoice.import","finance_invoice",id,{documentId,requestedDirection:requestedDirection||null,actualDirection:parsed.direction,extraction:parsed.extractionStatus},entity);
-   return ok({id,status:"needs_review",direction:parsed.direction,duplicate:false},201);
+   return ok({id,status:"needs_review",direction:parsed.direction,extraction_status:parsed.extractionStatus,duplicate:false},201);
   }
   if(action==="invoice_reextract"){
    const id=clean(body.id,80);
