@@ -5,6 +5,7 @@ import {FinanceAiPanel} from "./finance-ai-panel";
 import {FinanceBalances,type FinanceBalanceRow} from "./finance-balances";
 import {invoiceReviewChecks,invoiceReviewVerified} from "@/lib/oa/finance-review-checks";
 import {useFinanceLanguage,financeTr,financeError} from "@/lib/oa/finance-i18n";
+import {uploadInvoiceFile,isUploadTerminal,classifyInvoiceImport,type InvoiceUploadRow} from "@/lib/oa/invoice-upload";
 
 type Row=Record<string,any>;
 type Section="parties"|"ledger";
@@ -95,7 +96,9 @@ export function FinanceConsole({section}:{section:Section}){
  const [refreshWarning,setRefreshWarning]=useState(false);
  const [settlementFeedback,setSettlementFeedback]=useState<{id:string;error:string}|null>(null);
  const [directionFilter,setDirectionFilter]=useState("ar");
- const [uploadProgress,setUploadProgress]=useState("");
+ const [uploadRows,setUploadRows]=useState<InvoiceUploadRow[]>([]);
+ const [uploadRefreshing,setUploadRefreshing]=useState(false);
+ const uploadLock=useRef(false);
  const load=useCallback(async(id:string)=>{
   if(id!==selectedEntity.current)return;
   const seq=++requestVersion.current;
@@ -156,29 +159,43 @@ export function FinanceConsole({section}:{section:Section}){
   }
  }
  async function importFiles(files:File[],direction:"ar"|"ap"){
-  if(busy||!files.length)return;
-  const company=entity;
-  setBusy(true);setError("");setNotice("");
-  let imported=0,duplicates=0;const failures:string[]=[];
-  try{
-   for(let index=0;index<files.length;index++){
-    const file=files[index];
-    setUploadProgress((index+1)+"/"+files.length+": "+file.name);
-    try{
-     const document_id=await upload(company,"invoice",file);
-     const result=await request(company,"invoice_import",{document_id,direction});
-     if(result.duplicate)duplicates++;else imported++;
-    }catch(e){failures.push(file.name+": "+(e instanceof Error?e.message:String(e)));}
-   }
-   if(selectedEntity.current===company){
-    setStatusFilter("all");
-    setNotice(t("Imported: ","已导入：")+imported+t(" · Duplicates: "," · 重复：")+duplicates+t(" · Failed: "," · 失败：")+failures.length);
-    if(failures.length)setError(failures.join("\n"));
-    try{await load(company);}catch(e){setError(String(e));}
-   }
-  }finally{setUploadProgress("");setBusy(false);}
- }
+   if(busy||uploadLock.current||!files.length)return;
+   const company=entity;
+   uploadLock.current=true;setBusy(true);setError("");setNotice("");setUploadRefreshing(false);
+   setUploadRows(files.map(file=>({name:file.name,size:file.size,state:"queued",percent:0})));
+   let imported=0,manual=0,duplicates=0;const failures:string[]=[];
+   const update=(index:number,patch:Partial<InvoiceUploadRow>)=>{
+    if(selectedEntity.current===company)setUploadRows(rows=>rows.map((row,i)=>i===index?{...row,...patch}:row));
+   };
+   try{
+    for(let index=0;index<files.length;index++){
+     const file=files[index];let documentId:string|undefined;
+     try{
+      if(file.size<1||file.size>12*1024*1024)throw new Error(t("File must be between 1 byte and 12 MB","文件大小须在 1 字节至 12 MB 之间"));
+      documentId=await uploadInvoiceFile(company,file,event=>update(index,{state:event.stage,percent:event.percent}));
+      update(index,{state:"extracting",percent:100,documentId});
+      const result=await request(company,"invoice_import",{document_id:documentId,direction});
+      const state=classifyInvoiceImport(result);
+      if(state==="duplicate")duplicates++;else{imported++;if(state==="manual")manual++;}
+      update(index,{state,percent:100,direction:result.direction,documentId});
+     }catch(e){
+      const message=e instanceof Error?e.message:String(e);
+      failures.push(file.name+": "+message);update(index,{state:"failed",error:message,documentId});
+     }
+    }
+    if(selectedEntity.current===company){
+     setStatusFilter("all");
+     setNotice(t("Imported: ","已导入：")+imported+t(" · Manual extraction: "," · 需人工识别：")+manual+t(" · Duplicates: "," · 重复：")+duplicates+t(" · Errors: "," · 异常：")+failures.length);
+     if(failures.length)setError(failures.join("\n"));
+     setUploadRefreshing(true);
+     try{await load(company);}catch(e){setError(String(e));}
+     finally{setUploadRefreshing(false);}
+    }
+   }finally{uploadLock.current=false;setBusy(false);}
+  }
  function selectEntity(id:string){
+  if(uploadLock.current)return;
+  setUploadRows([]);setUploadRefreshing(false);
   setSettlementFeedback(null);setRefreshWarning(false);
   selectedEntity.current=id;requestVersion.current++;
   setEntity(id);setLoading(true);setError("");setNotice("");setParty({...emptyParty});setReview({...emptyReview});setActiveTab("data");setConfigTab("mailboxes");setParties([]);setInvoices([]);setSettlements([]);setBalances([]);setConfig({});setInvoiceOffset(0);setHasMoreInvoices(false);
@@ -329,8 +346,33 @@ export function FinanceConsole({section}:{section:Section}){
        <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.webp" className="sr-only" disabled={busy} onChange={e=>{const files=Array.from(e.currentTarget.files||[]);e.currentTarget.value="";void importFiles(files,directionFilter==="ar"?"ar":"ap");}}/>
       </label>
       <span className="text-xs text-neutral-500">{t("Select or drop files · PDF/JPG/PNG/WebP · 12 MB each · AI extraction and review","选择或拖入文件 · PDF/JPG/PNG/WebP · 每份不超过 12 MB · AI 识别后审核")}</span>
-      {uploadProgress&&<span role="status" className="text-xs">{uploadProgress}</span>}
-     </div>}
+      </div>}
+      {uploadRows.length>0&&<section aria-label={t("Invoice upload progress","发票上传进度")} className="mb-3 space-y-3 rounded-lg border border-neutral-200 p-3 dark:border-neutral-700">
+       <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="font-medium text-sm" role="status">{t("Processed","已处理")} {uploadRows.filter(row=>isUploadTerminal(row.state)).length}/{uploadRows.length} · {uploadRefreshing?t("Refreshing records…","正在刷新账单…"):uploadRows.every(row=>isUploadTerminal(row.state))?t("Batch finished","批次处理结束"):t("Processing files…","正在处理文件…")}</div>
+        {!busy&&<button type="button" className={btn} onClick={()=>setUploadRows([])}>{t("Dismiss","关闭记录")}</button>}
+       </div>
+       <progress className="h-2 w-full accent-emerald-600" aria-label={t("Batch completion","批次完成进度")} value={uploadRows.filter(row=>isUploadTerminal(row.state)).length} max={uploadRows.length}/>
+       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-600 dark:text-neutral-300">
+        <span>{t("Awaiting review","已导入待审核")} {uploadRows.filter(r=>r.state==="imported").length}</span>
+        <span>{t("Manual extraction","需人工识别")} {uploadRows.filter(r=>r.state==="manual").length}</span>
+        <span>{t("Already imported","已导入重复")} {uploadRows.filter(r=>r.state==="duplicate").length}</span>
+        <span>{t("Errors","异常")} {uploadRows.filter(r=>r.state==="failed").length}</span>
+       </div>
+       <div className="max-h-80 space-y-2 overflow-y-auto">
+        {uploadRows.map((row,index)=>{
+         const label={queued:t("Queued","等待上传"),uploading:t("Uploading file","正在上传文件"),saving:t("Awaiting storage confirmation","等待服务器保存确认"),extracting:t("AI extraction / creating invoice…","正在 AI 识别 / 创建发票…"),imported:t("Imported · pending review","已导入 · 待审核"),manual:t("Imported · manual extraction needed","已导入 · 需人工识别"),duplicate:t("Document already imported","文件已导入 · 重复"),failed:t("Request error · check records","处理异常 · 请核对账单")}[row.state];
+         const color=row.state==="failed"?"text-red-700 dark:text-red-300":row.state==="manual"?"text-amber-700 dark:text-amber-300":row.state==="imported"||row.state==="duplicate"?"text-emerald-700 dark:text-emerald-300":"text-neutral-700 dark:text-neutral-200";
+         return <div key={index} className="space-y-1 rounded-md border border-neutral-200 p-2.5 dark:border-neutral-800">
+          <div className="flex flex-wrap items-center justify-between gap-1"><span className="min-w-0 break-all text-sm font-medium">{index+1}. {row.name}</span><span className={"text-xs font-medium "+color}>{label}{row.direction==="unknown"?" · "+t("Unclassified","待分类"):""}</span></div>
+          <div className="text-xs text-neutral-500 dark:text-neutral-400">{(row.size/1024/1024).toFixed(2)} MB{row.percent!==null?" · "+t("Upload","上传")+" "+row.percent+"%":""}</div>
+          {(row.state==="uploading"||row.state==="saving")&&<progress className="h-2 w-full accent-emerald-600" aria-label={row.name+" "+t("Upload progress","上传进度")} max={100} value={row.percent??undefined}/>}
+          {row.state==="extracting"&&<progress className="h-2 w-full accent-emerald-600" aria-label={t("Waiting for invoice import","等待发票导入")}/>}
+          {row.error&&<div className="break-words text-xs text-red-700 dark:text-red-300">{financeError(lang,row.error)}{row.documentId&&<div>{t("File saved; import not confirmed. Check records before re-uploading.","文件已保存，但导入未确认，请先核对账单再重新上传。")}</div>}</div>}
+         </div>;
+        })}
+       </div>
+      </section>
      <div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead><tr className="text-xs text-neutral-500">{[t("Invoice","发票"),t("Counterparty / Type","往来单位与类型"),t("Amount / Due","金额与到期日"),t("Bank check","银行校验"),t("Status","状态"),t("Actions","操作")].map(t=><th key={t} className="p-2">{t}</th>)}</tr></thead><tbody>
      {shownInvoices.map(i=><tr key={i.id} className={"border-t align-top "+(overdueDays(i.due_date,i.status)>0?"bg-red-50 text-red-900 dark:bg-red-950/40 dark:text-red-200":"dark:border-neutral-800")}>
       <td className="p-2"><div className="font-medium">{i.invoice_number||t("Unrecognized","未识别")}</div><div className="text-xs">{i.invoice_date||"—"}</div><a className="text-xs underline" href={fileUrl(entity,i.document_id)}>{t("Original invoice","原始发票")}</a></td>
