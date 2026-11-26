@@ -1,3 +1,4 @@
+import {canManageBilling} from "@/lib/oa/admin-permissions";
 import {resolveFinanceEntityAccess} from "@/lib/oa/finance-entity";
 import {NextRequest,NextResponse} from "next/server";
 import {getViewer} from "@/lib/auth-server";
@@ -10,7 +11,7 @@ export async function POST(request:NextRequest){
  const viewer=await getViewer();if(!viewer)return fail("Unauthorized",401);
  try{
   const form=await request.formData(),access=await resolveFinanceEntityAccess(viewer.id,form.get("entity_id"));
-  if(access.role!=="admin")return fail("Forbidden",403);
+  if(!await canManageBilling(viewer.id,access.entityId))return fail("Forbidden",403);
   const purpose=String(form.get("purpose")||"");
   if(purpose!=="invoice"&&purpose!=="settlement")return fail("Invalid purpose",400);
   const file=form.get("file");

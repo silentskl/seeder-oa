@@ -32,7 +32,6 @@ const adminNav = [
   ["/admin/oa/employees", "Employees"],
   ["/admin/oa/payroll", "Payroll"],
   ["/admin/oa/parties", "Suppliers & Customers"],
-  ["/admin/oa/finance", "Finance · AR/AP"],
   ["/admin/oa/settings", "Settings"],
 ] as const;
 
@@ -63,7 +62,7 @@ export function OaShell({children,userName,userEmail,isAdmin,isManager,isFinance
         {(adminMode && isAdmin ? adminNav : employeeNav).map(([href,label])=><NavLink key={href} href={href} label={t(label,navLabels[href]||label)}/>)}
         {!isAdmin&&isPartyAdmin&&<NavLink href="/admin/oa/parties" label={t("Suppliers & Customers","供应商与客户")}/>}
         {isContractAdmin&&<NavLink href="/admin/oa/contracts" label={t("Contracts","合同管理")}/>}
-        {!isAdmin&&isFinanceAdmin&&<NavLink href="/admin/oa/finance" label={t("Finance · AR/AP","应收应付账款")}/>}
+        {isFinanceAdmin&&<NavLink href="/admin/oa/finance" label={t("Finance · AR/AP","应收应付账款")}/>}
         {isSuperAdmin&&<NavLink href="/admin/oa/access" label={t("Accounts & Permissions","账号与权限")}/>} 
         {!adminMode && isManager ? <NavLink href="/oa/approvals" label={t("Approvals","审批")}/> : null}
       </nav>

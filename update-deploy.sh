@@ -216,6 +216,7 @@ python3 "$ROOT/tests/test_finance_due_date_review_i18n.py"
 python3 "$ROOT/tests/test_admin_permissions_migration.py"
 python3 "$ROOT/tests/test_contracts_migration.py"
 python3 "$ROOT/tests/test_contract_permissions_migration.py"
+python3 "$ROOT/tests/test_billing_permissions_migration.py"
 python3 "$ROOT/tests/test_ubuntu_docker_migration.py"
 python3 "$ROOT/tests/test_oa_invite_auth_patcher.py"
 python3 "$ROOT/tests/test_finance_edge_fetch.py"
@@ -240,7 +241,7 @@ echo "$PENDING"
 # Whitelist only migrations reviewed for this production upgrade.
 MIGRATIONS="$(printf '%s\n' "$PENDING" | grep -Eo '[0-9]{4}_[[:alnum:]_-]+\.sql' | sort -u || true)"
 if [[ -n "$MIGRATIONS" ]]; then
-  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles|9014_email_log_company|9015_entity_leave_types|9016_entity_medical_allowance|9017_entity_database_guards|9018_entity_invitations|9019_business_travel|9020_finance|9021_finance_mail_accounts|9022_finance_ai_settings|9023_finance_ai_diagnostics|9024_finance_ai_reasoning_effort|9025_finance_mail_backfill|9026_finance_invoice_business_dedup|9027_finance_due_date_inference|9028_oa_administrator_permissions|9029_oa_contract_management|9030_oa_contract_permissions|9031_finance_partial_settlement)\.sql$' || true)"
+  UNKNOWN="$(printf '%s\n' "$MIGRATIONS" | grep -Ev '^(9007_expense_items|9008_medical_allowance_atomic|9009_expense_category_management|9010_multi_entity_registry|9011_entity_ownership_foundation|9012_entity_settings_categories|9013_entity_employee_profiles|9014_email_log_company|9015_entity_leave_types|9016_entity_medical_allowance|9017_entity_database_guards|9018_entity_invitations|9019_business_travel|9020_finance|9021_finance_mail_accounts|9022_finance_ai_settings|9023_finance_ai_diagnostics|9024_finance_ai_reasoning_effort|9025_finance_mail_backfill|9026_finance_invoice_business_dedup|9027_finance_due_date_inference|9028_oa_administrator_permissions|9029_oa_contract_management|9030_oa_contract_permissions|9031_finance_partial_settlement|9032_oa_billing_permissions)\.sql$' || true)"
   if [[ -n "$UNKNOWN" ]]; then
     echo "ERROR: unexpected pending migrations: $UNKNOWN" >&2
     exit 1
@@ -278,6 +279,13 @@ CONTRACT_ACL_SCHEMA_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="S
 echo "$CONTRACT_ACL_SCHEMA_CHECK"
 if ! printf '%s\n' "$CONTRACT_ACL_SCHEMA_CHECK" | grep -Eq '(^|[[:space:]│])3([[:space:]│]|$)'; then
   echo "ERROR: contract authorization schema or superadmin-grant DB guards missing; refusing deployment." >&2
+  exit 1
+fi
+# Billing permission schema must be present before publishing.
+BILLING_ACL_SCHEMA_CHECK="$(npx wrangler d1 execute PM_DB --remote --command="SELECT (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='oa_billing_permission')+(SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN ('oa_billing_grant_super_insert','oa_billing_grant_super_update','oa_billing_grant_member_insert','oa_billing_grant_member_update')) AS n;" 2>&1)" || { echo "$BILLING_ACL_SCHEMA_CHECK" >&2; exit 1; }
+echo "$BILLING_ACL_SCHEMA_CHECK"
+if ! printf '%s\n' "$BILLING_ACL_SCHEMA_CHECK" | grep -Eq '(^|[[:space:]│])5([[:space:]│]|$)'; then
+  echo "ERROR: billing authorization schema or guards missing; refusing deployment." >&2
   exit 1
 fi
 # A contract is linked to an approved counterparty within the same Entity.
