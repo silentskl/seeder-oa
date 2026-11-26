@@ -127,7 +127,8 @@ export function FinanceConsole({section}:{section:Section}){
  useEffect(()=>{
   let active=true;
   (async()=>{
-   const res=await fetch("/api/oa/finance/entities",{cache:"no-store"});const json=await res.json();
+   const res=await fetch("/api/oa/finance/entities?scope="+(section==="parties"?"parties":"ledger"),{cache:"no-store"});const json=await res.json().catch(()=>null);
+   if(!res.ok||!json?.ok)throw new Error((json?.error||"Finance permissions HTTP "+res.status)+(json?.reference?" · "+json.reference:""));
    const available:Row[]=section==="parties"?(json?.data?.entities||[]):(json?.data?.financeEntities||[]);
    const enabled=!!json?.data?.multiEntityEnabled;
    const shown=available.filter(x=>(x.role==="admin"||(section==="parties"?x.role==="parties_admin":x.role==="billing_admin"))&&(enabled||x.id==="legacy-primary"));
@@ -141,7 +142,7 @@ export function FinanceConsole({section}:{section:Section}){
    await load(id);
   })().catch(e=>{if(active)setError(e instanceof Error?e.message:String(e));}).finally(()=>{if(active)setLoading(false);});
   return ()=>{active=false;};
- },[load]);
+ },[load,section]);
  async function run(task:()=>Promise<any>,message:string){
   const company=entity;
   setBusy(true);setError("");setNotice("");
@@ -240,7 +241,7 @@ export function FinanceConsole({section}:{section:Section}){
     className={btn+(activeTab===tab?" bg-neutral-900 text-white dark:bg-white dark:text-black":"")}
     onClick={()=>setActiveTab(tab)}>{tab==="data"?t("Data","数据"):t("Configuration","配置")}</button>)}
   </div>
-  {error&&<div role="alert" className="whitespace-pre-wrap rounded-md border border-red-300 p-3 text-sm text-red-700 dark:text-red-300">{financeError(lang,error)}</div>}
+  {error&&<div role="alert" className="whitespace-pre-wrap rounded-md border border-red-300 p-3 text-sm text-red-700 dark:text-red-300">{financeError(lang,error)}{!entities.length&&<button type="button" className={btn+" ml-2"} onClick={()=>window.location.reload()}>{t("Retry","重试")}</button>}</div>}
   {notice&&<div role="status" className="rounded-md border p-3 text-sm">{notice}</div>}
   {refreshWarning&&<div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-amber-400 p-3 text-sm text-amber-800 dark:text-amber-200">{t("Some views could not be refreshed. The action result is separate; retry loading the latest data.","部分数据暂未刷新，操作结果不受影响。请重试加载最新数据。")}<button type="button" className={btn} disabled={busy} onClick={()=>{setBusy(true);void load(entity).finally(()=>setBusy(false));}}>{t("Refresh data","刷新数据")}</button></div>}
   {loading?<p className="text-sm text-neutral-500">{t("Loading finance records…","正在加载财务数据…")}</p>:!entities.length?null:section==="parties"?<>
